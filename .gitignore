@@ -13,3 +13,4 @@ node_modules/
 # Temporary debug project used while diagnosing AngouriMath stack overflow.
 TestAngouri/
 explicaciones/*.html
+Installer/*.exe
