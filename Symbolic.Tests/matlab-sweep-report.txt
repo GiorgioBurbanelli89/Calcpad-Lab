@@ -1,0 +1,104 @@
+Encontrados 88 scripts .m en C:\Users\j-b-j\Documents\Hekatan Calc 1.0.0\Matlab
+
+[PASS] AreaInerciaColumnaCFT_ETABS_pRUEBA.m
+[PASS] AreaInerciaColumnaCFT_ETABS.m
+[PASS] asd.m
+[FAIL 1] Benchmark JIt.m :: class="err">Error in "t_jit = toc" on line [49]: Undefined variable or units: "toc".
+[PASS] cft_seccion_transformada.m
+[FAIL 10] cg_sismo2_1.m :: class="err">Error in "CG=matrix(nod; 3)" on line [16]: Undefined variable or units: "nod".
+[FAIL 10] cg_sismo2.m :: class="err">Error in "CG=matrix(nod; 3)" on line [17]: Undefined variable or units: "nod".
+[FAIL 1] Columna_CFT_Inercia_Area.m :: class="err">Error in "Seccion = " on line [5]: Incomplete expression.
+[PASS] Columna_HSS_Grafica.m
+[FAIL 1] Condicionante.m :: class="err">Error in "result = " on line [6]: Incomplete expression.
+[PASS] Control_de_perfiles_tubulares.m
+[PASS] Datos_de_vigas_metalicas.m
+[FAIL 8] demo_lib_shells.m :: class="err">Error in "addpath.(" on line [13]: Incomplete expression.
+[FAIL 22] dibujogdl_new.m :: ?
+[FAIL 2] dibujoplano.m :: ?
+[FAIL 9] Dise_acero.m :: class="err">Error in "Mn2 = Cb * (Mp - (Mp - 0.7 * Fy * Sx) .* (Lb - Lp) / (Lr - Lp))" on line [42]: Invalid syntax: ") .".
+[FAIL 3] Diseño_acero_viga.m :: class="err">Error in "Mn_inelastic_LTB = arrayfun.(@(L) Mp - (Mp - 0.7 * Fy * Sx) * (L - Lp) / (Lr - Lp); Lb)" on line [20]: Invalid symbol: "@".
+[FAIL 7] Diseno_de_viga_metalica_acero.m :: class="err">Error in "M_n2 = @(L_b) C_b * (M_p - (M_p - 0.7 * F_yp * Z_x * 6.89476) * ((L_b - L_p) / (L_r - L_p)))" on line [175]: Invalid symbol: "@".
+[FAIL 5] Diseño_de_viga_metalica_acero.m :: class="err">Error in "end" on line [189]: Undefined variable or units: "end".
+[FAIL 1] Ejemplo_1.m :: class="err">Error in "CG = Unique_funcion.(nod; Y)" on line [8]: Index must be scalar.
+[PASS] Ejemplo_2.m
+[FAIL 2] Ejemplo_de_columna_compuesta_de_acero.m :: class="err">Error in "Seccion = " on line [15]: Incomplete expression.
+[FAIL 12] Ejemplo_funcion_unique_en_matlab.m :: class="err">Error in "ai = []" on line [7]: Invalid syntax: "[ ]".
+[FAIL 1] Ejemplo_funcion_unique.m :: class="err">Error in "[a; b; c] = unique(Y)" on line [5]: Invalid function: "unique".
+[FAIL 47] eJEMPLO1.m :: class="err">Error in "[nv;np;nudt;nudcol;nudvg;nudnmc;nod;nr]=geometria_volcar.(sv;sp;Lvi;Lvd)" on line [24]: The assignment '=' must be preceded by custom function or variable.
+[FAIL 47] Etabs_portico_plano_irregular_Sistema_mixto_con_columnas_CFT_Sra_Victoria.m :: class="err">Error in "[nv;np;nudt;nudcol;nudvg;nudnmc;nod;nr]=geometria_volcar.(sv;sp;Lvi;Lvd)" on line [24]: The assignment '=' must be preceded by custom function or variable.
+[FAIL 47] Etabs_portico_plano_irregular_Sistema_mixto_con_columnas_CFT.m :: class="err">Error in "[nv;np;nudt;nudcol;nudvg;nudnmc;nod;nr]=geometria_volcar.(sv;sp;Lvi;Lvd)" on line [24]: The assignment '=' must be preceded by custom function or variable.
+[FAIL 41] Etabs_Sistema_mixto_con_columnas_CFT_Sra_Victoria_1.m :: class="err">Error in "Seccion = " on line [9]: Incomplete expression.
+[FAIL 39] Etabs_Sistema_mixto_con_columnas_CFT_Sra_Victoria_uno.m :: class="err">Error in "Seccion = " on line [8]: Incomplete expression.
+[FAIL 41] Etabs_Sistema_mixto_con_columnas_CFT_Sra_Victoria.m :: class="err">Error in "Seccion = " on line [7]: Incomplete expression.
+[FAIL 41] Etabs_Sistema_mixto_con_columnas_CFT.m :: class="err">Error in "Seccion = " on line [8]: Incomplete expression.
+[FAIL 41] Etabs_Sistema_mixto.m :: class="err">Error in "Seccion = " on line [7]: Incomplete expression.
+[FAIL 41] ETABS.m :: class="err">Error in "AttachToInstance = false.()" on line [6]: Invalid syntax: "( )".
+[FAIL 41] FMAT_Modal_Espectral.m :: class="err">Error in "[nv;np;nudt;nudcol;nudvg;nudnmc;nod;nr]=geometria_volcar.(sv;sp;Lvi;Lvd)" on line [18]: The assignment '=' must be preceded by custom function or variable.
+[FAIL 6] Funcion_ejemplo_unique_1.m :: class="err">Error in "unique_elements = []" on line [3]: Invalid syntax: "[ ]".
+[FAIL 6] Funcion_ejemplo_unique.m :: class="err">Error in "unique_elements = []" on line [3]: Invalid syntax: "[ ]".
+[FAIL 7] generarColumnasVigas.m :: class="err">Error in "nudt = nudcol + nudvg" on line [20]: Undefined variable or units: "nudcol".
+[FAIL 10] geometria_volcar.m :: class="err">Error in "nv=len(sv)" on line [30]: Undefined variable or units: "sv".
+[FAIL 10] geometria_volcar1.m :: class="err">Error in "nv=len(sv)" on line [30]: Undefined variable or units: "sv".
+[FAIL 33] glinea_portico_volcar.m :: class="err">Error in "xa=vector(nv+1)" on line [25]: Undefined variable or units: "nv".
+[FAIL 25] gn_portico_volcar.m :: class="err">Error in "NI=vector(nudt)" on line [23]: Undefined variable or units: "nudt".
+[FAIL 12] IA_col_Acero_ETABS.m :: class="err">Error in "hconcreto = hc - 2 * tc" on line [12]: Undefined variable or units: "hc".
+[FAIL 3] IA_viga_acero.m :: class="err">Error in "A = 2 * (bf * tf) + (hw - 2 * tf) * tw" on line [10]: Undefined variable or units: "bf".
+[PASS] Inercia_columna_hueca_acero.m
+[FAIL 3] Inercia_de_columna_CFT_ETABS.m :: class="err">Error in "Seccion = " on line [34]: Incomplete expression.
+[PASS] Inercia_de_columna_hueca.m
+[PASS] Inercia_de_una_viga_seccion_H.m
+[FAIL 56] klateral.m :: class="err">Error in "nv = len(sv)" on line [3]: Undefined variable or units: "sv".
+[FAIL 15] kmiembro_nudo_rigido_compuesta.m :: class="err">Error in "G = E / (2 * (1 + v))" on line [20]: Undefined variable or units: "E".
+[FAIL 24] krigidez_nudo_rigido_compuesta.m :: class="err">Error in "mbr = len(L)" on line [29]: Argument must be vector.
+[FAIL 8] longitud.m :: class="err">Error in "mbr=len(NI)" on line [13]: Undefined variable or units: "NI".
+[PASS] loop_test.m
+[FAIL 6] Matriz_dentro_de_n_subindices_de_vectores.m :: class="err">Error in "B = cell.(len(A); 1)" on line [6]: Argument must be vector.
+[FAIL 9] myUnique.m :: class="err">Error in "unique_elements = []" on line [3]: Invalid syntax: "[ ]".
+[PASS] Operaciones_Funcion_unique.m
+[FAIL 4] Plane.m :: class="err">Error in "K = K + w_g.ig * transpose(B) * D * B * t * abs(detJ)" on line [65]: Missing operand.
+[FAIL 1] Portico_funcion.m :: class="err">Error in "[nv;np;nudt;nudcol;nudvg;nudnmc;nod;nr]=geometria_volcar.(sv;sp;Lvi;Lvd)" on line [13]: The assignment '=' must be preceded by custom function or variable.
+[FAIL 10] Portico_mixto_sra_victoria.m :: class="err">Error in "Es" on line [18]: Undefined variable or units: "Es".
+[FAIL 4] Predimensionamiento_estructura_metalica.m :: class="err">Error in "clasificacion_ala_x = " on line [59]: Incomplete expression.
+[FAIL 1] Pruieba_de_valores_de_Unique.m :: class="err">Error in "CG = Unique_funcion.(nod; Y)" on line [8]: Index must be scalar.
+[FAIL 56] rlaxinfi.m :: class="err">Error in "nv = len(sv)" on line [23]: Undefined variable or units: "sv".
+[FAIL 81] shear_wall_q4.m :: class="err">Error in "ce.(1; 1) = coords.(ne1; 1)" on line [97]: Index out of range: 0, 1.
+[FAIL 39] Sin_funciones_de_matlab_unique.m :: class="err">Error in "ai = []" on line [7]: Invalid syntax: "[ ]".
+[FAIL 1] test_combined.m :: ?
+[PASS] test_continue_top.m
+[FAIL 3] test_control_flow.m :: ?
+[PASS] test_ens_real.m
+[FAIL 14] test_ensemble.m :: class="err">Error in "K.(dofs.ii; dofs.jj) = K.(dofs.ii; dofs.jj) + ke.(ii; jj)" on line [18]: Index out of range: 1, 0.
+[PASS] test_ensemble2.m
+[PASS] test_ensemble3.m
+[PASS] test_ensemble4.m
+[PASS] test_eye.m
+[PASS] test_fn_if.m
+[PASS] test_for_idx.m
+[FAIL 1] test_func_load.m :: class="err">Error in "A = q4_membrane.(2549290.5; 0.2; 0.2; [0;0| 5;0| 5;3| 0;3])" on line [2]: Invalid number of indexes.
+[PASS] test_idx.m
+[PASS] test_if_for.m
+[PASS] test_if.m
+[PASS] test_ke_single.m
+[PASS] test_min2.m
+[PASS] test_minimal.m
+[FAIL 4] test_multi_out.m :: class="err">Error in "a = x" on line [2]: Undefined variable or units: "x".
+[FAIL 5] test_q4_ke.m :: class="err">Error in "else" on line [20]: Undefined variable or units: "else".
+[FAIL 1] test_simple_func.m :: class="err">Error in "A = q4_simple.(100; 2)" on line [1]: Index target must be matrix.
+[PASS] test_simple_print.m
+[FAIL 6] test_swq4_debug.m :: class="err">Error in "ce.(1; 1) = coords.(ne1; 1)" on line [61]: Undefined variable or units: "ne1".
+[FAIL 12] Unique_funcion_operacion.m :: class="err">Error in "ai = []" on line [7]: Invalid syntax: "[ ]".
+[FAIL 8] vc.m :: class="err">Error in "mbr=len(NI)" on line [15]: Undefined variable or units: "NI".
+
+--- PASS list (candidatos para Examples/from-matlab-prueba/) ---
+
+--- FAIL top-10 errores más frecuentes ---
+  (4×) ?
+  (3×) class="err">Error in "ai = []" on line [7]: Invalid syntax: "[ ]".
+  (3×) class="err">Error in "[nv;np;nudt;nudcol;nudvg;nudnmc;nod;nr]=geometria_volcar.(sv;sp;Lvi;Lvd)" on line [24]: The assignment '=' must be preceded by custom function or variable.
+  (3×) class="err">Error in "unique_elements = []" on line [3]: Invalid syntax: "[ ]".
+  (2×) class="err">Error in "CG = Unique_funcion.(nod; Y)" on line [8]: Index must be scalar.
+  (2×) class="err">Error in "Seccion = " on line [8]: Incomplete expression.
+  (2×) class="err">Error in "Seccion = " on line [7]: Incomplete expression.
+  (2×) class="err">Error in "nv=len(sv)" on line [30]: Undefined variable or units: "sv".
+  (1×) class="err">Error in "t_jit = toc" on line [49]: Undefined variable or units: "toc".
+  (1×) class="err">Error in "CG=matrix(nod; 3)" on line [16]: Undefined variable or units: "nod".

@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Calcpad.Lab.Tests</RootNamespace>
+    <AssemblyName>CalcpadLab.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Symbolic.Core\Symbolic.Core.csproj" />
+  </ItemGroup>
+
+  <!-- DLLs nativos C++ — copiarlos también al output de los tests -->
+  <ItemGroup>
+    <None Include="..\Symbolic.Core\Native\eigen_solver.dll"
+          Condition="Exists('..\Symbolic.Core\Native\eigen_solver.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>eigen_solver.dll</Link>
+    </None>
+    <None Include="..\Symbolic.Core\Native\matlab_helpers.dll"
+          Condition="Exists('..\Symbolic.Core\Native\matlab_helpers.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>matlab_helpers.dll</Link>
+    </None>
+    <None Include="..\Symbolic.Core\Native\triangle.dll"
+          Condition="Exists('..\Symbolic.Core\Native\triangle.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>triangle.dll</Link>
+    </None>
+  </ItemGroup>
+</Project>

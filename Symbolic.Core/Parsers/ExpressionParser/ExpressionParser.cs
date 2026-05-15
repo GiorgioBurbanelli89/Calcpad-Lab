@@ -1,0 +1,1307 @@
+﻿using Markdig;
+using Markdig.Renderers;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Web;
+
+namespace Calcpad.Core
+{
+    public partial class ExpressionParser
+    {
+        private const int MaxHtmlLines = 200000;
+        private int _errorCount;
+        private int _isVal;
+        private int _startLine;
+        private int _currentLine;
+        private int _htmlLines;
+        private int _decimals;
+        private bool _calculate;
+        private bool _isVisible;
+        private bool _isPausedByUser;
+        private int _pauseCharCount;
+        private bool _isMarkdownOn;
+        private MathParser _parser;
+        private readonly StringBuilder _sb = new(10000);
+        private Queue<int> _errors;
+        private LineInfo[] _lineCache;
+        private static bool[] IsLineExtension = new bool[128];
+
+        public Settings Settings { get; set; } = new();
+        public string HtmlResult { get; private set; }
+
+        /// <summary>
+        /// Calcpad Lab es MATLAB-only. Esta propiedad SIEMPRE retorna <c>true</c>;
+        /// el setter es no-op (mantenido por compatibilidad ABI con código viejo
+        /// que la asignaba). El parser SIEMPRE aplica reglas MATLAB:
+        ///   - bare keywords <c>for/if/while/end</c>
+        ///   - <c>%</c> como comment
+        ///   - <c>;</c> como output suppression (no line extension)
+        ///   - <c>[1 2 3]</c> vector con espacios o comas
+        ///   - <c>function out = fn(args)</c> signature
+        /// </summary>
+        public bool IsMatlabSyntax
+        {
+            get => true;
+            set { /* no-op: Calcpad Lab es MATLAB-only por diseño */ }
+        }
+        public static bool IsUs
+        {
+            get => Unit.IsUs;
+            set => Unit.IsUs = value;
+        }
+        public bool IsPaused => _startLine > 0;
+        public bool Debug { get; set; }
+        public bool ShowWarnings { get; set; } = true;
+        public readonly List<string> OpenXmlExpressions = new(100);
+
+        static ExpressionParser()
+        {
+            // Calcpad Lab es MATLAB-only. ';' SIEMPRE es suppression — nunca
+            // line extension. La lista incluye sólo extensiones reales MATLAB:
+            // - '...' (3 puntos) maneja el preprocessor antes del parser
+            // - operadores binarios pendientes como '+', '|', '&' continúan la línea
+            foreach (var c in "|&@:({[") IsLineExtension[c] = true;
+            InitKeyWordStrings();
+        }
+
+        public void Cancel() => _parser?.Cancel();
+        public void Pause() => _isPausedByUser = true;
+
+        // HtmlId returns ONLY the `id="line-N"` attribute (no `class="line"`).
+        // The `line` class must be added by callers as part of their own
+        // class attribute, e.g. `class="line col-blk"`. Embedding the class
+        // here used to produce malformed HTML with TWO `class` attributes
+        // when the caller also added its own class — `<div id=".." class="line"
+        // class="col-blk">` — and browsers silently dropped the second one,
+        // breaking flexbox layout for #blk / #inl rows.
+        private string HtmlId =>
+            Debug && (_loops.Count == 0 || _loops.Peek().Iteration == 1) ?
+            $" id=\"line-{_currentLine + 1}\"" :
+            string.Empty;
+        // Convenience: bare `class="line"` token. ALWAYS emitted (independent
+        // of Debug) so that CSS rules targeting `p.line` (e.g. `white-space:
+        // pre-wrap` to preserve leading/multiple spaces in text comments)
+        // work in CLI output too — not only in the WPF where Debug=true.
+        private string HtmlLineClass => " class=\"line\"";
+        // Inline marker to inject INSIDE an existing class attribute.
+        // Always emits "line " (with trailing space) so callers can do
+        // `class="{HtmlLineMarker}cond"` and end up with `class="line cond"`.
+        private string HtmlLineMarker => "line ";
+
+        public void Parse(string sourceCode, bool calculate = true, bool getXml = true) =>
+            Parse(sourceCode.AsSpan(), calculate, getXml);
+
+        private void Parse(ReadOnlySpan<char> code, bool calculate, bool getXml)
+        {
+            var lines = new List<int> { 0 };
+            var len = code.Length;
+            for (int i = 0; i < len; ++i)
+                if (code[i] == '\n')
+                    lines.Add(i + 1);
+
+            if (lines[^1] < len)
+                lines.Add(len);
+
+            Initialize(calculate, lines.Count);
+            // Reset stack del Matlab block tracker (push for/while/if/function,
+            // pop con `end`). Limpio entre invocaciones consecutivas de Parse.
+            _matlabBlockStack.Clear();
+            var lineCount = lines.Count - 1;
+            var s = string.Empty;
+            var textSpan = s.AsSpan();
+            try
+            {
+                while (++_currentLine < lineCount)
+                {
+                    ref var currentLineCache = ref _lineCache[_currentLine];
+                    var keyword = currentLineCache.Keyword;
+                    if (keyword == Keyword.SkipLine)
+                        continue;
+                    if (keyword == Keyword.Continue)
+                    {
+                        ParseKeywordContinue();
+                        continue;
+                    }
+
+                    // Dentro de #plotly/#three/#mermaid/#canvas, capturamos
+                    // la línea cruda. Detectamos el cierre por TEXTO crudo
+                    // porque el cache puede tener keyword=None aún para "#end xxx".
+                    if (_insideWebGraphicBlock)
+                    {
+                        var wgStart = lines[_currentLine];
+                        var wgEnd = lines[_currentLine + 1];
+                        var wgRaw = code[wgStart..wgEnd];
+                        var wgEol = wgRaw.IndexOf('\v');
+                        if (wgEol > -1) wgRaw = wgRaw[..wgEol];
+                        var wgTxt = wgRaw.ToString().TrimEnd('\n', '\r').TrimStart();
+                        // Detectar el #end <kind>
+                        string expectedEnd = _webGraphicKind switch
+                        {
+                            WebGraphicKind.Three => "#end three",
+                            WebGraphicKind.Mermaid => "#end mermaid",
+                            WebGraphicKind.Canvas => "#end canvas",
+                            WebGraphicKind.Cyto => "#end cyto",
+                            WebGraphicKind.Dot => "#end dot",
+                            WebGraphicKind.Jsx => "#end jsx",
+                            WebGraphicKind.Map => "#end map",
+                            WebGraphicKind.Math => "#end math",
+                            // Fase 3
+                            WebGraphicKind.Mathbox => "#end mathbox",
+                            WebGraphicKind.D3 => "#end d3",
+                            WebGraphicKind.Echarts => "#end echarts",
+                            WebGraphicKind.Vega => "#end vega",
+                            WebGraphicKind.Visnet => "#end visnet",
+                            WebGraphicKind.P5 => "#end p5",
+                            WebGraphicKind.Matter => "#end matter",
+                            WebGraphicKind.Cannon => "#end cannon",
+                            WebGraphicKind.Geogebra => "#end geogebra",
+                            WebGraphicKind.Chart => "#end chart",
+                            // Fase 4
+                            WebGraphicKind.Anime => "#end anime",
+                            WebGraphicKind.Manim => "#end manim",
+                            _ => ""
+                        };
+                        if (wgTxt.StartsWith(expectedEnd, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ParseKeywordEndWebGraphic(_webGraphicKind);
+                            continue;
+                        }
+                        ProcessWebGraphicLine(wgRaw.ToString().TrimEnd('\n', '\r'));
+                        continue;
+                    }
+                    if (currentLineCache.IsCached && keyword == Keyword.None)
+                    {
+                        // Inside #plotly block: every body line is raw JSON, never evaluated
+                        if (_insidePlotlyBlock)
+                        {
+                            ProcessPlotlyLine(textSpan.ToString());
+                            continue;
+                        }
+                        // Inside any other web-graphics block (#three/#mermaid/#canvas/etc.)
+                        if (_insideWebGraphicBlock)
+                        {
+                            ProcessWebGraphicLine(textSpan.ToString());
+                            continue;
+                        }
+                        // Inside #svg block: don't use cache for dot-primitives — must re-evaluate
+                        if (_insideSvgBlock)
+                        {
+                            var trimCheck = textSpan.Trim();
+                            if (trimCheck.Length > 0 && trimCheck[0] == '.')
+                            {
+                                ProcessSvgPrimitive(trimCheck.ToString());
+                                continue;
+                            }
+                            // Non-dot cached lines: evaluate but discard HTML
+                            _svgSbPositionBeforeLine = _sb.Length;
+                        }
+                        // Inside #plotly/#three/#mermaid/#canvas block: bypass
+                        // cache y captura tal cual.
+                        if (_insideWebGraphicBlock)
+                        {
+                            ProcessWebGraphicLine(textSpan.ToString());
+                            continue;
+                        }
+                        if (IsEnabled())
+                        {
+                            _condition.SetCondition(-1);
+                            _parser.IsCalculation = _isVal != -1;
+                            // MATLAB suppression: si la línea original terminó en ';',
+                            // suprimir output en TODAS las re-entries (loop iter 2+).
+                            bool cachedRestore = false;
+                            bool cachedOriginalVisible = _isVisible;
+                            if (currentLineCache.IsSuppressed && _isVisible)
+                            {
+                                _isVisible = false;
+                                cachedRestore = true;
+                            }
+                            ParseLine(currentLineCache.Tokens, Keyword.None);
+                            if (cachedRestore)
+                                _isVisible = cachedOriginalVisible;
+                        }
+                        if (_insideSvgBlock && _svgSbPositionBeforeLine >= 0)
+                        {
+                            _sb.Length = _svgSbPositionBeforeLine;
+                            _svgSbPositionBeforeLine = -1;
+                        }
+                        continue;
+                    }
+                    var i1 = lines[_currentLine];
+                    var i2 = lines[_currentLine + 1];
+                    var lineSpan = code[i1..i2];
+                    var eolIndex = lineSpan.IndexOf('\v');
+                    if (eolIndex > -1)
+                    {
+                        _parser.Line = int.Parse(lineSpan[(eolIndex + 1)..]);
+                        lineSpan = lineSpan[..eolIndex];
+                    }
+                    else
+                        _parser.Line = _currentLine + 1;
+
+                    lineSpan = lineSpan.Trim();
+                    // Inside web-graphics blocks (#plotly/#three/#canvas/etc.) and #svg
+                    // the body is raw text — don't apply line extension (`;`, `|`, `&` etc.
+                    // are valid JS/DSL chars that should NOT make the parser splice the
+                    // next line onto this one).
+                    var skipLineExtension = _insidePlotlyBlock || _insideWebGraphicBlock || _insideSvgBlock;
+                    if (!skipLineExtension && HasLineExtension(textSpan.TrimEnd()))
+                    {
+                        var c = textSpan[^1];
+                        if (c == '_')
+                            s = textSpan[0..^2].ToString() + lineSpan.ToString();
+                        else
+                            s = $"{textSpan} {lineSpan}";
+
+                        textSpan = s.AsSpan();
+                    }
+                    else
+                        textSpan = lineSpan;
+
+                    if (!skipLineExtension && HasLineExtension(textSpan.TrimEnd()))
+                    {
+                        _lineCache[_currentLine] = new(null, Keyword.SkipLine);
+                        continue;
+                    }
+
+                    if (_parser.IsCanceled)
+                        break;
+
+                    if (textSpan.IsEmpty)
+                    {
+                        if (_isVisible && _isVal != 1 && _htmlLines < MaxHtmlLines && IsEnabled())
+                            _sb.AppendLine($"<p{HtmlId}{HtmlLineClass}>&nbsp;</p>");
+
+                        continue;
+                    }
+                    var lineCache = _currentLine;
+                    _parser.IsConst = false;
+                    var result = ParseKeyword(textSpan, ref keyword);
+                    if (keyword != currentLineCache.Keyword)
+                        _lineCache[lineCache] = new(currentLineCache.Tokens, keyword);
+
+                    if (result == KeywordResult.Continue)
+                        continue;
+                    else if (result == KeywordResult.Break)
+                        break;
+
+                    // #function: accumulate body lines instead of executing them
+                    if (IsInsideFunctionDefinition)
+                    {
+                        AccumulateFunctionLine(textSpan.ToString());
+                        continue;
+                    }
+
+                    // #python block mode: accumulate lines
+                    if (_insidePythonBlock && keyword == Keyword.None)
+                    {
+                        _pythonBlockLines?.Add(textSpan.ToString());
+                        continue;
+                    }
+
+                    // #fem block mode: accumulate lines (params for the solver)
+                    if (_insideFemBlock && keyword == Keyword.None)
+                    {
+                        _femBlockLines?.Add(textSpan.ToString());
+                        continue;
+                    }
+
+                    // #maxima block mode: accumulate lines
+                    if (_insideMaximaBlock && keyword == Keyword.None)
+                    {
+                        _maximaBlockLines?.Add(textSpan.ToString());
+                        continue;
+                    }
+
+                    // #sym block mode: process each line as #sym command
+                    if (_insideSymBlock && keyword == Keyword.None)
+                    {
+                        var symLine = textSpan.ToString().Trim();
+                        if (!string.IsNullOrEmpty(symLine))
+                        {
+                            // Create a synthetic "#sym <line>" and process it
+                            var syntheticSym = $"#sym {symLine}";
+                            ParseKeywordSym(syntheticSym.AsSpan());
+                        }
+                        continue;
+                    }
+
+                    // #cen block mode: wrap each line in centered div
+                    if (_insideCenBlock && keyword == Keyword.None)
+                    {
+                        var cenLine = textSpan.ToString().Trim();
+                        if (!string.IsNullOrEmpty(cenLine))
+                        {
+                            var syntheticCen = $"#cen {cenLine}";
+                            ParseKeywordCenInline(syntheticCen.AsSpan());
+                        }
+                        continue;
+                    }
+
+                    // #deq block mode: each line treated as #deq
+                    if (_insideDeqBlock && keyword == Keyword.None)
+                    {
+                        var deqLine = textSpan.ToString().Trim();
+                        if (!string.IsNullOrEmpty(deqLine))
+                        {
+                            var syntheticDeq = $"#deq {deqLine}";
+                            ParseKeywordDeq(syntheticDeq.AsSpan());
+                        }
+                        continue;
+                    }
+
+                    // #blk block mode: each line treated as #inl (columns)
+                    if (_insideBlk && keyword == Keyword.None)
+                    {
+                        var blkLine = textSpan.ToString().Trim();
+                        if (!string.IsNullOrEmpty(blkLine))
+                        {
+                            var syntheticInl = $"#inl {blkLine}";
+                            ParseKeywordColumns(syntheticInl.AsSpan(), true);
+                        }
+                        continue;
+                    }
+
+                    // $Viz multiline block mode: accumulate lines until closing '}'
+                    if (_insideVizBlock)
+                    {
+                        var trimmed = textSpan.Trim();
+                        var line = trimmed.ToString();
+                        if (line == "}")
+                        {
+                            // Close the block: join all lines and parse as single $Viz command
+                            _insideVizBlock = false;
+                            var fullCommand = _vizBlockHeader + string.Join(" : ", _vizBlockLines) + "}";
+                            ParsePlot(fullCommand.AsSpan());
+                        }
+                        else
+                        {
+                            // Strip trailing } if it's at the end of a line
+                            if (line.EndsWith("}"))
+                            {
+                                _vizBlockLines.Add(line[..^1].Trim());
+                                _insideVizBlock = false;
+                                var fullCommand = _vizBlockHeader + string.Join(" : ", _vizBlockLines) + "}";
+                                ParsePlot(fullCommand.AsSpan());
+                            }
+                            else
+                            {
+                                _vizBlockLines.Add(line);
+                            }
+                        }
+                        continue;
+                    }
+
+                    // #plotly block mode: every body line is raw JSON content (never evaluated)
+                    if (_insidePlotlyBlock && keyword == Keyword.None)
+                    {
+                        ProcessPlotlyLine(textSpan.ToString());
+                        continue;
+                    }
+                    // Other web-graphics blocks (#three/#mermaid/#canvas/etc.)
+                    if (_insideWebGraphicBlock && keyword == Keyword.None)
+                    {
+                        ProcessWebGraphicLine(textSpan.ToString());
+                        continue;
+                    }
+
+                    // #svg block mode: lines starting with . are SVG primitives, others evaluate but discard HTML
+                    if (_insideSvgBlock && keyword == Keyword.None)
+                    {
+                        var trimmed = textSpan.Trim();
+                        if (trimmed.Length > 0 && trimmed[0] == '.')
+                        {
+                            ProcessSvgPrimitive(trimmed.ToString());
+                            continue;
+                        }
+                        // Non-dot lines: evaluate (so variables get assigned) but discard generated HTML
+                        _svgSbPositionBeforeLine = _sb.Length;
+                    }
+
+                    // #plotly / #three / #mermaid / #canvas block mode:
+                    // capturar la línea TAL CUAL en el buffer del bloque
+                    // (sin evaluarla por el parser de Calcpad). El contenido
+                    // es DSL/JS de la librería web, no math de Calcpad.
+                    if (_insideWebGraphicBlock && keyword == Keyword.None)
+                    {
+                        ProcessWebGraphicLine(textSpan.ToString());
+                        continue;
+                    }
+
+                    // Check for user-defined function call: "K = MyFunc(args)"
+                    var calledFunc = _userFunctions.Count > 0 ? DetectFunctionCall(textSpan) : null;
+                    if (calledFunc != null && _calculate && IsEnabled())
+                    {
+                        ExecuteFunctionCall(textSpan, calledFunc);
+                        continue;
+                    }
+
+                    // Check for MATLAB native function call: delaunay, trimesh, triplot, ...
+                    // Estas funciones se ejecutan con backend nativo (Triangle, Three.js)
+                    // — el mismo .m corre IDÉNTICO en MATLAB y en Calcpad Lab.
+                    var nativeFunc = DetectNativeMatlabCall(textSpan);
+                    if (nativeFunc != null && _calculate && IsEnabled())
+                    {
+                        ExecuteNativeMatlabCall(textSpan, nativeFunc);
+                        continue;
+                    }
+
+                    // ── MATLAB output suppression con ';' ─────────────────────────
+                    bool labRestoreVisible = false;
+                    bool labOriginalVisible = _isVisible;
+                    bool labSuppressedThisLine = false;
+                    string labStrippedLine = null;
+                    {
+                        bool inSq = false, inDq = false;
+                        int hashPos = -1;
+                        for (int k = 0; k < textSpan.Length; k++)
+                        {
+                            var ch = textSpan[k];
+                            if (ch == '\'' && !inDq) inSq = !inSq;
+                            else if (ch == '"' && !inSq) inDq = !inDq;
+                            else if (ch == '%' && !inSq && !inDq) { hashPos = k; break; }
+                        }
+                        int codeEnd = hashPos >= 0 ? hashPos : textSpan.Length;
+                        while (codeEnd > 0 && (textSpan[codeEnd - 1] == ' ' ||
+                                               textSpan[codeEnd - 1] == '\t' ||
+                                               textSpan[codeEnd - 1] == '\r')) codeEnd--;
+                        if (codeEnd > 0 && textSpan[codeEnd - 1] == ';')
+                        {
+                            labSuppressedThisLine = true;
+                            labStrippedLine = textSpan[..(codeEnd - 1)].ToString();
+                            textSpan = labStrippedLine.AsSpan();
+                            if (_isVisible)
+                            {
+                                _isVisible = false;
+                                labRestoreVisible = true;
+                            }
+                        }
+                    }
+
+                    _parser.IsCalculation = _isVal != -1;
+                    if ((textSpan[0] != '$' || !ParsePlot(textSpan)) &&
+                        ParseCondition(textSpan, keyword))
+                    {
+                        List<Token> tokens;
+                        if (_lineCache[_currentLine].IsCached)
+                            tokens = _lineCache[_currentLine].Tokens;
+                        else
+                        {
+                            var skipChars = keyword == Keyword.Const ? 7 : _condition.KeywordLength;
+                            tokens = GetTokens(textSpan[skipChars..]);
+                            SplitHeadingExpressions(tokens);
+                            if (_isMarkdownOn)
+                                ParseMarkdown(tokens);
+
+                            // Cachear con flag de suppression para que re-entries (loop iter 2+)
+                            // sigan respetando el ';' final.
+                            _lineCache[_currentLine] = new(tokens, keyword, labSuppressedThisLine);
+                        }
+                        _parser.HasInputFields = false;
+                        ParseLine(tokens, keyword);
+                        // If the line has input fields, the line cach is cleared, to allow #input to work
+                        if (_parser.HasInputFields)
+                            _lineCache[_currentLine] = new(null, keyword);
+                    }
+                    // #svg: discard any HTML generated by non-dot lines
+                    if (_insideSvgBlock && _svgSbPositionBeforeLine >= 0)
+                    {
+                        _sb.Length = _svgSbPositionBeforeLine;
+                        _svgSbPositionBeforeLine = -1;
+                    }
+                    // Calcpad Lab: restaurar _isVisible si la línea tenía ';' final
+                    if (labRestoreVisible)
+                        _isVisible = labOriginalVisible;
+                }
+                ApplyUnits(_sb, _calculate);
+                if (_currentLine == lineCount && (_calculate || !IsPaused))
+                {
+                    if (_condition.Id > 0 && !_condition.IsLoop)
+                        _sb.Append(ErrHtml(Messages.if_block_not_closed_Missing_end_if, _currentLine));
+                    if (_loops.Count != 0)
+                        _sb.Append(ErrHtml(Messages.Iteration_block_not_closed_Missing_loop, _currentLine));
+                    if (Debug && (_condition.Id > 0 || _loops.Count != 0))
+                        _errors.Enqueue(_currentLine);
+                }
+            }
+            catch (MathParserException ex)
+            {
+                AppendError(textSpan.ToString(), ex.Message, _currentLine);
+            }
+            catch (Exception ex)
+            {
+                _sb.Append(ErrHtml(string.Format(Messages.Unexpected_error_0_Please_check_the_expression_consistency, ex.Message), _currentLine));
+                if (Debug)
+                    _errors.Enqueue(_currentLine);
+            }
+            finally
+            {
+                Finalize(lineCount);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            bool IsEnabled() => _condition.IsSatisfied &&
+                (_loops.Count == 0 || !_loops.Peek().IsBroken) ||
+                !_calculate;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            bool HasLineExtension(ReadOnlySpan<char> s)
+            {
+                if (s.EndsWith(" _")) return true;
+                if (s.Length == 0) return false;
+                var last = s[^1];
+                // Calcpad Lab MATLAB: ';' al final NUNCA es continuación, es suppression
+                if (last == ';') return false;
+                return CheckIsLineExtension(last) && !Validator.IsComment(s);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            bool CheckIsLineExtension(char c) => c < 128 && IsLineExtension[c];
+
+            bool ParsePlot(ReadOnlySpan<char> s)
+            {
+                if (s.StartsWith("$plot", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$map", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$mesh", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$fem2d", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$fem3d", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$chart", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$frame", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$struct", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$draw", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$table", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$plotmap", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Check for multiline block: has '{' but no '}'
+                    if (s.IndexOf('{') >= 0 && s.IndexOf('}') < 0)
+                    {
+                        // Start multiline viz block accumulation
+                        _insideVizBlock = true;
+                        _vizBlockHeader = s.ToString(); // e.g. "$Draw{" or "$Draw{ line,0,0,1,0"
+                        _vizBlockLines = new List<string>();
+                        // If there's content after '{', add it as first line
+                        int braceIdx = s.IndexOf('{');
+                        var afterBrace = s[(braceIdx + 1)..].Trim();
+                        if (afterBrace.Length > 0)
+                        {
+                            _vizBlockLines.Add(afterBrace.ToString());
+                            _vizBlockHeader = s[..(braceIdx + 1)].ToString(); // just "$Draw{"
+                        }
+                        return true;
+                    }
+
+                    if (_isVisible && IsEnabled())
+                    {
+                        PlotParser plotParser;
+                        // New interactive viz commands (calcpad-viz.js)
+                        if (s.StartsWith("$fem", StringComparison.OrdinalIgnoreCase) ||
+                            s.StartsWith("$chart", StringComparison.OrdinalIgnoreCase) ||
+                            s.StartsWith("$frame", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$struct", StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith("$draw", StringComparison.OrdinalIgnoreCase))
+                            plotParser = new VizParser(_parser, Settings.Plot);
+                        else if (s.StartsWith("$mesh", StringComparison.OrdinalIgnoreCase))
+                            plotParser = new MeshParser(_parser, Settings.Plot);
+                        else if (s.StartsWith("$plotmap", StringComparison.OrdinalIgnoreCase))
+                            plotParser = new PlotMapParser(_parser, Settings.Plot);
+                        else if (s.StartsWith("$table", StringComparison.OrdinalIgnoreCase))
+                            plotParser = new TableParser(_parser, Settings.Plot);
+                        else if (s.StartsWith("$p", StringComparison.OrdinalIgnoreCase))
+                            plotParser = new ChartParser(_parser, Settings.Plot);
+                        else
+                            plotParser = new MapParser(_parser, Settings.Plot);
+
+                        try
+                        {
+                            _parser.IsPlotting = true;
+                            var s1 = plotParser.Parse(s, _calculate);
+                            _sb.Append(InsertAttribute(s1, HtmlId));
+                            _parser.IsPlotting = false;
+                        }
+                        catch (MathParserException ex)
+                        {
+                            AppendError(s.ToString(), ex.Message, _currentLine);
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+
+            void ParseMarkdown(List<Token> tokens)
+            {
+                if (tokens.Count == 0)
+                    return;
+
+                const char rs = '\u001E';
+                StringBuilder sb = new();
+                var startsWithExpression = tokens[0].Type == TokenTypes.Expression;
+                if (startsWithExpression)
+                    sb.Append(rs);
+
+                var n = tokens.Count;
+                for (int i = 0; i < n; ++i)
+                {
+                    var token = tokens[i];
+                    if (token.Type != TokenTypes.Expression)
+                    {
+                        if (n == 1)
+                            sb.Append(token.Value.TrimEnd());
+                        else
+                            sb.Append(token.Value).Append(rs);
+                    }
+                }
+                // Markdig pipeline: emphasis + lists + pipe tables + GFM extras (strikethrough,
+                // task lists). UsePipeTables() converts "| col | col |" syntax to <table>.
+                var pipeline = new MarkdownPipelineBuilder()
+                    .UseEmphasisExtras()
+                    .UseListExtras()
+                    .UsePipeTables()
+                    .UseGridTables()
+                    .UseAutoLinks()
+                    .UseTaskLists()
+                    .Build();
+                var document = Markdown.Parse(sb.ToString(), pipeline);
+                using StringWriter writer = new();
+                HtmlRenderer renderer = new(writer)
+                {
+                    ImplicitParagraph = true
+                };
+                pipeline.Setup(renderer);
+                renderer.Render(document); // using the renderer directly
+                var result = writer.ToString().Replace("~", "&nbsp;");
+                var sections = result.AsSpan().EnumerateSplits(rs);
+                var cs = sections.Current;
+                if (startsWithExpression)
+                {
+                    if (cs.IsEmpty)
+                        sections.MoveNext();
+                    else
+                    {
+                        tokens.Insert(0, new Token(cs.ToString(), TokenTypes.Html));
+                        ++n;
+                    }
+                }
+                for (int i = 0; i < n; ++i)
+                {
+                    var t = tokens[i].Type;
+                    if (t != TokenTypes.Expression)
+                    {
+                        if (!sections.MoveNext())
+                            break;
+
+                        cs = sections.Current;
+                        if (tokens[i].Value.StartsWith('#'))
+                            t = TokenTypes.Html;
+
+                        tokens[i] = new Token(cs.ToString(), t);
+                    }
+                }
+                while (sections.MoveNext())
+                {
+                    cs = sections.Current;
+                    if (!cs.IsEmpty)
+                        tokens.Add(new Token(cs.ToString(), TokenTypes.Html));
+
+                }
+            }
+
+            bool ParseCondition(ReadOnlySpan<char> s, Keyword keyword)
+            {
+
+                if (IsPaused && !_calculate)
+                {
+                    _condition.SetCondition(-1);
+                    return keyword == Keyword.None;
+                }
+                _condition.SetCondition(keyword - Keyword.If);
+                if (IsEnabled())
+                {
+                    if (_condition.KeywordLength == s.Length)
+                    {
+                        if (_condition.IsUnchecked)
+                            throw Exceptions.ConditionEmpty();
+
+                        if (_isVisible && !_calculate)
+                        {
+                            if (keyword == Keyword.Else)
+                                _sb.Append($"</div><p{HtmlId}{HtmlLineClass}>{_condition.ToHtml()}</p><div class = \"indent\">");
+                            else
+                                _sb.Append($"</div><p{HtmlId}{HtmlLineClass}>{_condition.ToHtml()}</p>");
+                        }
+                    }
+                    else if (_condition.KeywordLength > 0 &&
+                             _condition.IsFound &&
+                             _condition.IsUnchecked &&
+                             _calculate)
+                        _condition.Check(0.0);
+                    else
+                        return true;
+                }
+                return false;
+            }
+
+            void ParseLine(List<Token> tokens, Keyword keyword)
+            {
+                var kwdLength = _condition.KeywordLength;
+                var isOutput = _isVisible &&
+                    (!_calculate || kwdLength == 0) &&
+                    _htmlLines < MaxHtmlLines;
+
+                if (isOutput)
+                {
+                    ++_htmlLines;
+                    if (_htmlLines == MaxHtmlLines)
+                        AppendError(string.Concat(tokens), string.Format(Messages.The_output_is_longer_than_0_lines_The_rest_will_be_skipped, MaxHtmlLines), _currentLine);
+                    else
+                    {
+                        bool isIndent = keyword == Keyword.Else_If || keyword == Keyword.End_If;
+                        var lineType = tokens.Count != 0 ?
+                            tokens[0].Type :
+                            TokenTypes.Text;
+
+
+                        string htmlId = null;
+                        if (_isVal != 1)
+                        {
+                            htmlId = HtmlId;
+                            AppendHtmlLineStart(lineType, isIndent);
+                        }
+                        if (lineType == TokenTypes.Html && !string.IsNullOrEmpty(htmlId))
+                            tokens[0] = new Token(InsertAttribute(tokens[0].Value, htmlId), TokenTypes.Html);
+
+                        if (kwdLength > 0)
+                            _sb.Append(_condition.ToHtml());
+
+                        ParseTokens(tokens, true, getXml);
+                        if (_isVal != 1)
+                            AppendHtmlLineEnd(lineType, keyword == Keyword.If);
+                    }
+                }
+                else
+                    ParseTokens(tokens, false, getXml);
+
+                if (_condition.IsUnchecked)
+                {
+                    if (_calculate)
+                        _condition.Check(_parser.Result);
+                    else
+                        _condition.Check();
+                }
+            }
+
+            void AppendHtmlLineStart(TokenTypes lineType, bool isIndent)
+            {
+                if (isIndent)
+                    _sb.Append("</div>");
+
+                if (lineType == TokenTypes.Heading)
+                    _sb.Append($"<h3{HtmlId}>");
+                else if (lineType != TokenTypes.Html)
+                    _sb.Append($"<p{HtmlId}{HtmlLineClass}>");
+            }
+
+            void AppendHtmlLineEnd(TokenTypes lineType, bool indent)
+            {
+                if (lineType == TokenTypes.Heading)
+                    _sb.Append("</h3>");
+                else if (lineType != TokenTypes.Html)
+                    _sb.Append("</p>");
+
+                if (indent)
+                    _sb.Append("<div class = \"indent\">");
+
+                _sb.AppendLine();
+            }
+        }
+
+        private void Initialize(bool calculate, int lineCount)
+        {
+            _htmlLines = 0;
+            _errorCount = 0;
+            _calculate = calculate;
+            _errors = new();
+            if (!_calculate)
+                _startLine = 0;
+
+            if (_startLine == 0)
+            {
+                Settings.Math.FormatString = null;
+                _parser = new MathParser(Settings.Math)
+                {
+                    ShowWarnings = ShowWarnings
+                };
+                _decimals = Settings.Math.Decimals;
+                _lineCache = new LineInfo[lineCount];
+                _sb.Clear();
+                _condition = new();
+                _loops.Clear();
+                _isVal = 0;
+                _parser.SetVariable("Units", new RealValue(UnitsFactor()));
+                _previousKeyword = Keyword.None;
+                _isMarkdownOn = false;
+                ResetPlotlyState();
+                ResetWebGraphicsState();
+                OpenXmlExpressions.Clear();
+            }
+            else
+            {
+                if (_lineCache.Length < lineCount)
+                    Array.Resize(ref _lineCache, lineCount);
+
+                var n = _sb.Length - _pauseCharCount;
+                if (n > 0)
+                    _sb.Remove(_pauseCharCount, n);
+            }
+            _parser.IsEnabled = _calculate;
+            _currentLine = _startLine - 1;
+            _isVisible = true;
+        }
+
+        private void Finalize(int lineCount)
+        {
+            if (_currentLine == lineCount && _calculate)
+                _startLine = 0;
+
+            if (_startLine > 0)
+                _sb.Append(Messages.Paused_Press_F5_to_continue);
+
+            if (Debug && lineCount > 30 && _errors.Count != 0)
+                AppendErrors();
+
+            HtmlResult = _sb.ToString();
+
+            if (_calculate && _startLine == 0)
+            {
+                _parser.ClearCache();
+                _parser = null;
+            }
+        }
+
+        private void AppendErrors()
+        {
+            if (_errors.Count == 1)
+                _sb.AppendLine(Messages.Error_found_on_line);
+            else
+                _sb.AppendLine(string.Format(Messages.Errors_found_on_lines, _errors.Count));
+            var count = 0;
+            var prevLine = 0;
+            while (_errors.Count != 0 && count < 20)
+            {
+                var errLine = _errors.Dequeue() + 1;
+                if (errLine != prevLine)
+                {
+                    ++count;
+                    _sb.Append($" <span class=\"roundBox\" data-line=\"{errLine}\">{errLine}</span>");
+                }
+                prevLine = errLine;
+            }
+            if (_errors.Count > 0)
+                _sb.Append(" ...");
+
+            _sb.Append("</div>");
+            _sb.AppendLine("<style>body {padding-top:1em;}</style>");
+            _errors.Clear();
+        }
+
+        /// <summary>Heuristic: does this expression look like prose text rather
+        /// than a math formula? Used to decide whether a parse error should be
+        /// shown as a hard error or silently rendered as text. We say "yes" when
+        /// the value contains 2+ word-tokens separated by spaces where each word
+        /// has 3+ lowercase ASCII letters AND the value contains a space-letter
+        /// pattern that's never valid math (digit-letter without an operator,
+        /// or two consecutive lowercase words).</summary>
+        /// <summary>
+        /// True if the expression looks like a simple assignment <c>IDENT = rhs</c>
+        /// (or <c>[a,b] = rhs</c> multi-output). Used by the catch fallbacks to
+        /// decide whether to surface a real evaluation error or quietly fall back
+        /// to display-only rendering. For an assignment, hiding the error would
+        /// silently leave the LHS undefined which then cascades downstream.
+        /// </summary>
+        private static bool LooksLikeAssignment(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var v = value.TrimStart();
+            if (v.Length == 0) return false;
+            // Multi-output destructuring `[a, b, c] = ...` or `[a; b] = ...`
+            if (v[0] == '[')
+            {
+                int depth = 1;
+                int k = 1;
+                while (k < v.Length && depth > 0)
+                {
+                    if (v[k] == '[') depth++;
+                    else if (v[k] == ']') depth--;
+                    k++;
+                }
+                if (depth != 0) return false;
+                while (k < v.Length && (v[k] == ' ' || v[k] == '\t')) k++;
+                if (k >= v.Length || v[k] != '=') return false;
+                if (k + 1 < v.Length && v[k + 1] == '=') return false; // ==
+                return true;
+            }
+            // Simple LHS: IDENT (possibly with subscript-style chars) followed by '='
+            int i = 0;
+            if (!(char.IsLetter(v[0]) || v[0] == '_')) return false;
+            while (i < v.Length && (char.IsLetterOrDigit(v[i]) || v[i] == '_' || v[i] == '.'))
+                i++;
+            if (i == 0) return false;
+            while (i < v.Length && (v[i] == ' ' || v[i] == '\t')) i++;
+            if (i >= v.Length || v[i] != '=') return false;
+            if (i + 1 < v.Length && v[i + 1] == '=') return false; // == is comparison
+            return true;
+        }
+
+        private static bool LooksLikeProseText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var v = value.Trim();
+            // Must NOT start with operators / function-like syntax — those are math.
+            if (v.Length == 0) return false;
+            var first = v[0];
+            if (!(char.IsLetter(first) || first == '-' || first == '+'))
+                return false;
+            // STRONG math indicators — if any present, NEVER classify as prose.
+            // Function-call parens, assignments, or matrix/vector literals are
+            // unambiguous math (e.g. Z = hp(sin(X); cos(Y)) was being mis-
+            // classified as prose because sin/cos are 3-letter lowercase words).
+            int parenOpen = 0, parenClose = 0;
+            int brackOpen = 0, brackClose = 0;
+            bool hasEquals = false, hasSemi = false;
+            foreach (var ch in v)
+            {
+                if (ch == '(') parenOpen++;
+                else if (ch == ')') parenClose++;
+                else if (ch == '[') brackOpen++;
+                else if (ch == ']') brackClose++;
+                else if (ch == '=') hasEquals = true;
+                else if (ch == ';') hasSemi = true;
+            }
+            // Balanced parens or brackets → math syntax, not prose.
+            if (parenOpen > 0 && parenOpen == parenClose) return false;
+            if (brackOpen > 0 && brackOpen == brackClose) return false;
+            // Assignment with semicolon-separated args is Calcpad function-call
+            // shape — never prose.
+            if (hasEquals && hasSemi) return false;
+            // Split into word-like tokens
+            int wordCount = 0;
+            int letterRunMax = 0;
+            int letterRun = 0;
+            bool sawDigitThenLetter = false;
+            char prev = '\0';
+            for (int i = 0; i < v.Length; i++)
+            {
+                var c = v[i];
+                if (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')
+                {
+                    letterRun++;
+                    if (letterRun > letterRunMax) letterRunMax = letterRun;
+                    if (char.IsDigit(prev)) sawDigitThenLetter = true;
+                }
+                else
+                {
+                    if (letterRun >= 3) wordCount++;
+                    letterRun = 0;
+                }
+                prev = c;
+            }
+            if (letterRun >= 3) wordCount++;
+            // Heuristic: 2+ word-tokens of 3+ lowercase letters → likely prose,
+            // OR a digit immediately followed by letters with no operator → never
+            // valid math (e.g. "1a1enladireccion").
+            return wordCount >= 2 || (sawDigitThenLetter && letterRunMax >= 4);
+        }
+
+        /// <summary>If <paramref name="value"/> starts with the inline directive
+        /// <paramref name="prefix"/> (e.g. "#deq" or "#sym"), strip the prefix and
+        /// return the body (the rest of the expression to render).
+        /// Accepts both '#deq foo' (with space) and '#deqξ' (no space — useful when
+        /// the body starts with a greek letter or paren). The 5th char must be a
+        /// non-letter — otherwise '#deqs' could mistakenly match a longer keyword.</summary>
+        private static bool TryStripInlineDirective(string value, string prefix, out string body)
+        {
+            body = null;
+            var trimmed = value.TrimStart();
+            if (!trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (trimmed.Length == prefix.Length)
+                return false; // no body
+            var after = trimmed[prefix.Length];
+            // ASCII letter immediately after prefix → looks like a longer keyword
+            // (e.g. "#deqs"), don't match. Greek letters / (/digits / +/- are fine.
+            if ((after >= 'a' && after <= 'z') || (after >= 'A' && after <= 'Z') || after == '_')
+                return false;
+            body = trimmed[prefix.Length..].Trim();
+            return body.Length > 0;
+        }
+
+        private void ParseTokens(List<Token> tokens, bool isOutput, bool getXml)
+        {
+            var isLoop = _loops.Count > 0 && _calculate && _isVal > -1;
+            for (int i = 0, count = tokens.Count; i < count; ++i)
+            {
+                var token = tokens[i];
+                if (token.Type == TokenTypes.Expression)
+                {
+                    // Inline #sym: 'text '#sym diff(x^2; x)' more text'
+                    // Or compact form '#symdiff(x; 1)' (no space) for greek-headed expressions.
+                    if (TryStripInlineDirective(token.Value, "#sym", out var symBody))
+                    {
+                        if (isOutput)
+                            ParseInlineSym(symBody);
+                        continue;
+                    }
+                    // Inline #deq: 'text '#deq f(x) = expr' more text'
+                    // Or compact form '#deqξ' / '#deqη' (no space, greek letter as expression).
+                    if (TryStripInlineDirective(token.Value, "#deq", out var deqBody))
+                    {
+                        if (isOutput)
+                            ParseInlineDeq(deqBody);
+                        continue;
+                    }
+
+                    // Inline display-only pre-check: identities, Leibniz
+                    // derivatives, matrix literals, and literal #/$ directive
+                    // references all bypass evaluation (which would reject
+                    // them) and render as display text. This mirrors the
+                    // permissiveness of block-level #deq for inline math so
+                    // users can intersperse "'texto'math'texto" with richer
+                    // math constructs.
+                    if (isOutput && ShouldRenderInlineAsDisplay(token.Value))
+                    {
+                        RenderInlineAsDisplay(token.Value);
+                        continue;
+                    }
+
+                    try
+                    {
+                        var cacheID = token.CacheID;
+                        if (cacheID < 0)
+                        {
+                            var exprValue = ExpandPdiff(token.Value);
+                            _parser.Parse(exprValue);
+                            if (isLoop)
+                                tokens[i].CacheID = _parser.WriteEquationToCache(isOutput);
+                        }
+                        else
+                            _parser.ReadEquationFromCache(cacheID);
+
+                        if (_calculate && _isVal > -1)
+                            _parser.Calculate(isOutput, cacheID);
+                        else
+                            _parser.DefineCustomUnits();
+
+                        if (isOutput)
+                        {
+                            if (_isVal == 1 && _calculate)
+                                _sb.Append(_parser.ResultAsVal);
+                            else
+                            {
+                                var html = _parser.ToHtml();
+                                var eqStyle = EqStyleForMatrix(html);
+                                if (getXml && Settings.Math.FormatEquations)
+                                {
+                                    var xml = _parser.ToXml();
+                                    OpenXmlExpressions.Add(xml);
+                                    _sb.Append($"<span class=\"eq\"{eqStyle} id=\"eq-{OpenXmlExpressions.Count - 1}\">{html}</span>");
+                                }
+                                else
+                                    _sb.Append($"<span class=\"eq\"{eqStyle}>{html}</span>");
+                            }
+                        }
+                    }
+                    catch (MathParserException ex)
+                    {
+                        _parser.ResetStack();
+
+                        // Graceful fallback: if the expression looks like prose text
+                        // (multiple lowercase word-tokens separated by spaces, not a
+                        // typical math formula), render it as plain text instead of
+                        // erroring. This handles cases like '...' #deq ξ ''quevade — 1a1'
+                        // where the user's quote pairing broke and a text fragment ends
+                        // up in an Expression token.
+                        if (isOutput && LooksLikeProseText(token.Value))
+                        {
+                            _sb.Append(System.Web.HttpUtility.HtmlEncode(token.Value));
+                            continue;
+                        }
+
+                        // If the expression has multiple '=' (like f(x)=x^2+1=0),
+                        // try rendering as #deq (display-only double equality)
+                        if (isOutput && token.Value.IndexOf('=') != token.Value.LastIndexOf('='))
+                        {
+                            try
+                            {
+                                var savedIsVal = _isVal;
+                                _isVal = -1;
+                                _parser.IsCalculation = false;
+                                var parts = SplitByEqualsOutsideBrackets(token.Value);
+                                var sb2 = new System.Text.StringBuilder();
+                                for (int j = 0; j < parts.Count; j++)
+                                {
+                                    var part = parts[j].Trim();
+                                    if (string.IsNullOrEmpty(part)) continue;
+                                    if (j > 0) sb2.Append(" = ");
+                                    try
+                                    {
+                                        _parser.Parse(part, false);
+                                        var html2 = _parser.ToHtml();
+                                        sb2.Append(!string.IsNullOrWhiteSpace(html2) ? html2 :
+                                            new HtmlWriter(Settings.Math, _parser.Phasor).FormatVariable(part, string.Empty, false));
+                                    }
+                                    catch
+                                    {
+                                        sb2.Append(new HtmlWriter(Settings.Math, _parser.Phasor).FormatVariable(part, string.Empty, false));
+                                    }
+                                }
+                                _isVal = savedIsVal;
+                                _parser.IsCalculation = _isVal != -1;
+                                if (sb2.Length > 0)
+                                {
+                                    var sb2Str = sb2.ToString();
+                                    var eqStyle2 = EqStyleForMatrix(sb2Str);
+                                    _sb.Append($"<span class=\"eq\"{eqStyle2}>{sb2Str}</span>");
+                                    continue;
+                                }
+                            }
+                            catch { /* fall through to error display */ }
+                        }
+
+                        // Last-resort display-only fallback: if evaluation
+                        // failed because a variable/function in the RHS was
+                        // undefined (common inline when the user describes
+                        // a formula before binding values), route through
+                        // ParseInlineDeq which renders without evaluation.
+                        //
+                        // EXCEPTION: for assignments `IDENT = rhs` (single `=`
+                        // with simple LHS), display-only fallback would hide
+                        // the failure and leave IDENT undefined — the user
+                        // needs to see the real error. Skip the fallback in
+                        // that case so the error path below fires.
+                        if (isOutput && !LooksLikeAssignment(token.Value))
+                        {
+                            try
+                            {
+                                var startLen = _sb.Length;
+                                RenderInlineAsDisplay(token.Value);
+                                if (_sb.Length > startLen)
+                                    continue;
+                            }
+                            catch { /* fall through to error display */ }
+                        }
+
+                        string errText;
+                        if (!_calculate && token.Value.Contains('?'))
+                            errText = token.Value.Replace("?", "<input type=\"text\" size=\"2\" name=\"Var\">");
+                        else
+                            errText = HttpUtility.HtmlEncode(token.Value);
+                        errText = string.Format(Messages.Error_in_0_on_line_1_2, errText, LineHtml(_currentLine), ex.Message);
+                        _sb.Append($"<span class=\"err\"{Id(_currentLine)}>{errText}</span>");
+                        if (Debug)
+                            _errors.Enqueue(_currentLine);
+
+                        if (++_errorCount == 40)
+                            throw new MathParserException(Messages.Too_many_errors);
+                    }
+                }
+                else if (isOutput)
+                {
+                    // MATLAB inline comment: `n = 5   % cantidad`. Token previo es
+                    // Expression (el valor) y el current es Text (el comment) — agregar
+                    // separación visual con un espacio para no pegarlos: "n = 5 cantidad".
+                    if (i > 0 && tokens[i - 1].Type == TokenTypes.Expression &&
+                        token.Value.Length > 0 && token.Value[0] != ' ' && token.Value[0] != '&')
+                        _sb.Append("&nbsp;&nbsp;");
+                    _sb.Append(token.Value.Replace("~", "&nbsp;"));
+                }
+            }
+        }
+
+        void AppendError(string lineContent, string text, int line)
+        {
+            // Los errores ya nacen con sintaxis MATLAB nativa porque el motor
+            // lee MATLAB directamente. NO requiere enmascaramiento.
+            string s = lineContent.Replace("<", "&lt;").Replace(">", "&gt;");
+            _sb.Append(ErrHtml(string.Format(Messages.Error_in_0_on_line_1_2, s, LineHtml(line), text), line));
+
+            if (Debug)
+                _errors.Enqueue(line);
+        }
+
+        /// <summary>
+        /// Reemplaza las palabras-clave Calcpad internas (#for/#loop/#if/#else/#end if/#def/etc)
+        /// por sus equivalentes MATLAB (for/end/if/else/end/function) para mostrar al usuario.
+        /// Sólo aplica a strings de error/diagnóstico — el parsing interno conserva los `#`.
+        /// </summary>
+        internal static string MaskCalcpadKeywordsAsMatlab(string text)
+        {
+            if (string.IsNullOrEmpty(text) || !text.Contains('#')) return text;
+            // Ordenado de más específico a menos específico para evitar match parciales
+            return text
+                .Replace("#end if", "end")
+                .Replace("#end def", "end")
+                .Replace("#else if", "elseif")
+                .Replace("#loop", "end")
+                .Replace("#for ", "for ")
+                .Replace("#while ", "while ")
+                .Replace("#if ", "if ")
+                .Replace("#else", "else")
+                .Replace("#def ", "function ")
+                .Replace("#break", "break")
+                .Replace("#continue", "continue");
+        }
+
+        private static string LineHtml(int line) => $"[<a href=\"#0\" data-text=\"{line + 1}\">{line + 1}</a>]";
+        private string ErrHtml(string text, int line) => $"<p class=\"err\"{Id(line)}\">{text}</p>";
+        private string Id(int line) => Debug ? $" id=\"line-{line + 1}\"" : string.Empty;
+
+        private static string InsertAttribute(ReadOnlySpan<char> s, string attr)
+        {
+            if (s.Length > 2 && s[0] == '<' && char.IsLetter(s[1]))
+            {
+                var i = s.IndexOf('>');
+                if (i > 1)
+                {
+                    var j = i;
+                    while (j > 1)
+                    {
+                        --j;
+                        if (s[j] != ' ')
+                        {
+                            if (s[j] == '/')
+                                i = j;
+
+                            break;
+                        }
+                    }
+                    return s[..i].ToString() + attr + s[i..].ToString();
+                }
+            }
+            return s.ToString();
+        }
+
+        private void ApplyUnits(StringBuilder sb, bool calculate)
+        {
+            string unitsHtml = calculate ?
+                Settings.Units :
+                string.Concat("<span class=\"Units\">", Settings.Units, "</span>");
+
+            long len = sb.Length;
+            sb.Replace("%u", unitsHtml);
+            if (calculate || sb.Length == len)
+                return;
+
+            sb.Insert(0, "<select id=\"Units\" name=\"Units\"><option value=\"m\"> m </option><option value=\"cm\"> cm </option><option value=\"mm\"> mm </option></select>");
+        }
+
+        private double UnitsFactor() => Settings.Units switch
+        {
+            "mm" => 1000,
+            "cm" => 100,
+            "m" => 1,
+            _ => 0
+        };
+    }
+}

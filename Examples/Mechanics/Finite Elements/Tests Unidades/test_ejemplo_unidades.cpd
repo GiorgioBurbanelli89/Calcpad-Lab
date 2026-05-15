@@ -1,0 +1,88 @@
+"Test exhaustivo de patrones FEM con UNIDADES (sintaxis: valor unidad)
+
+"1. Datos con unidades (valor unidad, sin apóstrofe)
+E = 25000 MPa
+ν = 0.2
+t = 0.2 m
+W = 5 m
+H = 3 m
+P = 100 kN
+
+#blk
+E       ; 'módulo elástico
+ν       ; 'Poisson
+t       ; 'espesor
+W       ; 'ancho
+H       ; 'alto
+P       ; 'carga
+#end blk
+
+"2. Malla (mezcla unidad/adimensional)
+n_x = 8
+n_y = 6
+n_e = n_x*n_y
+n_j = (n_x + 1)*(n_y + 1)
+dx = W/n_x
+dy = H/n_y
+
+#blk
+n_x   ; 'integer
+n_e   ; 'integer
+dx    ; 'unidad m
+dy    ; 'unidad m
+#end blk
+
+"3. #for con índice ADIMENSIONAL (debe iterar normal, sin units en i)
+'Suma de áreas tributarias
+A_total = 0 m^2
+#for j = 0 : n_y - 1
+    #for i = 0 : n_x - 1
+        A_total = A_total + dx*dy
+    #loop
+#loop
+'Área total esperada:'W*H
+'Área calculada:    'A_total
+
+"4. #for con índice CON UNIDADES (loop físico)
+'Iterar x desde 0 m hasta 5 m (paso 1 m)
+posicion_max = 0 m
+#for x = 0 m : 5 m
+    posicion_max = x
+#loop
+'Última x del loop:' posicion_max
+
+"5. #for con extremos MIXTOS (0 adimensional + valor con unidad)
+'Calcpad adopta la unidad del lado no-cero (m en este caso)
+suma_x = 0 m
+#for x = 0 : 3 m
+    suma_x = suma_x + x
+#loop
+'Suma de posiciones x:' suma_x
+
+"6. Matriz K con celdas en kN/m + penalty unitless
+K = symmetric(2*n_j)
+k_p = 10^20
+K.(1; 1) = K.(1; 1) + k_p
+'K(1;1) con penalty:'K.(1; 1)
+'k_p (unitless):    'k_p
+
+"7. Comparación con units (vk > vmmax tipo Von Mises)
+σ_max = 50 kN/m^2
+σ_adm = 100 kN/m^2
+
+#if σ_max > σ_adm
+    'EXCEDE: '
+#else
+    'OK: dentro de admisible'
+#end if
+
+"8. $Map con rango 0 : valor_con_unit (auto-adoptado)
+'Función test: deflexión gaussiana centrada.
+'exp() exige argumento ADIMENSIONAL → dividimos por σ² (longitud característica al cuadrado).
+PlotWidth = 300
+σ = 2 m
+w_max = -10 mm
+w(x; y) = w_max*exp(-((x - W/2)^2 + (y - H/2)^2)/σ^2)
+$Map{w(x; y) @ x = 0 : W & y = 0 : H}
+
+'[OK] Test ejemplo_unidades completo — sin errores esperados.
