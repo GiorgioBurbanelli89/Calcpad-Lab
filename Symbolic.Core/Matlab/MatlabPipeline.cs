@@ -354,6 +354,25 @@ namespace Calcpad.Core.Matlab
             new(@"(?<=</var>|</sub>|</sup>|\d)\*(?=<var\b|<i\b|<sup\b|\d)",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
+        // Integral: `int_a^b` o `int_a` o `int` standalone → ∫ con limites como
+        // sub/sup. Excluye `int(...)` (call de funcion sym).
+        private static readonly System.Text.RegularExpressions.Regex IntegralRegex =
+            new(@"\bint(?!\()(?:_([A-Za-z0-9]+))?(?:\^([A-Za-z0-9]+))?\b",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        // Sumatoria/productoria n-ary con limites: sum_a^b, prod_a^b, lim_x
+        private static readonly System.Text.RegularExpressions.Regex NaryRegex =
+            new(@"\b(sum|prod|lim)(?!\()(?:_([A-Za-z0-9]+))?(?:\^([A-Za-z0-9]+))?\b",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static readonly System.Collections.Generic.Dictionary<string, string> NarySym =
+            new(System.StringComparer.Ordinal)
+        {
+            { "sum",  "∑" },
+            { "prod", "∏" },
+            { "lim",  "lim" },
+        };
+
         // Mapa de palabras griegas → símbolo Unicode. Solo aplica DENTRO de
         // contextos matemáticos (variable suelta o identificador con subíndice)
         // para no transformar "alpha" o "pi" cuando aparecen en texto natural.
@@ -397,6 +416,24 @@ namespace Calcpad.Core.Matlab
                     .Replace("^3", "<sup>3</sup>")
                     .Replace("^2", "<sup>2</sup>");
                 return $"<i class=\"unit\">{u}</i>";
+            });
+
+            // 1.5) Integrales: int_a^b → ∫_a^b (con limites como sub/sup).
+            // Usamos <span> en vez de <i> para no chocar con `.eq i` (90%/teal).
+            s = IntegralRegex.Replace(s, m =>
+            {
+                var sub = m.Groups[1].Success ? $"<sub>{m.Groups[1].Value}</sub>" : "";
+                var sup = m.Groups[2].Success ? $"<sup>{m.Groups[2].Value}</sup>" : "";
+                return $"<span class=\"intsym\">&int;</span>{sub}{sup}";
+            });
+
+            // 1.6) Sumatoria/productoria: sum_a^b → ∑_a^b, prod_a^b → ∏_a^b
+            s = NaryRegex.Replace(s, m =>
+            {
+                var sym = NarySym.TryGetValue(m.Groups[1].Value, out var g) ? g : m.Groups[1].Value;
+                var sub = m.Groups[2].Success ? $"<sub>{m.Groups[2].Value}</sub>" : "";
+                var sup = m.Groups[3].Success ? $"<sup>{m.Groups[3].Value}</sup>" : "";
+                return $"<span class=\"narysym\">{sym}</span>{sub}{sup}";
             });
 
             // 2) Subíndices: ident_word → <var>ident<sub>word</sub></var>
