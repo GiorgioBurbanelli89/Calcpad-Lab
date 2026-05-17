@@ -150,9 +150,66 @@ namespace Calcpad.Core.Matlab
         public SymConst(double v) { Value = v; }
         public override SymNode Diff(string var) => new SymConst(0);
         public override double Eval(Dictionary<string, double> vals) => Value;
-        public override string ToInfix() => Value.ToString("G", CultureInfo.InvariantCulture);
-        public override string ToHtml() => Value.ToString("G", CultureInfo.InvariantCulture);
-        public override string ToLatex() => Value.ToString("G", CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// Detecta si Value es un racional "lindo" (n/d con d <= maxDenom) y
+        /// devuelve (n, d) reducido. Esto permite mostrar 0.5 como 1/2, 6.75
+        /// como 27/4, 2.666... como 8/3, etc — sin tener Rational interno.
+        /// </summary>
+        internal static bool TryAsRational(double v, out long n, out long d, int maxDenom = 1000)
+        {
+            n = 0; d = 1;
+            if (double.IsNaN(v) || double.IsInfinity(v)) return false;
+            if (Math.Abs(v - Math.Round(v)) < 1e-12 && Math.Abs(v) < 1e15)
+            { n = (long)Math.Round(v); d = 1; return true; }
+            const double eps = 1e-10;
+            for (int den = 2; den <= maxDenom; den++)
+            {
+                double num = v * den;
+                long rounded = (long)Math.Round(num);
+                if (Math.Abs(num - rounded) < eps)
+                {
+                    long a = Math.Abs(rounded), b = den, g;
+                    while (b != 0) { g = a % b; a = b; b = g; }
+                    long gcd = a == 0 ? 1 : a;
+                    n = rounded / gcd;
+                    d = den / (int)gcd;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public override string ToInfix()
+        {
+            if (TryAsRational(Value, out var n, out var d))
+                return d == 1 ? n.ToString(CultureInfo.InvariantCulture)
+                              : $"{n.ToString(CultureInfo.InvariantCulture)}/{d.ToString(CultureInfo.InvariantCulture)}";
+            return Value.ToString("G", CultureInfo.InvariantCulture);
+        }
+
+        public override string ToHtml()
+        {
+            if (TryAsRational(Value, out var n, out var d))
+            {
+                if (d == 1) return n.ToString(CultureInfo.InvariantCulture);
+                string sign = "";
+                long absN = n;
+                if (n < 0) { sign = "-"; absN = -n; }
+                return $"{sign}<span class=\"dvc\"><span class=\"dvc-num\">{absN}</span>" +
+                       $"<span class=\"dvl\"></span><span class=\"dvc-den\">{d}</span></span>";
+            }
+            return Value.ToString("G", CultureInfo.InvariantCulture);
+        }
+
+        public override string ToLatex()
+        {
+            if (TryAsRational(Value, out var n, out var d))
+                return d == 1 ? n.ToString(CultureInfo.InvariantCulture)
+                              : $"\\frac{{{n}}}{{{d}}}";
+            return Value.ToString("G", CultureInfo.InvariantCulture);
+        }
+
         public override SymNode Subs(string var, SymNode val) => this;
     }
     public sealed class SymVar : SymNode

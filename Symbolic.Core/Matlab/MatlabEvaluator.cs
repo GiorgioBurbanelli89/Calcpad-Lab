@@ -3215,13 +3215,9 @@ namespace Calcpad.Core.Matlab
                     var Fb_sym = antider.Subs(varName, limB).Simplify();
                     var Fa_sym = antider.Subs(varName, limA).Simplify();
                     var resultSym = new SymSub(Fb_sym, Fa_sym).Simplify();
-                    // Si todas las variables quedaron resueltas, retornar como escalar.
-                    // Si quedan variables libres (e.g. integral interior de doble), retornar simbolico.
-                    if (!HasFreeVars(resultSym))
-                    {
-                        try { return new MValue(resultSym.Eval(new Dictionary<string, double>())); }
-                        catch { /* fallback simbolico */ }
-                    }
+                    // Mantener SIEMPRE el resultado como simbolico para preservar
+                    // rationales exactos (ej. 27/4 en vez de 6.75). El display de
+                    // SymConst tiene heuristica TryAsRational para mostrar n/d.
                     return MValue.NewSymbolic(resultSym);
                 }
                 return MValue.NewSymbolic(SymOps.Integrate(a[0].Symbolic, varName).Simplify());
