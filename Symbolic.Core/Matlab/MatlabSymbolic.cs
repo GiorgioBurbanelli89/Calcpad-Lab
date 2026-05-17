@@ -164,17 +164,54 @@ namespace Calcpad.Core.Matlab
             vals.TryGetValue(Name, out var v) ? v : throw new MatlabRuntimeException($"Symbolic var '{Name}' not bound");
         public override string ToInfix() => Name;
         public override string ToLatex() => Name;
+
+        // Nombres griegos comunes en notación matemática. Mapeo solo se aplica
+        // en ToHtml (render Calcpad-Lab) — ToInfix sigue devolviendo el nombre
+        // literal para que la sintaxis MATLAB se preserve.
+        private static readonly System.Collections.Generic.Dictionary<string, string> GreekGlyph =
+            new(System.StringComparer.Ordinal)
+        {
+            { "alpha", "α" }, { "beta", "β" }, { "gamma", "γ" }, { "delta", "δ" },
+            { "epsilon", "ε" }, { "zeta", "ζ" }, { "eta", "η" }, { "theta", "θ" },
+            { "kappa", "κ" }, { "lambda", "λ" }, { "mu", "μ" }, { "nu", "ν" },
+            { "xi", "ξ" }, { "pi", "π" }, { "rho", "ρ" }, { "sigma", "σ" },
+            { "tau", "τ" }, { "phi", "φ" }, { "chi", "χ" }, { "psi", "ψ" }, { "omega", "ω" },
+            { "Alpha", "Α" }, { "Beta", "Β" }, { "Gamma", "Γ" }, { "Delta", "Δ" },
+            { "Theta", "Θ" }, { "Lambda", "Λ" }, { "Xi", "Ξ" }, { "Pi", "Π" },
+            { "Sigma", "Σ" }, { "Phi", "Φ" }, { "Psi", "Ψ" }, { "Omega", "Ω" }
+        };
+
+        /// <summary>Convierte una palabra a glyph griego si aplica.</summary>
+        private static string MapGreek(string s) =>
+            GreekGlyph.TryGetValue(s, out var g) ? g : System.Net.WebUtility.HtmlEncode(s);
+
         public override string ToHtml()
         {
+            // Manejo de variantes "prime" comunes en MATLAB: vp -> v', thxp -> θₓ',
+            // thyp -> θᵧ', thzp -> θ_z', thxpp -> θₓ''.
+            // Convención: terminar en 'p' = primera derivada, 'pp' = segunda.
+            string baseName = Name;
+            string prime = "";
+            if (baseName.EndsWith("pp") && baseName.Length > 2) { prime = "''"; baseName = baseName.Substring(0, baseName.Length - 2); }
+            else if (baseName.EndsWith("p") && baseName.Length > 1 && baseName != "phi" && baseName != "psi" && baseName != "pi") { prime = "'"; baseName = baseName.Substring(0, baseName.Length - 1); }
+
+            // Aliases comunes para variables de mecánica/ingeniería
+            // th -> theta, ph -> phi (cuando vienen como prefijo de derivada)
+            if (baseName == "thx") baseName = "theta_x";
+            else if (baseName == "thy") baseName = "theta_y";
+            else if (baseName == "thz") baseName = "theta_z";
+            else if (baseName == "ph") baseName = "phi";
+
             // Soporte subscripts: "w_max" -> "w<sub>max</sub>", "M_max_centro" -> "M<sub>max,centro</sub>"
-            int us = Name.IndexOf('_');
-            if (us > 0 && us < Name.Length - 1)
+            // También aplica mapping griego al head.
+            int us = baseName.IndexOf('_');
+            if (us > 0 && us < baseName.Length - 1)
             {
-                var head = Name.Substring(0, us);
-                var sub  = Name.Substring(us + 1).Replace('_', ',');
-                return $"<var>{System.Net.WebUtility.HtmlEncode(head)}<sub>{System.Net.WebUtility.HtmlEncode(sub)}</sub></var>";
+                var head = baseName.Substring(0, us);
+                var sub  = baseName.Substring(us + 1).Replace('_', ',');
+                return $"<var>{MapGreek(head)}<sub>{MapGreek(sub)}</sub></var>{prime}";
             }
-            return $"<var>{System.Net.WebUtility.HtmlEncode(Name)}</var>";
+            return $"<var>{MapGreek(baseName)}</var>{prime}";
         }
         public override SymNode Subs(string var, SymNode val) => Name == var ? val : this;
     }

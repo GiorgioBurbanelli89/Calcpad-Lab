@@ -85,6 +85,10 @@ namespace Calcpad.Core.Matlab
             _evaluator.InnerStmtOut = (innerStmt, innerRes) =>
             {
                 if (innerRes.Suppressed) return;
+                // Comentarios `%-- ...` son ocultos (mismo criterio que top-level).
+                if (innerStmt is CommentStmt csInner
+                    && !csInner.IsHeading
+                    && csInner.Text.StartsWith("--")) return;
                 int innerLine = innerStmt?.Line ?? 0;
                 htmlBuffer.Append($"<p class=\"line\" id=\"line-{innerLine}\" style=\"margin-left:1.5em;color:#555\">");
                 htmlBuffer.Append(MatlabHtmlWriter.RenderStatement(innerStmt, innerRes));
@@ -118,7 +122,11 @@ namespace Calcpad.Core.Matlab
                 }
                 // Render del statement (incluye el comando como fórmula)
                 // NO renderizar void functions (fprintf/disp/figure/plot/...) — solo su side effect.
-                if (!result.Suppressed && !IsVoidStatement(stmt))
+                // NO renderizar comentarios `%-- ...` (anotación pura de código, opt-in hide).
+                bool isHiddenComment = stmt is CommentStmt csHide
+                                       && !csHide.IsHeading
+                                       && csHide.Text.StartsWith("--");
+                if (!result.Suppressed && !IsVoidStatement(stmt) && !isHiddenComment)
                 {
                     try
                     {
@@ -265,6 +273,31 @@ namespace Calcpad.Core.Matlab
             new(@"(?<=</var>|</sub>|</sup>|\d)\*(?=<var\b|<i\b|<sup\b|\d)",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
+        // Mapa de palabras griegas → símbolo Unicode. Solo aplica DENTRO de
+        // contextos matemáticos (variable suelta o identificador con subíndice)
+        // para no transformar "alpha" o "pi" cuando aparecen en texto natural.
+        // Calcpad-Lab vs MATLAB: en MATLAB R2017a las palabras se imprimen tal
+        // cual ("alpha"), en Calcpad-Lab se renderizan con el glyph griego
+        // gracias a este mapping aplicado en el render HTML.
+        private static readonly System.Collections.Generic.Dictionary<string, string> GreekMap =
+            new(System.StringComparer.Ordinal)
+        {
+            { "alpha", "α" }, { "beta", "β" }, { "gamma", "γ" }, { "delta", "δ" },
+            { "epsilon", "ε" }, { "zeta", "ζ" }, { "eta", "η" }, { "theta", "θ" },
+            { "kappa", "κ" }, { "lambda", "λ" }, { "mu", "μ" }, { "nu", "ν" },
+            { "xi", "ξ" }, { "pi", "π" }, { "rho", "ρ" }, { "sigma", "σ" },
+            { "tau", "τ" }, { "phi", "φ" }, { "chi", "χ" }, { "psi", "ψ" },
+            { "omega", "ω" },
+            // Mayúsculas más usadas
+            { "Alpha", "Α" }, { "Beta", "Β" }, { "Gamma", "Γ" }, { "Delta", "Δ" },
+            { "Theta", "Θ" }, { "Lambda", "Λ" }, { "Xi", "Ξ" }, { "Pi", "Π" },
+            { "Sigma", "Σ" }, { "Phi", "Φ" }, { "Psi", "Ψ" }, { "Omega", "Ω" }
+        };
+
+        /// <summary>Si el token es nombre de letra griega, devuelve el glyph; si no, devuelve el token original.</summary>
+        private static string ToGreekIfMatch(string name)
+            => GreekMap.TryGetValue(name, out var glyph) ? glyph : name;
+
         /// <summary>
         /// Post-procesa texto HTML-escapado para detectar patrones matemáticos
         /// (subíndices, variables, unidades, exponentes) y aplicarles el CSS
@@ -286,10 +319,23 @@ namespace Calcpad.Core.Matlab
             });
 
             // 2) Subíndices: ident_word → <var>ident<sub>word</sub></var>
-            s = SubscriptRegex.Replace(s, "<var>$1<sub>$2</sub></var>");
+            //    Si "ident" es nombre griego (sigma, theta...), lo reemplaza por
+            //    su glyph Unicode (σ, θ...). Mismo tratamiento al subíndice.
+            s = SubscriptRegex.Replace(s, m =>
+            {
+                var ident = ToGreekIfMatch(m.Groups[1].Value);
+                var sub = ToGreekIfMatch(m.Groups[2].Value);
+                return $"<var>{ident}<sub>{sub}</sub></var>";
+            });
 
-            // 3) Variables sueltas: letra única o griega → <var>X</var>
-            s = LooseVarRegex.Replace(s, "<var>$1</var>");
+            // 3) Variables sueltas: letra única o nombre griego corto → <var>X</var>
+            //    Si es nombre griego, se sustituye por el glyph Unicode.
+            s = LooseVarRegex.Replace(s, m =>
+            {
+                var name = m.Groups[1].Value;
+                var glyph = ToGreekIfMatch(name);
+                return $"<var>{glyph}</var>";
+            });
 
             // 4) Exponentes: ^N tras var/sub/sup/dígito/)
             s = PowerRegex.Replace(s, "<sup>$1</sup>");
