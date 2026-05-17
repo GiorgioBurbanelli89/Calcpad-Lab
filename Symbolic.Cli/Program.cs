@@ -310,9 +310,11 @@ namespace Calcpad.Cli
             }
             i += extLen;
             var outFile = fileName[i..].Trim();
-            // Parse trailing flags en cualquier orden: -s (silent) y --pure / -p (MATLAB-puro)
+            // Parse trailing flags en cualquier orden: -s (silent) y --legacy (forzar
+            // ExpressionParser viejo solo para debug; nadie deberia usarlo).
+            // DEFAULT para .m: SIEMPRE MatlabPipeline puro — sin traduccion a Calcpad.
             bool isSilent = false;
-            bool isPureMatlab = false;
+            bool isPureMatlab = true;   // DEFAULT: motor MATLAB puro
             while (true)
             {
                 if (outFile.EndsWith(" -s", StringComparison.Ordinal))
@@ -321,6 +323,8 @@ namespace Calcpad.Cli
                 { isPureMatlab = true; outFile = outFile[..^7].TrimEnd(); continue; }
                 if (outFile.EndsWith(" -p", StringComparison.Ordinal))
                 { isPureMatlab = true; outFile = outFile[..^3].TrimEnd(); continue; }
+                if (outFile.EndsWith(" --legacy", StringComparison.Ordinal))
+                { isPureMatlab = false; outFile = outFile[..^9].TrimEnd(); continue; }
                 break;
             }
 

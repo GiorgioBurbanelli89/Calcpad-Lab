@@ -14,3 +14,9 @@ node_modules/
 TestAngouri/
 explicaciones/*.html
 Installer/*.exe
+
+# Reportes HTML generados por CalcpadLabCli al ejecutar los Examples (cada uno ~5 MB por el bundle UI)
+Examples-Lab/**/*.html
+Examples-Lab/**/*.png
+Examples-Lab/**/*.pdf
+Symbolic.Cli/Examples/Matlab/*.html

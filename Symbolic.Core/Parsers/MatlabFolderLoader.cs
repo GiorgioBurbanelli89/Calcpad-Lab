@@ -53,9 +53,9 @@ namespace Calcpad.Core
         {
             if (!Directory.Exists(folder)) return mainScript;
 
-            // Encontrar todos los .m en la carpeta
+            // Encontrar todos los .m en la carpeta y subcarpetas (MATLAB path-like).
             string[] mFiles;
-            try { mFiles = Directory.GetFiles(folder, "*.m", SearchOption.TopDirectoryOnly); }
+            try { mFiles = Directory.GetFiles(folder, "*.m", SearchOption.AllDirectories); }
             catch { return mainScript; }
 
             // Ordenar para reproducibilidad
@@ -74,21 +74,19 @@ namespace Calcpad.Core
                 catch { continue; }
 
                 if (!IsFunctionFile(content, out var fnName)) continue;
-                // Lazy-load: solo incluir si el main referencia esta función por
-                // nombre (igual que MATLAB resuelve funciones bajo demanda en path).
-                // Evita que archivos no relacionados con parse-errors contaminen
-                // el output del main.
-                if (!ReferencesIdentifier(mainScript, fnName)) continue;
-                // Evitar duplicados (mismo nombre de función en archivos distintos)
+                // Eager-load: incluir TODAS las function-files del path (como MATLAB
+                // real, que tiene todas las funciones del current directory + path
+                // disponibles). Esto resuelve cadenas de dispatch transitivas donde
+                // el main llama f1() y f1() llama internamente f2() en otro archivo.
+                // Evitar duplicados (mismo nombre de funcion en archivos distintos).
                 if (!includedFunctions.Add(fnName)) continue;
 
-                sb.AppendLine($"% [Calcpad Lab] auto-included from: {name}");
+                // Auto-include silencioso: sin comentarios visibles en el output.
                 sb.AppendLine(content.TrimEnd());
-                sb.AppendLine(); // separador en blanco
+                sb.AppendLine();
             }
 
-            // Anexar el script principal al final (las funciones quedan disponibles)
-            sb.AppendLine($"% [Calcpad Lab] main script: {mainFileName}");
+            // Anexar el script principal al final (las funciones quedan disponibles).
             sb.Append(mainScript);
             return sb.ToString();
         }

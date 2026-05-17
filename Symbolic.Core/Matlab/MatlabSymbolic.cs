@@ -24,6 +24,10 @@ namespace Calcpad.Core.Matlab
         public abstract SymNode Diff(string var);
         public abstract double Eval(Dictionary<string, double> vals);
         public abstract string ToInfix();
+        /// <summary>Render HTML matematico (var/sup/sub/dvc) compatible con Calcpad template.</summary>
+        public virtual string ToHtml() => System.Net.WebUtility.HtmlEncode(ToInfix());
+        /// <summary>Convierte la expresion a codigo LaTeX (compatible con MATLAB latex()).</summary>
+        public virtual string ToLatex() => ToInfix();
         /// <summary>Sustituye <c>var</c> por <c>val</c> en el árbol y devuelve nuevo nodo.</summary>
         public abstract SymNode Subs(string var, SymNode val);
         /// <summary>Simplifica recursivamente (combina constantes, elimina 0/1 neutros).</summary>
@@ -147,6 +151,8 @@ namespace Calcpad.Core.Matlab
         public override SymNode Diff(string var) => new SymConst(0);
         public override double Eval(Dictionary<string, double> vals) => Value;
         public override string ToInfix() => Value.ToString("G", CultureInfo.InvariantCulture);
+        public override string ToHtml() => Value.ToString("G", CultureInfo.InvariantCulture);
+        public override string ToLatex() => Value.ToString("G", CultureInfo.InvariantCulture);
         public override SymNode Subs(string var, SymNode val) => this;
     }
     public sealed class SymVar : SymNode
@@ -157,6 +163,19 @@ namespace Calcpad.Core.Matlab
         public override double Eval(Dictionary<string, double> vals) =>
             vals.TryGetValue(Name, out var v) ? v : throw new MatlabRuntimeException($"Symbolic var '{Name}' not bound");
         public override string ToInfix() => Name;
+        public override string ToLatex() => Name;
+        public override string ToHtml()
+        {
+            // Soporte subscripts: "w_max" -> "w<sub>max</sub>", "M_max_centro" -> "M<sub>max,centro</sub>"
+            int us = Name.IndexOf('_');
+            if (us > 0 && us < Name.Length - 1)
+            {
+                var head = Name.Substring(0, us);
+                var sub  = Name.Substring(us + 1).Replace('_', ',');
+                return $"<var>{System.Net.WebUtility.HtmlEncode(head)}<sub>{System.Net.WebUtility.HtmlEncode(sub)}</sub></var>";
+            }
+            return $"<var>{System.Net.WebUtility.HtmlEncode(Name)}</var>";
+        }
         public override SymNode Subs(string var, SymNode val) => Name == var ? val : this;
     }
     public sealed class SymAdd : SymNode
@@ -171,6 +190,18 @@ namespace Calcpad.Core.Matlab
             if (TryNegativeForm(B, out var posNode))
                 return $"{A.ToInfix()} - {posNode.ToInfix()}";
             return $"{A.ToInfix()} + {B.ToInfix()}";
+        }
+        public override string ToHtml()
+        {
+            if (TryNegativeForm(B, out var posNode))
+                return $"{A.ToHtml()} - {posNode.ToHtml()}";
+            return $"{A.ToHtml()} + {B.ToHtml()}";
+        }
+        public override string ToLatex()
+        {
+            if (TryNegativeForm(B, out var posNode))
+                return $"{A.ToLatex()}-{posNode.ToLatex()}";
+            return $"{A.ToLatex()}+{B.ToLatex()}";
         }
         /// <summary>Detecta si <paramref name="n"/> es un término "negativo" (const negativo,
         /// o producto con coef negativo). Si sí, devuelve su forma positiva.</summary>
@@ -291,6 +322,8 @@ namespace Calcpad.Core.Matlab
         public override SymNode Diff(string var) => new SymSub(A.Diff(var), B.Diff(var)).Simplify();
         public override double Eval(Dictionary<string, double> vals) => A.Eval(vals) - B.Eval(vals);
         public override string ToInfix() => B is SymAdd ? $"{A.ToInfix()} - ({B.ToInfix()})" : $"{A.ToInfix()} - {B.ToInfix()}";
+        public override string ToHtml() => B is SymAdd ? $"{A.ToHtml()} - ({B.ToHtml()})" : $"{A.ToHtml()} - {B.ToHtml()}";
+        public override string ToLatex() => B is SymAdd ? $"{A.ToLatex()}-\\left({B.ToLatex()}\\right)" : $"{A.ToLatex()}-{B.ToLatex()}";
         public override SymNode Subs(string var, SymNode val) => new SymSub(A.Subs(var, val), B.Subs(var, val)).Simplify();
         public override SymNode Simplify()
         {
@@ -327,6 +360,36 @@ namespace Calcpad.Core.Matlab
             string sa = A is SymAdd || A is SymSub ? $"({A.ToInfix()})" : A.ToInfix();
             string sb = B is SymAdd || B is SymSub ? $"({B.ToInfix()})" : B.ToInfix();
             return $"{sa}*{sb}";
+        }
+        public override string ToHtml()
+        {
+            // -1 * X -> -X
+            if (A is SymConst ca && ca.Value == -1)
+            {
+                string sb_ = B is SymAdd || B is SymSub ? $"({B.ToHtml()})" : B.ToHtml();
+                return $"-{sb_}";
+            }
+            if (B is SymConst cb && cb.Value == -1)
+            {
+                string sa_ = A is SymAdd || A is SymSub ? $"({A.ToHtml()})" : A.ToHtml();
+                return $"-{sa_}";
+            }
+            string saH = A is SymAdd || A is SymSub ? $"({A.ToHtml()})" : A.ToHtml();
+            string sbH = B is SymAdd || B is SymSub ? $"({B.ToHtml()})" : B.ToHtml();
+            // Si A es constante y B es variable/expresion (e.g. 3*x), usar middle dot.
+            // Si ambos son variables (x*y), tambien usar middle dot.
+            return $"{saH}&middot;{sbH}";
+        }
+        public override string ToLatex()
+        {
+            if (A is SymConst caL && caL.Value == -1)
+            {
+                string sb_ = B is SymAdd || B is SymSub ? $"\\left({B.ToLatex()}\\right)" : B.ToLatex();
+                return $"-{sb_}";
+            }
+            string saL = A is SymAdd || A is SymSub ? $"\\left({A.ToLatex()}\\right)" : A.ToLatex();
+            string sbL = B is SymAdd || B is SymSub ? $"\\left({B.ToLatex()}\\right)" : B.ToLatex();
+            return $"{saL}\\,{sbL}";   // LaTeX usa \, (thin space) entre factores
         }
         public override SymNode Subs(string var, SymNode val) => new SymMul(A.Subs(var, val), B.Subs(var, val)).Simplify();
         public override SymNode Simplify()
@@ -404,6 +467,10 @@ namespace Calcpad.Core.Matlab
                 new SymPow(B, new SymConst(2))).Simplify();
         public override double Eval(Dictionary<string, double> vals) => A.Eval(vals) / B.Eval(vals);
         public override string ToInfix() => $"({A.ToInfix()})/({B.ToInfix()})";
+        public override string ToHtml() =>
+            // Fraccion estilo Calcpad: numerador arriba, denominador abajo con linea
+            $"<span class=\"dvc\"><span class=\"dvc-num\">{A.ToHtml()}</span><span class=\"dvl\"></span><span class=\"dvc-den\">{B.ToHtml()}</span></span>";
+        public override string ToLatex() => $"\\frac{{{A.ToLatex()}}}{{{B.ToLatex()}}}";
         public override SymNode Subs(string var, SymNode val) => new SymDiv(A.Subs(var, val), B.Subs(var, val)).Simplify();
         public override SymNode Simplify()
         {
@@ -439,6 +506,20 @@ namespace Calcpad.Core.Matlab
             string sb = Base is SymAdd || Base is SymSub || Base is SymMul || Base is SymDiv ? $"({Base.ToInfix()})" : Base.ToInfix();
             string se = Exp is SymConst ? Exp.ToInfix() : $"({Exp.ToInfix()})";
             return $"{sb}^{se}";
+        }
+        public override string ToHtml()
+        {
+            // Exponente como <sup>
+            string sbH = Base is SymAdd || Base is SymSub || Base is SymMul || Base is SymDiv
+                ? $"({Base.ToHtml()})" : Base.ToHtml();
+            string seH = Exp is SymConst ? Exp.ToHtml() : Exp.ToHtml();
+            return $"{sbH}<sup>{seH}</sup>";
+        }
+        public override string ToLatex()
+        {
+            string sbL = Base is SymAdd || Base is SymSub || Base is SymMul || Base is SymDiv
+                ? $"\\left({Base.ToLatex()}\\right)" : Base.ToLatex();
+            return $"{{{sbL}}}^{{{Exp.ToLatex()}}}";
         }
         public override SymNode Subs(string var, SymNode val) => new SymPow(Base.Subs(var, val), Exp.Subs(var, val)).Simplify();
         public override SymNode Simplify()
@@ -495,6 +576,8 @@ namespace Calcpad.Core.Matlab
             };
         }
         public override string ToInfix() => $"{Name}({Arg.ToInfix()})";
+        public override string ToHtml() => $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{System.Net.WebUtility.HtmlEncode(Name)}</span>({Arg.ToHtml()})";
+        public override string ToLatex() => $"\\{Name}\\left({Arg.ToLatex()}\\right)";   // \sin(x), \cos(x), etc.
         public override SymNode Subs(string var, SymNode val) => new SymFunc(Name, Arg.Subs(var, val)).Simplify();
         public override SymNode Simplify()
         {

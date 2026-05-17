@@ -951,6 +951,40 @@ namespace Calcpad.Core.Matlab
                 int k = 0; foreach (var x in set) data[k++] = x;
                 return new MValue(1, data.Length, data);
             };
+            // setdiff(A, B) — elementos en A que NO estan en B (set ordenado)
+            _builtins["setdiff"] = a => {
+                var setB = new HashSet<double>(a[1].Data);
+                var diff = new SortedSet<double>();
+                foreach (var x in a[0].Data) if (!setB.Contains(x)) diff.Add(x);
+                var dataSD = new double[diff.Count];
+                int kSD = 0; foreach (var x in diff) dataSD[kSD++] = x;
+                return new MValue(1, dataSD.Length, dataSD);
+            };
+            // intersect(A, B) — elementos comunes a A y B (set ordenado)
+            _builtins["intersect"] = a => {
+                var setBi = new HashSet<double>(a[1].Data);
+                var inter = new SortedSet<double>();
+                foreach (var x in a[0].Data) if (setBi.Contains(x)) inter.Add(x);
+                var dataIS = new double[inter.Count];
+                int kIS = 0; foreach (var x in inter) dataIS[kIS++] = x;
+                return new MValue(1, dataIS.Length, dataIS);
+            };
+            // union(A, B) — todos los elementos sin duplicados (set ordenado)
+            _builtins["union"] = a => {
+                var allU = new SortedSet<double>(a[0].Data);
+                foreach (var x in a[1].Data) allU.Add(x);
+                var dataU = new double[allU.Count];
+                int kU = 0; foreach (var x in allU) dataU[kU++] = x;
+                return new MValue(1, dataU.Length, dataU);
+            };
+            // ismember(A, B) — vector logico de mismo tamano que A
+            _builtins["ismember"] = a => {
+                var setBm = new HashSet<double>(a[1].Data);
+                var r = new MValue(a[0].Rows, a[0].Cols);
+                for (int i = 0; i < a[0].Data.Length; i++)
+                    r.Data[i] = setBm.Contains(a[0].Data[i]) ? 1 : 0;
+                return r;
+            };
             _builtins["any"] = a => {
                 foreach (var x in a[0].Data) if (x != 0) return new MValue(1);
                 return new MValue(0);
@@ -962,10 +996,59 @@ namespace Calcpad.Core.Matlab
             _builtins["isempty"] = a => new MValue(a[0].Data.Length == 0 ? 1 : 0);
             _builtins["isscalar"] = a => new MValue(a[0].IsScalar ? 1 : 0);
             _builtins["isvector"] = a => new MValue((a[0].Rows == 1 || a[0].Cols == 1) ? 1 : 0);
+            // ── No-op builtins esteticos de MATLAB (clean console / paths) ──
+            // No tienen sentido en un entorno HTML/PDF render, pero son comunes
+            // en scripts MATLAB. Los aceptamos como no-op para evitar errores.
+            _builtins["clc"]     = a => new MValue(0);
+            _builtins["close"]   = a => new MValue(0);
+            _builtins["clf"]     = a => new MValue(0);
+            _builtins["cla"]     = a => new MValue(0);
+            _builtins["clear"]   = a => new MValue(0);
+            _builtins["addpath"] = a => new MValue(0);
+            _builtins["rmpath"]  = a => new MValue(0);
+            _builtins["pause"]   = a => new MValue(0);
+            _builtins["drawnow"] = a => new MValue(0);
+            // ── true(...) / false(...) como funciones MATLAB que crean matrices logicas ──
+            // true / false como literales ya estan resueltos en EvalIdent (consts MATLAB).
+            // Aqui solo el caso de llamada con args para crear matrices de 1s o 0s.
+            //
+            // Soporta tres patrones MATLAB:
+            //   false()              -> 0 escalar
+            //   false(n)             -> matriz n×n
+            //   false(m, n)          -> matriz m×n
+            //   false([m, n])        -> matriz m×n (vector de tamaños, e.g. false(size(X)))
+            (int r, int c) ParseSize(MValue[] a)
+            {
+                if (a.Length == 0) return (1, 1);
+                if (a.Length == 1)
+                {
+                    // size() como vector [r, c]
+                    if (a[0].Data.Length >= 2 && !a[0].IsScalar)
+                        return ((int)a[0].Data[0], (int)a[0].Data[1]);
+                    // scalar n -> matriz n×n
+                    int n = (int)a[0].Scalar;
+                    return (n, n);
+                }
+                return ((int)a[0].Scalar, (int)a[1].Scalar);
+            }
+            _builtins["true"]  = a => {
+                if (a.Length == 0) return new MValue(1);
+                var (rT, cT) = ParseSize(a);
+                var mTrue = new MValue(rT, cT);
+                for (int i = 0; i < mTrue.Data.Length; i++) mTrue.Data[i] = 1;
+                return mTrue;
+            };
+            _builtins["false"] = a => {
+                if (a.Length == 0) return new MValue(0);
+                var (rF, cF) = ParseSize(a);
+                return new MValue(rF, cF);  // ya inicializa a 0
+            };
             _builtins["disp"] = a => {
                 // Para matrices: imprimir con formato MATLAB clásico
                 if (a[0] == null) { _output?.Invoke(""); return a[0]; }
                 if (a[0].IsString) { _output?.Invoke(a[0].StringValue); return a[0]; }
+                // Para simbolico: mostrar la expresion simplificada como texto
+                if (a[0].IsSymbolic) { _output?.Invoke(a[0].Symbolic.Simplify().ToInfix()); return a[0]; }
                 if (a[0].IsScalar) { _output?.Invoke(a[0].Scalar.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)); return a[0]; }
                 if (a[0].IsStruct)
                 {
@@ -1533,7 +1616,31 @@ namespace Calcpad.Core.Matlab
                 }
                 return s;
             };
-            _builtins["isstruct"] = a => new MValue(a[0].IsStruct ? 1 : 0);
+            _builtins["isstruct"]  = a => new MValue(a[0].IsStruct ? 1 : 0);
+            _builtins["isnumeric"] = a => new MValue((!a[0].IsStruct && !a[0].IsString) ? 1 : 0);
+            _builtins["ischar"]    = a => new MValue(a[0].IsString ? 1 : 0);
+            _builtins["isstring"]  = a => new MValue((a[0].IsDoubleQuoted || a[0].IsStringArray) ? 1 : 0);
+            _builtins["islogical"] = a => new MValue(!a[0].IsStruct && !a[0].IsString ? 1 : 0);
+            _builtins["isreal"]    = a => new MValue(!a[0].IsStruct && !a[0].IsString ? 1 : 0);
+            _builtins["isnan"]     = a => {
+                if (a[0].IsScalar) return new MValue(double.IsNaN(a[0].Scalar) ? 1 : 0);
+                var r = new MValue(a[0].Rows, a[0].Cols);
+                for (int i = 0; i < a[0].Data.Length; i++) r.Data[i] = double.IsNaN(a[0].Data[i]) ? 1 : 0;
+                return r;
+            };
+            _builtins["isinf"]     = a => {
+                if (a[0].IsScalar) return new MValue(double.IsInfinity(a[0].Scalar) ? 1 : 0);
+                var r = new MValue(a[0].Rows, a[0].Cols);
+                for (int i = 0; i < a[0].Data.Length; i++) r.Data[i] = double.IsInfinity(a[0].Data[i]) ? 1 : 0;
+                return r;
+            };
+            _builtins["isfinite"]  = a => {
+                if (a[0].IsScalar) return new MValue(double.IsFinite(a[0].Scalar) ? 1 : 0);
+                var r = new MValue(a[0].Rows, a[0].Cols);
+                for (int i = 0; i < a[0].Data.Length; i++) r.Data[i] = double.IsFinite(a[0].Data[i]) ? 1 : 0;
+                return r;
+            };
+            _builtins["iscell"]    = a => new MValue(0);  // cells no soportadas explicitamente
             _builtins["fieldnames"] = a => {
                 if (!a[0].IsStruct) return new MValue(0, 0);
                 var keys = a[0].Fields.Keys.ToArray();
@@ -1733,7 +1840,13 @@ namespace Calcpad.Core.Matlab
                 return MValue.NewStringArray(sArr);
             };
             _builtins["char"] = a => {
-                if (a[0].IsSymbolic) return new MValue(a[0].Symbolic.ToInfix());
+                if (a[0].IsSymbolic)
+                {
+                    // Para render HTML: envolver en sentinels PUA Unicode (..)
+                    // que MatlabPipeline reconoce al flushear dispBuffer y deja pasar
+                    // como HTML crudo (con clases CSS Calcpad: .dvc, .dvl, <sup>, etc).
+                    return new MValue("" + a[0].Symbolic.ToHtml() + "");
+                }
                 if (a[0].IsScalar)
                 {
                     // char(65) → 'A'
@@ -3062,13 +3175,24 @@ namespace Calcpad.Core.Matlab
                 return a[0];
             };
             _builtins["char"] = a => {
-                if (a[0].IsSymbolic) return new MValue(a[0].Symbolic.ToInfix());
+                if (a[0].IsSymbolic)
+                {
+                    // MATLAB Symbolic Toolbox: char(sym) devuelve la expresion
+                    // simplificada renderizada en HTML CSS (Calcpad-style).
+                    // Sentinels PUA () marcan el HTML para que MatlabPipeline
+                    // lo deje pasar sin escapar al flushear el dispBuffer.
+                    return new MValue("" + a[0].Symbolic.Simplify().ToHtml() + "");
+                }
                 if (a[0].IsScalar) return new MValue(((char)(int)a[0].Scalar).ToString());
                 return a[0];
             };
             _builtins["latex"] = a => {
-                // MVP: devuelve la forma infix string (no LaTeX real)
-                if (a[0].IsSymbolic) return new MValue(a[0].Symbolic.ToInfix());
+                // Convertir expresion simbolica a codigo LaTeX (compatible con MATLAB)
+                if (a[0].IsSymbolic)
+                {
+                    var simp = a[0].Symbolic.Simplify();
+                    return new MValue(simp.ToLatex());
+                }
                 return new MValue(a[0].ToString());
             };
             _builtins["int"] = a => {
@@ -3084,32 +3208,58 @@ namespace Calcpad.Core.Matlab
                 {
                     // ∫_a^b: integral definida
                     var antider = SymOps.Integrate(a[0].Symbolic, varName).Simplify();
-                    double valA = a[2].IsScalar ? a[2].Scalar :
-                                  (a[2].IsSymbolic && a[2].Symbolic is SymConst ca ? ca.Value : double.NaN);
-                    double valB = a[3].IsScalar ? a[3].Scalar :
-                                  (a[3].IsSymbolic && a[3].Symbolic is SymConst cb ? cb.Value : double.NaN);
-                    var bound = new Dictionary<string, double> { [varName] = valB };
-                    double Fb = antider.Eval(bound);
-                    bound[varName] = valA;
-                    double Fa = antider.Eval(bound);
-                    return new MValue(Fb - Fa);
+                    // Limites pueden ser numericos o simbolicos (e.g. int(f, x, 0, L))
+                    SymNode limA = a[2].IsSymbolic ? a[2].Symbolic : new SymConst(a[2].Scalar);
+                    SymNode limB = a[3].IsSymbolic ? a[3].Symbolic : new SymConst(a[3].Scalar);
+                    // F(b) - F(a) via Subs simbolico (preserva otras variables libres)
+                    var Fb_sym = antider.Subs(varName, limB).Simplify();
+                    var Fa_sym = antider.Subs(varName, limA).Simplify();
+                    var resultSym = new SymSub(Fb_sym, Fa_sym).Simplify();
+                    // Si todas las variables quedaron resueltas, retornar como escalar.
+                    // Si quedan variables libres (e.g. integral interior de doble), retornar simbolico.
+                    if (!HasFreeVars(resultSym))
+                    {
+                        try { return new MValue(resultSym.Eval(new Dictionary<string, double>())); }
+                        catch { /* fallback simbolico */ }
+                    }
+                    return MValue.NewSymbolic(resultSym);
                 }
                 return MValue.NewSymbolic(SymOps.Integrate(a[0].Symbolic, varName).Simplify());
             };
             _builtins["taylor"] = a => {
                 if (a.Length == 0 || !a[0].IsSymbolic)
-                    throw new MatlabRuntimeException("taylor(symExpr, var, x0, order)");
+                    throw new MatlabRuntimeException("taylor(symExpr [, var, x0, order])  o  taylor(f, 'Order', N)");
                 string varName = "x";
-                double x0 = 0;
-                int order = 5;
-                if (a.Length >= 2)
+                double x0Tay = 0;
+                int order = 5;   // default MATLAB
+                // Posicional simple: taylor(f, var, x0, order)
+                // Name-value pairs: taylor(f, 'Order', N, 'ExpansionPoint', p, 'Var', v)
+                int i = 1;
+                while (i < a.Length)
                 {
-                    if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
-                    else if (a[1].IsString) varName = a[1].StringValue;
+                    // Detectar name-value: si arg actual es string y hay siguiente
+                    if (a[i].IsString && i + 1 < a.Length)
+                    {
+                        var name = a[i].StringValue.ToLowerInvariant();
+                        if (name == "order")          { order = (int)a[i + 1].Scalar; i += 2; continue; }
+                        if (name == "expansionpoint" || name == "point") { x0Tay = a[i + 1].Scalar; i += 2; continue; }
+                        if (name == "var")            { varName = a[i + 1].StringValue; i += 2; continue; }
+                        // string que no es keyword conocido → varName (modo posicional)
+                        varName = a[i].StringValue; i++; continue;
+                    }
+                    // Symbolic var como posicional (varName)
+                    if (a[i].IsSymbolic && a[i].Symbolic is SymVar sv) { varName = sv.Name; i++; continue; }
+                    // Numerico posicional: primero x0, despues order
+                    if (a[i].IsScalar)
+                    {
+                        // Heuristica: si todavia no se seteo x0, usarlo; sino, order.
+                        if (i == 1 || (i == 2 && a[1].IsSymbolic)) { x0Tay = a[i].Scalar; }
+                        else { order = (int)a[i].Scalar; }
+                        i++; continue;
+                    }
+                    i++;
                 }
-                if (a.Length >= 3) x0 = a[2].IsScalar ? a[2].Scalar : 0;
-                if (a.Length >= 4) order = (int)a[3].Scalar;
-                return MValue.NewSymbolic(SymOps.TaylorExpand(a[0].Symbolic, varName, x0, order));
+                return MValue.NewSymbolic(SymOps.TaylorExpand(a[0].Symbolic, varName, x0Tay, order));
             };
             _builtins["solve"] = a => {
                 // solve(expr) → resuelve expr = 0 para 'x' default
@@ -3150,6 +3300,39 @@ namespace Calcpad.Core.Matlab
                 if (roots.Count == 0) return new MValue(0, 0);
                 return new MValue(roots.Count, 1, roots.ToArray());
             };
+            // factor(symExpr [, var]) — factoriza polinomio: p(x) = (x-r1)(x-r2)...
+            // Devuelve el PRODUCTO simbolico de factores (x - r_i) usando las raices
+            // reales obtenidas de SolvePoly. Equivalente al output de MATLAB
+            // factor() para polinomios con raices reales.
+            _builtins["factor"] = a => {
+                if (a.Length == 0 || !a[0].IsSymbolic)
+                    throw new MatlabRuntimeException("factor(symExpr [, var])");
+                string varFac = "x";
+                if (a.Length >= 2)
+                {
+                    if (a[1].IsSymbolic && a[1].Symbolic is SymVar svf) varFac = svf.Name;
+                    else if (a[1].IsString) varFac = a[1].StringValue;
+                }
+                var rootsFac = SymOps.SolvePoly(a[0].Symbolic, varFac);
+                if (rootsFac.Count == 0)
+                    return MValue.NewSymbolic(a[0].Symbolic);  // sin factores reales, devolver original
+                // Construir producto (x - r1)(x - r2)...
+                SymNode product = null;
+                foreach (var r in rootsFac)
+                {
+                    SymNode fact = new SymSub(new SymVar(varFac), new SymConst(r));
+                    product = (product == null) ? fact : new SymMul(product, fact);
+                }
+                return MValue.NewSymbolic(product.Simplify());
+            };
+
+            // Helper: chequea si el nodo simbolico tiene variables libres
+            // (intentando evaluar con scope vacio — si lanza, hay variables libres).
+            bool HasFreeVars(SymNode n)
+            {
+                try { n.Eval(new Dictionary<string, double>()); return false; }
+                catch { return true; }
+            }
 
             MValue SolveSystem(List<SymNode> eqs, List<string> vars)
             {
@@ -4607,6 +4790,41 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0, n = Math.Min(m.Rows, m.Cols); i < n; i++) s += m.At(i, i);
                 return new MValue(s);
             };
+            // diag(v)  -> matriz cuadrada con v en la diagonal (vector -> matriz)
+            // diag(A)  -> vector columna con la diagonal de A (matriz -> vector)
+            _builtins["diag"] = a => {
+                var x = a[0];
+                int k = a.Length >= 2 ? (int)a[1].Scalar : 0;
+                if (x.IsScalar)
+                {
+                    var mOut = new MValue(1, 1); mOut.Data[0] = x.Scalar; return mOut;
+                }
+                // vector -> matriz diagonal
+                if (x.Rows == 1 || x.Cols == 1)
+                {
+                    int len = x.Data.Length;
+                    int sz = len + Math.Abs(k);
+                    var d = new MValue(sz, sz);
+                    for (int i = 0; i < len; i++)
+                    {
+                        int row = k >= 0 ? i : i - k;
+                        int col = k >= 0 ? i + k : i;
+                        d.Set(row, col, x.Data[i]);
+                    }
+                    return d;
+                }
+                // matriz -> vector con la diagonal
+                int n = k >= 0 ? Math.Min(x.Rows, x.Cols - k) : Math.Min(x.Rows + k, x.Cols);
+                if (n <= 0) return new MValue(0, 0);
+                var v = new MValue(n, 1);
+                for (int i = 0; i < n; i++)
+                {
+                    int row = k >= 0 ? i : i - k;
+                    int col = k >= 0 ? i + k : i;
+                    v.Data[i] = x.At(row, col);
+                }
+                return v;
+            };
             _builtins["find"] = a => {
                 var src = a[0];
                 var hits = new List<double>();
@@ -5063,8 +5281,25 @@ namespace Calcpad.Core.Matlab
         private static MValue MakeFill(MValue[] a, double fill)
         {
             int rows = 1, cols = 1;
-            if (a.Length == 1) { rows = (int)a[0].Scalar; cols = rows; }
-            else if (a.Length >= 2) { rows = (int)a[0].Scalar; cols = (int)a[1].Scalar; }
+            if (a.Length == 1)
+            {
+                // Soporta zeros([m, n]) / ones(size(X)) — vector como single arg
+                if (a[0].Data.Length >= 2 && !a[0].IsScalar)
+                {
+                    rows = (int)a[0].Data[0];
+                    cols = (int)a[0].Data[1];
+                }
+                else
+                {
+                    rows = (int)a[0].Scalar;
+                    cols = rows;
+                }
+            }
+            else if (a.Length >= 2)
+            {
+                rows = (int)a[0].Scalar;
+                cols = (int)a[1].Scalar;
+            }
             var r = new MValue(rows, cols);
             if (fill != 0)
                 for (int i = 0; i < r.Data.Length; i++) r.Data[i] = fill;
@@ -5706,6 +5941,9 @@ namespace Calcpad.Core.Matlab
             _currentFunctionName = def.Name;
             for (int i = 0; i < def.ParamNames.Count && i < args.Length; i++)
                 local.Set(def.ParamNames[i], args[i]);
+            // MATLAB nargin / nargout dentro de la función
+            local.Set("nargin",  new MValue(args.Length));
+            local.Set("nargout", new MValue(def.OutputNames.Count));
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { /* early return ok */ }
             // Flush persistent vars de vuelta a storage
@@ -5725,6 +5963,9 @@ namespace Calcpad.Core.Matlab
             _currentFunctionName = def.Name;
             for (int i = 0; i < def.ParamNames.Count && i < args.Length; i++)
                 local.Set(def.ParamNames[i], args[i]);
+            // MATLAB nargin / nargout dentro de la función
+            local.Set("nargin",  new MValue(args.Length));
+            local.Set("nargout", new MValue(def.OutputNames.Count));
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { }
             foreach (var kv in local.Vars)
@@ -6240,6 +6481,25 @@ namespace Calcpad.Core.Matlab
         }
         private MValue EvalBinary(BinaryOp b, MatlabScope scope)
         {
+            // ── Short-circuit logical operators (MATLAB semantics) ──────────
+            // `&&` / `||` MUST NOT evaluate the right operand when the result is
+            // determined by the left. Critical for patterns like
+            //   if isfield(s, 'x') && ~isempty(s.x)
+            // where evaluating s.x would throw when the field is absent.
+            if (b.Op == "&&")
+            {
+                var lSC = Eval(b.Left, scope);
+                if (!lSC.IsScalar || lSC.Scalar == 0) return new MValue(0);
+                var rSC = Eval(b.Right, scope);
+                return new MValue((rSC.IsScalar && rSC.Scalar != 0) ? 1 : 0);
+            }
+            if (b.Op == "||")
+            {
+                var lSC = Eval(b.Left, scope);
+                if (lSC.IsScalar && lSC.Scalar != 0) return new MValue(1);
+                var rSC = Eval(b.Right, scope);
+                return new MValue((rSC.IsScalar && rSC.Scalar != 0) ? 1 : 0);
+            }
             var l = Eval(b.Left, scope);
             var r = Eval(b.Right, scope);
             // ── OOP operator overloading ────────────────────────────────────
@@ -6274,6 +6534,9 @@ namespace Calcpad.Core.Matlab
                     "*" or ".*" => new SymMul(L, R),
                     "/" or "./" => new SymDiv(L, R),
                     "^" or ".^" => new SymPow(L, R),
+                    // MATLAB syntax: f == g se interpreta como ecuacion f - g = 0
+                    // (forma implicita usada por solve()). Idem ~= en ese contexto.
+                    "==" or "~=" => new SymSub(L, R),
                     _ => throw new MatlabRuntimeException($"Symbolic op '{b.Op}' not supported")
                 };
                 return MValue.NewSymbolic(result.Simplify());
@@ -6996,6 +7259,51 @@ namespace Calcpad.Core.Matlab
                 }
                 allPieces.Add(pieces);
             }
+            // Single-quoted char-array concatenation: ['a' 'b'] → 'ab',
+            // ['linea 1\n' 'linea 2\n'] → string concatenado (patrón MATLAB
+            // estándar para construir formatos de fprintf multilinea).
+            // Solo aplica si TODAS las piezas son strings single-quoted
+            // (no double, no simbólicas, no numéricas).
+            if (!hasSym && !hasStringDouble)
+            {
+                bool allSingleStr = allPieces.Count > 0;
+                foreach (var row in allPieces)
+                {
+                    foreach (var p in row)
+                    {
+                        if (!p.IsString || p.IsDoubleQuoted) { allSingleStr = false; break; }
+                    }
+                    if (!allSingleStr) break;
+                }
+                if (allSingleStr)
+                {
+                    if (allPieces.Count == 1)
+                    {
+                        // Una fila: concatenar horizontalmente → un solo string
+                        var sb = new StringBuilder();
+                        foreach (var p in allPieces[0]) sb.Append(p.StringValue);
+                        return new MValue(sb.ToString());
+                    }
+                    // Múltiples filas: char matrix. Cada fila debe tener mismo
+                    // ancho (MATLAB exige esto y tira error si difieren).
+                    var rowStrings = new List<string>();
+                    foreach (var row in allPieces)
+                    {
+                        var sb = new StringBuilder();
+                        foreach (var p in row) sb.Append(p.StringValue);
+                        rowStrings.Add(sb.ToString());
+                    }
+                    int len0 = rowStrings[0].Length;
+                    foreach (var rs in rowStrings)
+                        if (rs.Length != len0)
+                            throw new MatlabRuntimeException(
+                                "Vertical dimensions of char arrays being concatenated are not consistent");
+                    var sArr = new string[rowStrings.Count, 1];
+                    for (int i = 0; i < rowStrings.Count; i++) sArr[i, 0] = rowStrings[i];
+                    return MValue.NewStringArray(sArr);
+                }
+            }
+
             // String array literal: ["a", "b"; "c", "d"] → string[,]
             if (hasStringDouble && !hasSym)
             {

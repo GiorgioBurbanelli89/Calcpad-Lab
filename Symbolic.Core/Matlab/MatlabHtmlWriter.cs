@@ -32,6 +32,8 @@ namespace Calcpad.Core.Matlab
                     sb.Append("<span class=\"eq\">");
                     RenderAssignmentLhs(sb, asg);
                     sb.Append(" = ");
+                    // Mostrar LHS de la formula (con notacion matematica nativa para
+                    // diff/int/limit/taylor/subs) Y el resultado final, separados por '='.
                     sb.Append(RenderExpression(asg.Rhs));
                     if (!IsTrivialAssignment(asg))
                     {
@@ -99,7 +101,7 @@ namespace Calcpad.Core.Matlab
         {
             if (v == null) return "<i>(undefined)</i>";
             if (v.IsCallable) return $"<i style=\"color:#666\">{HttpUtility.HtmlEncode(v.CallableName ?? "@function_handle")}</i>";
-            if (v.IsSymbolic) return $"<span style=\"color:#5d2b8a;font-style:italic\">{HttpUtility.HtmlEncode(v.Symbolic.ToInfix())}</span>";
+            if (v.IsSymbolic) return v.Symbolic.ToHtml();
             if (v.IsStringArray)
             {
                 int srA = v.StringArrayData.GetLength(0), scA = v.StringArrayData.GetLength(1);
@@ -332,6 +334,21 @@ namespace Calcpad.Core.Matlab
             // Si RHS es literal puro (número, string, matrix de números), no duplicar valor.
             return IsTrivialLiteral(asg.Rhs);
         }
+        /// <summary>True si el RHS es una llamada a funcion simbolica builtin (diff, int,
+        /// expand, factor, simplify, solve, taylor, limit, subs, dsolve, laplace, fourier).
+        /// En ese caso preferimos mostrar SOLO el resultado simbolico, sin repetir la
+        /// llamada de la funcion — comportamiento MATLAB Symbolic Toolbox.</summary>
+        private static bool IsSymbolicFunctionCall(MatlabNode n)
+        {
+            if (n is CallOrIndex c && c.Target is IdentRef id)
+            {
+                return id.Name is "diff" or "int" or "expand" or "factor"
+                    or "simplify" or "solve" or "taylor" or "limit" or "subs"
+                    or "dsolve" or "laplace" or "fourier" or "trigsimplify"
+                    or "collect" or "coeffs";
+            }
+            return false;
+        }
         /// <summary>True si el nodo es un literal cuyo render visual coincidirá exactamente
         /// con el render del valor evaluado (i.e., no hay nada que "calcular").</summary>
         private static bool IsTrivialLiteral(MatlabNode n)
@@ -384,7 +401,7 @@ namespace Calcpad.Core.Matlab
                     ? $"\"<span class=\"str\" style=\"color:#0a6e3a\">{HttpUtility.HtmlEncode(s.Value)}</span>\""
                     : $"'<span class=\"str\">{HttpUtility.HtmlEncode(s.Value)}</span>'",
                 IdentRef id => IsCommonBuiltin(id.Name)
-                    ? $"<b>{HttpUtility.HtmlEncode(id.Name)}</b>"
+                    ? $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{HttpUtility.HtmlEncode(id.Name)}</span>"
                     : RenderIdentName(id.Name),
                 UnaryOp u => RenderUnary(u),
                 BinaryOp b => RenderBinary(b),
@@ -520,8 +537,15 @@ namespace Calcpad.Core.Matlab
             }
             var l = Render(b.Left, rightAssoc: false);
             var r = Render(b.Right, rightAssoc: true);
-            string sep = (b.Op == "*" || b.Op == "/" || b.Op == "^") ? "" : " ";
-            return $"{l}{sep}{b.Op}{sep}{r}";
+            // Render bonito: * y .* como middle dot (Calcpad style)
+            string opRender = b.Op switch
+            {
+                "*"  => "&middot;",
+                ".*" => "&middot;",
+                _    => b.Op,
+            };
+            string sep = (b.Op == "*" || b.Op == ".*" || b.Op == "/" || b.Op == "^") ? "" : " ";
+            return $"{l}{sep}{opRender}{sep}{r}";
         }
         /// <summary>Precedencia MATLAB para rendering — más alto = más fuerte.</summary>
         private static int OpPrecedence(string op) => op switch
@@ -536,6 +560,80 @@ namespace Calcpad.Core.Matlab
         };
         private static string RenderCall(CallOrIndex c)
         {
+            // ── Notacion matematica nativa Calcpad para funciones simbolicas ──
+            // diff(f, x)     -> d/dx · f      (Leibniz fraction)
+            // diff(f, x, n)  -> d^n/dx^n · f
+            // int(f, x)      -> ∫ f dx        (nary symbol)
+            // int(f, x, a, b)-> ∫_a^b f dx
+            // limit(f, x, c) -> lim_{x→c} f
+            if (PrettyMath && c.Target is IdentRef symFn)
+            {
+                string fname = symFn.Name;
+                // diff
+                if (fname == "diff" && c.Args.Count >= 2)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    var vExpr = RenderExpression(c.Args[1]);
+                    string num, den;
+                    if (c.Args.Count >= 3 && c.Args[2] is NumberLit nlit && nlit.Value >= 2)
+                    {
+                        int n = (int)nlit.Value;
+                        num = $"d<sup>{n}</sup>";
+                        den = $"d{vExpr}<sup>{n}</sup>";
+                    }
+                    else { num = "d"; den = $"d{vExpr}"; }
+                    return $"<span class=\"dvc\"><span class=\"dvc-num\">{num}</span><span class=\"dvl\"></span><span class=\"dvc-den\">{den}</span></span>&thinsp;{fExpr}";
+                }
+                // int (indefinida o definida)
+                if (fname == "int" && c.Args.Count >= 2)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    var vExpr = RenderExpression(c.Args[1]);
+                    string sup = "", sub = "";
+                    if (c.Args.Count >= 4)
+                    {
+                        sub = RenderExpression(c.Args[2]);
+                        sup = RenderExpression(c.Args[3]);
+                    }
+                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\">&int;</span><small>{sub}</small></span>{fExpr}&thinsp;d{vExpr}";
+                }
+                // limit(f, x, c)
+                if (fname == "limit" && c.Args.Count >= 3)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    var vExpr = RenderExpression(c.Args[1]);
+                    var cExpr = RenderExpression(c.Args[2]);
+                    return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;color:#7c2bb2\">lim</span><sub>{vExpr}&rarr;{cExpr}</sub>&thinsp;{fExpr}";
+                }
+                // taylor(f, ...) — display como T_n(f) con subscript del orden
+                if (fname == "taylor" && c.Args.Count >= 1)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    // Buscar 'Order' keyword o tercer arg numerico
+                    string orderHtml = "";
+                    for (int i = 1; i < c.Args.Count - 1; i++)
+                    {
+                        if (c.Args[i] is StringLit sl && sl.Value.Equals("Order", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            orderHtml = RenderExpression(c.Args[i + 1]);
+                            break;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(orderHtml) && c.Args.Count >= 4)
+                        orderHtml = RenderExpression(c.Args[3]);
+                    string sub = string.IsNullOrEmpty(orderHtml) ? "" : $"<sub>{orderHtml}</sub>";
+                    return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;color:#7c2bb2\">T</span>{sub}({fExpr})";
+                }
+                // subs(f, x, val) -> f|_{x=val}
+                if (fname == "subs" && c.Args.Count >= 3)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    var vExpr = RenderExpression(c.Args[1]);
+                    var valExpr = RenderExpression(c.Args[2]);
+                    return $"{fExpr}<sub>|&thinsp;{vExpr}={valExpr}</sub>";
+                }
+                // solve(f, x) -> {x : f=0} o solve sin notacion especial (mantener call style)
+            }
             // Pretty-print de funciones especiales: sqrt → símbolo √ con vinculum
             if (PrettyMath && c.Target is IdentRef pid && c.Args.Count == 1)
             {
@@ -558,11 +656,12 @@ namespace Calcpad.Core.Matlab
                 return $"<span class=\"o0\"><sup style=\"font-size:.7em\">{n}</sup><span class=\"r\">√</span>&hairsp;{x}</span>";
             }
             var sb = new StringBuilder();
-            // Nombre — bold si es función (heurística: builtins comunes)
+            // Funciones builtin: sans-serif bold morado para diferenciacion clara
+            // de variables (que estan en italic serif).
             if (c.Target is IdentRef id)
             {
                 if (IsCommonBuiltin(id.Name))
-                    sb.Append($"<b>{HttpUtility.HtmlEncode(id.Name)}</b>");
+                    sb.Append($"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{HttpUtility.HtmlEncode(id.Name)}</span>");
                 else
                     sb.Append($"<var>{HttpUtility.HtmlEncode(id.Name)}</var>");
             }
@@ -653,6 +752,10 @@ namespace Calcpad.Core.Matlab
             or "upper" or "lower"
             // Higher-order
             or "feval" or "arrayfun" or "cellfun" or "structfun" or "map"
+            // Simbolicos
+            or "syms" or "expand" or "simplify" or "factor" or "solve" or "subs"
+            or "int" or "taylor" or "limit" or "dsolve" or "laplace" or "fourier"
+            or "trigsimplify" or "collect" or "coeffs"
             // Optim/interp/sigproc
             or "fzero" or "fminbnd" or "fminsearch" or "spline" or "pchip" or "polyfit" or "polyval" or "roots"
             or "trapz" or "cumtrapz" or "gradient" or "conv" or "filter"

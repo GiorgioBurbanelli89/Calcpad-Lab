@@ -105,10 +105,15 @@ namespace Calcpad.Core.Matlab
                     sb.Append($"<p class=\"err\" id=\"line-{stmtLine}\">Internal error: {System.Net.WebUtility.HtmlEncode(ex.Message)} (line {LineLink(stmtLine)})</p>\n");
                     continue;
                 }
-                // Flush disp buffer
+                // Flush disp buffer.
+                // Importante: NO usar <pre> (fuerza monospace del navegador y rompe
+                // el Georgia Pro del template, además anula los colores `.eq var`,
+                // `.eq i`, `.eq sub` definidos en template.html). Usar un <span>
+                // con white-space:pre-wrap para preservar los espacios sin perder
+                // la familia tipográfica heredada de .eq.
                 if (dispBuffer.Length > 0)
                 {
-                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><pre style=\"display:inline\">{System.Net.WebUtility.HtmlEncode(dispBuffer.ToString().TrimEnd())}</pre></span></p>\n");
+                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{EncodeWithHtmlSegments(dispBuffer.ToString().TrimEnd())}</span></span></p>\n");
                     dispBuffer.Clear();
                 }
                 // Render del statement (incluye el comando como fórmula)
@@ -182,6 +187,117 @@ namespace Calcpad.Core.Matlab
         public void Reset()
         {
             _evaluator.Globals.Vars.Clear();
+        }
+
+        // Sentinels PUA (Private Use Area) que char(symbolic) usa para marcar
+        // segmentos HTML pre-renderizados que NO deben ser escapados al flush.
+        private const char HtmlStart = '';
+        private const char HtmlEnd   = '';
+
+        /// <summary>
+        /// HtmlEncode selectivo: escapa todo el texto SALVO los segmentos
+        /// delimitados por ... (HTML pre-renderizado del simbólico).
+        /// </summary>
+        private static string EncodeWithHtmlSegments(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw ?? string.Empty;
+            if (raw.IndexOf(HtmlStart) < 0)
+                return BeautifyMath(System.Net.WebUtility.HtmlEncode(raw));
+
+            var outSb = new StringBuilder(raw.Length + 32);
+            int i = 0;
+            while (i < raw.Length)
+            {
+                int start = raw.IndexOf(HtmlStart, i);
+                if (start < 0)
+                {
+                    outSb.Append(BeautifyMath(System.Net.WebUtility.HtmlEncode(raw.Substring(i))));
+                    break;
+                }
+                if (start > i)
+                    outSb.Append(BeautifyMath(System.Net.WebUtility.HtmlEncode(raw.Substring(i, start - i))));
+                int end = raw.IndexOf(HtmlEnd, start + 1);
+                if (end < 0)
+                {
+                    // Sentinel sin cierre: tratar como texto literal
+                    outSb.Append(BeautifyMath(System.Net.WebUtility.HtmlEncode(raw.Substring(start))));
+                    break;
+                }
+                // Insertar HTML crudo entre sentinels (sin escapar)
+                outSb.Append(raw.AsSpan(start + 1, end - start - 1));
+                i = end + 1;
+            }
+            return outSb.ToString();
+        }
+
+        // Unidades comunes (orden importa: compuestas primero)
+        private static readonly string[] UnitTokens = new[] {
+            "kN\\*m", "N\\*m", "kN/m", "N/m",
+            "mm\\^4", "cm\\^4", "m\\^4", "cm\\^3", "m\\^3", "mm\\^3", "cm\\^2", "m\\^2", "mm\\^2",
+            "GPa", "MPa", "kPa", "Pa", "kN", "kg", "kJ", "J", "Hz",
+            "mm", "cm", "km", "m", "s", "rad", "deg",
+            "N"
+        };
+
+        private static readonly System.Text.RegularExpressions.Regex UnitRegex =
+            new(@"(?<![A-Za-z])(" + string.Join("|", UnitTokens) + @")(?![A-Za-z])",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        // Subíndice estilo MATLAB: ident_word
+        private static readonly System.Text.RegularExpressions.Regex SubscriptRegex =
+            new(@"\b([A-Za-z][A-Za-z]{0,9})_([A-Za-z][A-Za-z0-9]{0,9})\b",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        // Letra suelta o palabra griega corta (variable matemática).
+        // Excluye `a, y, o` para evitar capturar conjunciones/artículos españoles
+        // en frases descriptivas ("Diseno a flexion", "Bornes a y b").
+        private static readonly System.Text.RegularExpressions.Regex LooseVarRegex =
+            new(@"(?<![A-Za-z0-9<>/""=])(alpha|beta|gamma|delta|epsilon|zeta|eta|theta|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|phi|chi|psi|omega|[B-DF-NP-XZb-df-np-xz]|[Ee]|[Ii]|[Uu])(?![A-Za-z0-9])",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        // ^N (exponente entero)
+        private static readonly System.Text.RegularExpressions.Regex PowerRegex =
+            new(@"(?<=</var>|</sub>|\)|\d)\^(\d+)",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        // `*` entre tokens math → middle dot
+        private static readonly System.Text.RegularExpressions.Regex MulRegex =
+            new(@"(?<=</var>|</sub>|</sup>|\d)\*(?=<var\b|<i\b|<sup\b|\d)",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Post-procesa texto HTML-escapado para detectar patrones matemáticos
+        /// (subíndices, variables, unidades, exponentes) y aplicarles el CSS
+        /// Calcpad. Conservador: solo transforma patrones inequívocos.
+        /// </summary>
+        private static string BeautifyMath(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s ?? string.Empty;
+
+            // 1) Unidades primero — antes de que cualquier `^N` o variable interfiera
+            s = UnitRegex.Replace(s, m =>
+            {
+                var u = m.Value
+                    .Replace("*", "&middot;")
+                    .Replace("^4", "<sup>4</sup>")
+                    .Replace("^3", "<sup>3</sup>")
+                    .Replace("^2", "<sup>2</sup>");
+                return $"<i class=\"unit\">{u}</i>";
+            });
+
+            // 2) Subíndices: ident_word → <var>ident<sub>word</sub></var>
+            s = SubscriptRegex.Replace(s, "<var>$1<sub>$2</sub></var>");
+
+            // 3) Variables sueltas: letra única o griega → <var>X</var>
+            s = LooseVarRegex.Replace(s, "<var>$1</var>");
+
+            // 4) Exponentes: ^N tras var/sub/sup/dígito/)
+            s = PowerRegex.Replace(s, "<sup>$1</sup>");
+
+            // 5) `*` entre tokens math → &middot;
+            s = MulRegex.Replace(s, "&middot;");
+
+            return s;
         }
     }
 }

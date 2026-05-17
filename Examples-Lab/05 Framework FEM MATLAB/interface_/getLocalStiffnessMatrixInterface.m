@@ -1,0 +1,95 @@
+% ============================================================
+%  Demo: junta Goodman 1968 horizontal de 4 m, kn=1e5, ks=1e4
+%  Geometria: 4 nodos (top: 1,2 / bottom: 4,3 - zero-thickness)
+% ============================================================
+coords_demo = [0, 0, 0;
+               4, 0, 0;
+               4, 0, 0;
+               0, 0, 0];
+
+mat_demo = struct('kn', 1e5, 'ks', 1e4);
+
+K = getLocalStiffnessMatrixInterface(coords_demo, mat_demo);
+
+fprintf('--- Interface Goodman 1968 (junta 4 m) ---\n');
+fprintf('  size(K) = %dx%d   (esperado 12x12)\n', size(K,1), size(K,2));
+fprintf('  K(1,1)  = %.4e    (rigidez normal kn*L/3 simetrico)\n', K(1,1));
+fprintf('  K(2,2)  = %.4e    (rigidez corte ks*L/3 simetrico)\n', K(2,2));
+
+% Verificacion analitica: para B^T D B integrado en 2 Gauss,
+% el bloque diagonal es D * L * (N1^2 + N2^2 medio) ~= D * L/3
+kn_demo = mat_demo.kn;
+L_demo = 4;
+K11_teorico = kn_demo * L_demo / 3
+K22_teorico = mat_demo.ks * L_demo / 3
+
+% Echo matematico
+N_dofs = size(K, 1)
+K_11 = K(1, 1)
+K_22 = K(2, 2)
+
+% ============================================================
+%  Definicion de la funcion
+% ============================================================
+function K = getLocalStiffnessMatrixInterface(coords, mat)
+% getLocalStiffnessMatrixInterface  -  Elemento de interface Goodman 1968
+% -------------------------------------------------------------------------
+% Elemento Q4 "zero-thickness" para representar discontinuidades:
+%   - interface losa-suelo (Winkler distribuido)
+%   - junta entre dos solidos (suelo-roca, suelo-muro)
+%   - despegue zapata-suelo
+%
+% Goodman, Taylor & Brekke (1968) - "A model for the mechanics of jointed rock"
+%
+% El elemento tiene 4 nodos: 2 sobre la superficie superior (1,2) y 2 sobre
+% la inferior (3,4). DOF por nodo: solo traslaciones (ux, uy, uz) = 3.
+%
+% Total DOF: 12. La rigidez es:
+%
+%    K = integral B^T D B dA
+%
+% donde:
+%    D = diag(kn, ks_x, ks_y)   con kn = rigidez normal, ks = corte
+%    B  = matriz que da el "salto" relativo top-bottom
+%
+% Tipico:
+%   kn = E_subgrade / h   (h espesor representativo)
+%   ks = G_subgrade / h
+% -------------------------------------------------------------------------
+
+    % Material: rigideces por unidad de area (no por volumen)
+    kn = mat.kn;          % normal
+    ksx = mat.ks;         % corte x
+    ksy = mat.ks;         % corte y
+    D   = diag([kn, ksx, ksy]);
+
+    % Area "media" del Q4 (usamos la geometria de la cara superior solamente).
+    % Los nodos 1,2,3,4 estan en (top1, top2, bot2, bot1) idealmente coincidentes.
+    % Asumimos coords(1:2,:) = top, coords(3:4,:) = bottom.
+    topCoords = coords(1:2, :);
+    % Para una linea (2 nodos en 2D) el "area por unidad de profundidad" es L.
+    L = norm(topCoords(2,:) - topCoords(1,:));
+
+    % Integracion 2 puntos de Gauss a lo largo del lado
+    g = 1/sqrt(3);
+    gp = [-g; g];
+
+    K = zeros(12, 12);
+
+    for k = 1:2
+        xi = gp(k);
+        % N1 = (1-xi)/2,  N2 = (1+xi)/2
+        N1 = 0.5*(1 - xi);
+        N2 = 0.5*(1 + xi);
+
+        % Matriz B: salto entre top y bottom interpolado por N1, N2
+        % DOFs: [u1 v1 w1   u2 v2 w2   u3 v3 w3   u4 v4 w4]
+        % Salto = top - bottom = (N1*u1 + N2*u2) - (N1*u4 + N2*u3)
+        %       ojo orden: nodo3 bajo nodo2, nodo4 bajo nodo1 (convencion)
+        I3 = eye(3);
+        B  = [ N1*I3, N2*I3, -N2*I3, -N1*I3 ];
+
+        % det(J) en 1D = L/2
+        K = K + B.' * D * B * (L/2);
+    end
+end

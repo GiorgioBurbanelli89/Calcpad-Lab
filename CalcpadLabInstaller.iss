@@ -2,7 +2,7 @@
 ; Genera un instalador setup.exe
 
 #define MyAppName "Calcpad-Lab"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.5"
 #define MyAppPublisher "Jorge Burbano"
 #define MyAppURL "https://github.com/GiorgioBurbanelli89/Calcpad-Lab"
 #define MyAppExeName "CalcpadLab.exe"
@@ -38,28 +38,30 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "fileassoc_m"; Description: "Asociar archivos .m (MATLAB) con Calcpad-Lab"; GroupDescription: "Asociaciones de archivo:"
 Name: "fileassoc_cpd"; Description: "Asociar archivos .cpd con Calcpad-Lab"; GroupDescription: "Asociaciones de archivo:"; Flags: unchecked
 
+[InstallDelete]
+; Limpiar Examples viejos antes de copiar — evita que queden .m huérfanos de
+; versiones anteriores (ej. fem_demo.m híbrido roto).
+Type: filesandordirs; Name: "{app}\Examples"
+
 [Files]
 ; Application files — self-contained .NET 10 publish
 Source: "{#MyAppPublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
-; Examples — in Documents folder
-Source: "Examples\Algebra Lineal\*"; DestDir: "{userdocs}\Calcpad-Lab\Examples\Algebra Lineal"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist; Excludes: "*.html"
-Source: "Examples\Cálculo\*"; DestDir: "{userdocs}\Calcpad-Lab\Examples\Cálculo"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist; Excludes: "*.html"
-Source: "Examples\Mecánica\*"; DestDir: "{userdocs}\Calcpad-Lab\Examples\Mecánica"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist; Excludes: "*.html"
-Source: "Examples\Finite Elements\*"; DestDir: "{userdocs}\Calcpad-Lab\Examples\Finite Elements"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist; Excludes: "*.html"
-Source: "Examples\Demos\*"; DestDir: "{userdocs}\Calcpad-Lab\Examples\Demos"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist; Excludes: "*.html"
+; Examples — scripts .m (MATLAB) bundleados en {app}\Examples.
+; La app al primer arranque los copia a {userdocs}\Calcpad-Lab\Examples del usuario real
+; (evita el problema de install elevado donde {userdocs} apunta al admin).
+Source: "Examples-Lab\*"; DestDir: "{app}\Examples"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 
 ; Documentation
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
-Name: "{userdocs}\Calcpad-Lab"; Flags: uninsalwaysuninstall
-Name: "{userdocs}\Calcpad-Lab\Examples"; Flags: uninsalwaysuninstall
+; (La app crea {userdocs}\Calcpad-Lab\Examples en el primer arranque del usuario real.)
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\Examples"; Filename: "{userdocs}\Calcpad-Lab\Examples"
+Name: "{group}\Examples (bundleados)"; Filename: "{app}\Examples"
 Name: "{group}\{cm:ProgramOnTheWeb,{#MyAppName}}"; Filename: "{#MyAppURL}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon

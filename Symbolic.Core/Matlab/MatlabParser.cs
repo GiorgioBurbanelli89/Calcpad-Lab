@@ -607,7 +607,8 @@ namespace Calcpad.Core.Matlab
                 var k = Peek().Kind;
                 if (k == MatlabTokenKind.Semicolon) { suppressed = true; Consume(); continue; }
                 if (k == MatlabTokenKind.Comma || k == MatlabTokenKind.Newline) { Consume(); continue; }
-                if (k == MatlabTokenKind.Comment) { Consume(); continue; }
+                // NO consumir Comment tokens aqui — cada comment debe ser su propio
+                // CommentStmt para que aparezca como texto narrativo en el output HTML.
                 break;
             }
             return suppressed;

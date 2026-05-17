@@ -171,14 +171,18 @@ namespace Calcpad.Core.Matlab
                     int startCol = col;
                     int j = i + 1;
                     var sb = new System.Text.StringBuilder();
-                    while (j < n && source[j] != '"')
+                    while (j < n)
                     {
-                        // double-quote escape: ""
-                        if (source[j] == '"' && j + 1 < n && source[j + 1] == '"')
+                        if (source[j] == '"')
                         {
-                            sb.Append('"');
-                            j += 2;
-                            continue;
+                            // double-quote escape: ""
+                            if (j + 1 < n && source[j + 1] == '"')
+                            {
+                                sb.Append('"');
+                                j += 2;
+                                continue;
+                            }
+                            break; // fin de string
                         }
                         if (source[j] == '\n') throw new MatlabParseException("Unterminated string", line, col);
                         sb.Append(source[j]);
@@ -207,13 +211,18 @@ namespace Calcpad.Core.Matlab
                     int startCol = col;
                     int j = i + 1;
                     var sb = new System.Text.StringBuilder();
-                    while (j < n && source[j] != '\'')
+                    while (j < n)
                     {
-                        if (source[j] == '\'' && j + 1 < n && source[j + 1] == '\'')
+                        if (source[j] == '\'')
                         {
-                            sb.Append('\'');
-                            j += 2;
-                            continue;
+                            // single-quote escape MATLAB: '' dentro de '...' → comilla literal
+                            if (j + 1 < n && source[j + 1] == '\'')
+                            {
+                                sb.Append('\'');
+                                j += 2;
+                                continue;
+                            }
+                            break; // fin de string
                         }
                         if (source[j] == '\n') throw new MatlabParseException("Unterminated char-array", line, col);
                         sb.Append(source[j]);

@@ -351,14 +351,40 @@ namespace Calcpad.Wpf
         {
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             {
-                DocumentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\Calcpad-Symbolic";
+                DocumentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\Calcpad-Lab";
                 if (!Directory.Exists(DocumentPath))
                     Directory.CreateDirectory(DocumentPath);
+
+                // Sync de Examples: copia los Examples bundleados (en {app}\Examples)
+                // al perfil del usuario. La copia es ADITIVA — overwrite:false en
+                // CopyDirectoryRecursive — así los archivos que el usuario haya
+                // editado o agregado se conservan, pero los faltantes (ej. nuevas
+                // carpetas de un upgrade) se agregan.
+                // Anteriormente solo copiaba si la carpeta destino estaba vacía,
+                // pero eso fallaba cuando había subcarpetas vacías de un install
+                // previo (ej. 01 Demos creada pero sin archivos).
+                try
+                {
+                    var userExamples = Path.Combine(DocumentPath, "Examples");
+                    var bundledExamples = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Examples");
+                    if (Directory.Exists(bundledExamples))
+                        CopyDirectoryRecursive(bundledExamples, userExamples);
+                }
+                catch { /* silencioso: si no se puede copiar, el usuario puede abrir desde {app}\Examples */ }
             }
             else
                 DocumentPath = path;
 
             Directory.SetCurrentDirectory(DocumentPath);
+        }
+
+        private static void CopyDirectoryRecursive(string source, string dest)
+        {
+            Directory.CreateDirectory(dest);
+            foreach (var f in Directory.EnumerateFiles(source))
+                File.Copy(f, Path.Combine(dest, Path.GetFileName(f)), overwrite: false);
+            foreach (var d in Directory.EnumerateDirectories(source))
+                CopyDirectoryRecursive(d, Path.Combine(dest, Path.GetFileName(d)));
         }
 
         private void ForceHighlight()
@@ -4116,20 +4142,36 @@ namespace Calcpad.Wpf
 
         private async void Window_ContentRendered(object sender, EventArgs e)
         {
-            StartupMark("Window_ContentRendered: start");
-            // Optimización: iniciar WebView2 init EN BACKGROUND (es async, no necesitamos
-            // bloquearnos en él). Mientras WebView2 carga (1+ s), cargamos el archivo
-            // y ejecutamos highlight + setup. Después esperamos el WebView2 antes de Navigate.
-            var webViewInitTask = InitializeWebViewer();
-            StartupMark("Window_ContentRendered: WebView2 init started in background");
-            // Permitir que TryOpenOnStartup detecte que WebView2 puede no estar listo
-            _webViewInitTask = webViewInitTask;
-            TryOpenOnStartup();
-            await webViewInitTask;
-            StartupMark("Window_ContentRendered: WebView2 init awaited");
-            TryRestoreState();
-            RichTextBox.Focus();
-            Keyboard.Focus(RichTextBox);
+            try
+            {
+                StartupMark("Window_ContentRendered: start");
+                // Iniciar WebView2 init y ESPERARLO antes de cualquier Navigate.
+                // Si no, TryOpenOnStartup → ShowHelp → WebView2Wrapper.Navigate
+                // tira NullReferenceException porque _wv2.CoreWebView2 todavía es null.
+                var webViewInitTask = InitializeWebViewer();
+                StartupMark("Window_ContentRendered: WebView2 init started");
+                _webViewInitTask = webViewInitTask;
+                await webViewInitTask;
+                StartupMark("Window_ContentRendered: WebView2 init awaited");
+                TryOpenOnStartup();
+                StartupMark("Window_ContentRendered: TryOpenOnStartup done");
+                TryRestoreState();
+                StartupMark("Window_ContentRendered: TryRestoreState done");
+                RichTextBox.Focus();
+                Keyboard.Focus(RichTextBox);
+                StartupMark("Window_ContentRendered: complete");
+            }
+            catch (Exception ex)
+            {
+                StartupMark($"Window_ContentRendered: EXCEPTION {ex.GetType().Name}: {ex.Message}");
+                try
+                {
+                    var dump = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "calcpad_lab_crash.txt");
+                    System.IO.File.WriteAllText(dump, $"{ex.GetType().FullName}\n{ex.Message}\n\nStack:\n{ex.StackTrace}\n\nInner: {ex.InnerException}");
+                }
+                catch { }
+                System.Windows.MessageBox.Show($"Calcpad Lab error:\n\n{ex.GetType().Name}: {ex.Message}", "Calcpad Lab", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
         private Task _webViewInitTask;
 
@@ -4139,7 +4181,7 @@ namespace Calcpad.Wpf
             var options = new CoreWebView2EnvironmentOptions("--allow-file-access-from-files");
             var env = await CoreWebView2Environment.CreateAsync(
                 null,
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CalcpadWebView2"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CalcpadLabWebView2"),
                 options
             );
             StartupMark("InitializeWebViewer: CoreWebView2Environment created");
