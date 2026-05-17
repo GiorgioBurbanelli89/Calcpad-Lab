@@ -1395,9 +1395,9 @@ namespace Calcpad.Wpf
                 _htmlUnwarpedCode = string.Empty;
             }
 
-            // Pipeline MATLAB SOLO para archivos .m. Los archivos .cpd usan
-            // sintaxis Calcpad-puro.
-            bool isMatlabFile = !string.IsNullOrEmpty(CurrentFileName) &&
+            // Pipeline MATLAB default para Calcpad-Lab: buffers nuevos sin guardar
+            // y archivos .m usan motor MATLAB. Solo .cpd cae al parser Calcpad-puro.
+            bool isMatlabFile = string.IsNullOrEmpty(CurrentFileName) ||
                 CurrentFileName.EndsWith(".m", StringComparison.OrdinalIgnoreCase);
             if (isMatlabFile)
             {
@@ -1861,9 +1861,10 @@ namespace Calcpad.Wpf
                              trimmed.StartsWith("#end maxima", StringComparison.OrdinalIgnoreCase))
                         insideCodeBlock = false;
 
-                    // Skip ReplaceCStyleOperators para .m (MATLAB necesita >=, <=, ~= literales,
-                    // NO ≥/≤/≠ — esos chars Unicode no son válidos en MATLAB real).
-                    bool isMatlabFile = !string.IsNullOrEmpty(CurrentFileName) &&
+                    // Skip ReplaceCStyleOperators para .m y buffers nuevos (MATLAB
+                    // necesita >=, <=, ~= literales — los chars Unicode ≥/≤/≠ no son
+                    // válidos en MATLAB real). Solo .cpd usa Calcpad-puro.
+                    bool isMatlabFile = string.IsNullOrEmpty(CurrentFileName) ||
                         CurrentFileName.EndsWith(".m", StringComparison.OrdinalIgnoreCase);
                     if (isMatlabFile ||
                         insideCodeBlock ||
