@@ -94,9 +94,33 @@ namespace Calcpad.Core.Matlab
                 htmlBuffer.Append(MatlabHtmlWriter.RenderStatement(innerStmt, innerRes));
                 htmlBuffer.Append("</p>\n");
             };
+            // Tracking para comentarios inline (mismo line# que stmt previo no-comment):
+            //   - Si el stmt previo NO fue suprimido por `;` → comentario se rendea
+            //     como caption SIN `%` al frente.
+            //   - Si el stmt previo SI fue suprimido (`;`) → el comentario tambien
+            //     se suprime (no hay output al que adjuntarlo).
+            //   - Si el comentario esta en su propia linea → comportamiento default
+            //     (con `%`).
+            int prevNonCommentLine = -1;
+            bool prevWasSuppressed = false;
+
             foreach (var stmt in stmts)
             {
                 int stmtLine = stmt?.Line ?? 0;
+
+                // Decision temprana sobre inline-comment: necesita conocer el
+                // stmt previo no-comment.
+                bool isInlineComment = stmt is CommentStmt csInline
+                                       && !csInline.IsHeading
+                                       && !csInline.Text.StartsWith("--")
+                                       && prevNonCommentLine >= 0
+                                       && stmtLine == prevNonCommentLine;
+                if (isInlineComment && prevWasSuppressed)
+                {
+                    // Skipear sin ejecutar ni alterar el tracking
+                    continue;
+                }
+
                 StatementResult result;
                 try { result = _evaluator.ExecuteOne(stmt, _evaluator.Globals); }
                 catch (MatlabRuntimeException ex)
@@ -139,6 +163,13 @@ namespace Calcpad.Core.Matlab
                             sb.Append(MatlabHtmlWriter.RenderStatement(stmt, result));
                             sb.Append("\n");
                         }
+                        else if (isInlineComment)
+                        {
+                            // Comentario inline: render como caption SIN `%`
+                            var csInline2 = (CommentStmt)stmt;
+                            var encodedText = System.Net.WebUtility.HtmlEncode(csInline2.Text);
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"color:#5c8a48;font-style:italic\">{encodedText}</span></p>\n");
+                        }
                         else
                         {
                             sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\">");
@@ -150,6 +181,13 @@ namespace Calcpad.Core.Matlab
                     {
                         sb.Append($"<p class=\"err\" id=\"line-{stmtLine}\">Render error: {System.Net.WebUtility.HtmlEncode(renderEx.GetType().Name + ": " + renderEx.Message)} (line {LineLink(stmtLine)})</p>\n");
                     }
+                }
+
+                // Actualizar tracking para el proximo statement
+                if (!(stmt is CommentStmt))
+                {
+                    prevNonCommentLine = stmtLine;
+                    prevWasSuppressed = result.Suppressed;
                 }
                 // Flush plot HTML buffer DESPUÉS de la línea del statement
                 if (htmlBuffer.Length > 0)
