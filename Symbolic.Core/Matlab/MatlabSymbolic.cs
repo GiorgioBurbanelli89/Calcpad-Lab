@@ -391,7 +391,206 @@ namespace Calcpad.Core.Matlab
             // Reconstruir add chain
             SymNode acc = pieces[0];
             for (int i = 1; i < pieces.Count; i++) acc = new SymAdd(acc, pieces[i]);
+            // Phase 1 de factoring: intentar extraer factor comun multiplicativo
+            // (denominador racional + monomios comunes) para reducir el output.
+            var factored = TryExtractCommonFactor(pieces);
+            return factored ?? acc;
+        }
+
+        // ── Phase 1: Common factor extraction ──────────────────────────────
+        // Para una suma `t1 + t2 + ... + tn`, descompone cada termino en
+        // (coef racional p/q, dict de factores variables con potencia) y
+        // extrae el factor comun: GCD de los numeradores, LCM de los
+        // denominadores, intersection con min-power de los variables comunes.
+        // Resultado: `common * (t1/common + t2/common + ...)` que en el caso
+        // tipico de integral con limites simbolicos colapsa varios terminos
+        // sueltos en una sola expresion mas legible.
+        private sealed class TermDecomp
+        {
+            public long CoefN = 1, CoefD = 1;
+            public System.Collections.Generic.Dictionary<string, (double Power, SymNode BaseExpr)> Factors
+                = new(System.StringComparer.Ordinal);
+        }
+
+        private static void AddFactor(
+            System.Collections.Generic.Dictionary<string, (double Power, SymNode BaseExpr)> map,
+            string key, SymNode baseE, double power)
+        {
+            if (map.TryGetValue(key, out var ex))
+                map[key] = (ex.Power + power, ex.BaseExpr);
+            else
+                map[key] = (power, baseE);
+        }
+
+        private static long GcdLong(long a, long b)
+        {
+            a = System.Math.Abs(a); b = System.Math.Abs(b);
+            while (b != 0) { var t = a % b; a = b; b = t; }
+            return a == 0 ? 1 : a;
+        }
+        private static long LcmLong(long a, long b)
+        {
+            if (a == 0 || b == 0) return 0;
+            return System.Math.Abs(a / GcdLong(a, b) * b);
+        }
+
+        private static void DecomposeRecursive(SymNode n, TermDecomp t)
+        {
+            if (n is SymConst c)
+            {
+                if (SymConst.TryAsRational(c.Value, out var nn, out var dd))
+                { t.CoefN *= nn; t.CoefD *= dd; }
+                else
+                { AddFactor(t.Factors, $"_c_{c.Value:R}_", c, 1); }
+                return;
+            }
+            if (n is SymVar)
+            { AddFactor(t.Factors, n.ToInfix(), n, 1); return; }
+            if (n is SymPow p && p.Exp is SymConst pe)
+            { AddFactor(t.Factors, p.Base.ToInfix(), p.Base, pe.Value); return; }
+            if (n is SymMul m)
+            { DecomposeRecursive(m.A, t); DecomposeRecursive(m.B, t); return; }
+            if (n is SymDiv dv)
+            {
+                DecomposeRecursive(dv.A, t);
+                if (dv.B is SymConst dc && SymConst.TryAsRational(dc.Value, out var dn, out var dd2))
+                { t.CoefN *= dd2; t.CoefD *= dn; }
+                else if (dv.B is SymVar)
+                { AddFactor(t.Factors, dv.B.ToInfix(), dv.B, -1); }
+                else if (dv.B is SymPow dp && dp.Exp is SymConst dpe)
+                { AddFactor(t.Factors, dp.Base.ToInfix(), dp.Base, -dpe.Value); }
+                else
+                { AddFactor(t.Factors, dv.B.ToInfix(), dv.B, -1); }
+                return;
+            }
+            // Otros (SymAdd, SymSub, SymFunc, SymPow con exp no-const) — opaque atom
+            AddFactor(t.Factors, n.ToInfix(), n, 1);
+        }
+
+        private static SymNode BuildFromDecomp(TermDecomp t)
+        {
+            // Construir SymNode a partir del decomp: coef * factor1^p1 * factor2^p2 * ...
+            // Reduce el coef racional por GCD primero.
+            long g = GcdLong(t.CoefN, t.CoefD);
+            long n = t.CoefN / g; long d = t.CoefD / g;
+            // Asegurar signo en numerador
+            if (d < 0) { n = -n; d = -d; }
+
+            var parts = new System.Collections.Generic.List<SymNode>();
+            // Coeficiente
+            if (n != 1 || d != 1)
+            {
+                if (d == 1) parts.Add(new SymConst(n));
+                else parts.Add(new SymConst((double)n / d));
+            }
+            // Factores con potencia positiva primero, luego negativos
+            var keysSorted = new System.Collections.Generic.List<string>(t.Factors.Keys);
+            keysSorted.Sort(System.StringComparer.Ordinal);
+            foreach (var k in keysSorted)
+            {
+                var (pow, baseE) = t.Factors[k];
+                if (pow == 0) continue;
+                SymNode fexpr = pow == 1 ? baseE : new SymPow(baseE, new SymConst(pow));
+                parts.Add(fexpr);
+            }
+            if (parts.Count == 0) return new SymConst(1);
+            if (parts.Count == 1) return parts[0];
+            SymNode acc = parts[0];
+            for (int i = 1; i < parts.Count; i++) acc = new SymMul(acc, parts[i]);
             return acc;
+        }
+
+        internal static SymNode TryExtractCommonFactor(System.Collections.Generic.List<SymNode> terms)
+        {
+            if (terms.Count < 2) return null;
+            var decomps = new System.Collections.Generic.List<TermDecomp>();
+            foreach (var t in terms)
+            {
+                var d = new TermDecomp();
+                DecomposeRecursive(t, d);
+                decomps.Add(d);
+            }
+
+            // GCD de los abs(numeradores), LCM de los denominadores
+            long commonNum = System.Math.Abs(decomps[0].CoefN);
+            long commonDen = decomps[0].CoefD;
+            if (commonNum == 0) return null;
+            for (int i = 1; i < decomps.Count; i++)
+            {
+                long cn = System.Math.Abs(decomps[i].CoefN);
+                if (cn == 0) return null;
+                commonNum = GcdLong(commonNum, cn);
+                commonDen = LcmLong(commonDen, decomps[i].CoefD);
+            }
+
+            // Factores variables comunes (interseccion con min-power, solo pow > 0)
+            var commonFactors = new System.Collections.Generic.Dictionary<string, (double Power, SymNode BaseExpr)>();
+            foreach (var kv in decomps[0].Factors)
+            {
+                if (kv.Value.Power <= 0) continue;
+                bool allHave = true;
+                double minP = kv.Value.Power;
+                for (int i = 1; i < decomps.Count; i++)
+                {
+                    if (!decomps[i].Factors.TryGetValue(kv.Key, out var v) || v.Power <= 0)
+                    { allHave = false; break; }
+                    if (v.Power < minP) minP = v.Power;
+                }
+                if (allHave && minP > 0)
+                    commonFactors[kv.Key] = (minP, kv.Value.BaseExpr);
+            }
+
+            // Si no hay ganancia (coef trivial 1/1 sin variables comunes), no factorizar
+            bool hasNumCoef = commonNum > 1;
+            bool hasDenCoef = commonDen > 1;
+            bool hasVars = commonFactors.Count > 0;
+            if (!hasNumCoef && !hasDenCoef && !hasVars) return null;
+
+            // Construir factor comun
+            var commonDecomp = new TermDecomp { CoefN = commonNum, CoefD = commonDen };
+            foreach (var cf in commonFactors)
+                commonDecomp.Factors[cf.Key] = cf.Value;
+            SymNode commonExpr = BuildFromDecomp(commonDecomp);
+
+            // Construir lista de terminos restantes: ti / common
+            var remainder = new System.Collections.Generic.List<SymNode>();
+            for (int i = 0; i < decomps.Count; i++)
+            {
+                var d = decomps[i];
+                // Coef: (d.CoefN / d.CoefD) / (commonNum / commonDen) =
+                //       (d.CoefN * commonDen) / (d.CoefD * commonNum)
+                long signN = d.CoefN < 0 ? -1 : 1;
+                long absN = System.Math.Abs(d.CoefN);
+                long rNum = signN * (absN / commonNum) * commonDen;
+                long rDen = d.CoefD;
+                // Si commonNum no divide exactamente a absN (no deberia, porque commonNum=gcd), abort.
+                if (absN % commonNum != 0) return null;
+                long g = GcdLong(rNum, rDen);
+                if (g > 0) { rNum /= g; rDen /= g; }
+                if (rDen < 0) { rNum = -rNum; rDen = -rDen; }
+
+                // Restar potencias comunes de los factores
+                var remFactors = new System.Collections.Generic.Dictionary<string, (double Power, SymNode BaseExpr)>(d.Factors);
+                foreach (var cf in commonFactors)
+                {
+                    if (remFactors.TryGetValue(cf.Key, out var ex))
+                    {
+                        double newP = ex.Power - cf.Value.Power;
+                        if (newP == 0) remFactors.Remove(cf.Key);
+                        else remFactors[cf.Key] = (newP, ex.BaseExpr);
+                    }
+                }
+
+                var rd = new TermDecomp { CoefN = rNum, CoefD = rDen, Factors = remFactors };
+                remainder.Add(BuildFromDecomp(rd));
+            }
+
+            // Construir suma remanente
+            SymNode remSum = remainder[0];
+            for (int i = 1; i < remainder.Count; i++) remSum = new SymAdd(remSum, remainder[i]);
+
+            // common * (sum/common). NO llamar Simplify() para evitar recursion infinita.
+            return new SymMul(commonExpr, remSum);
         }
         /// <summary>True si <paramref name="n"/> es <c>fn(x)²</c> (de la forma <c>fn(x)^2</c> o <c>fn(x)·fn(x)</c>).</summary>
         private static bool IsTrigSquare(SymNode n, string fn, out SymNode arg)
