@@ -103,6 +103,10 @@ namespace Calcpad.Core.Matlab
             //     (con `%`).
             int prevNonCommentLine = -1;
             bool prevWasSuppressed = false;
+            // Tracking del line# del ultimo <p> emitido a `sb`. Usado por las
+            // captions inline para decidir si pegar dentro del mismo <p> (cuando
+            // matchea la linea) o emit standalone.
+            int lastEmittedPLine = -1;
 
             foreach (var stmt in stmts)
             {
@@ -146,6 +150,7 @@ namespace Calcpad.Core.Matlab
                     var encoded = EncodeWithHtmlSegments(dispProcessed);
                     var stretched = StretchInlineBrackets(encoded);
                     sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{stretched}</span></span></p>\n");
+                    lastEmittedPLine = stmtLine;
                     dispBuffer.Clear();
                 }
                 // Render del statement (incluye el comando como fórmula)
@@ -165,16 +170,37 @@ namespace Calcpad.Core.Matlab
                         }
                         else if (isInlineComment)
                         {
-                            // Comentario inline: render como caption SIN `%`
+                            // Comentario inline: render como caption SIN `%`, en la
+                            // MISMA linea visual que el assignment previo. Verifica
+                            // que el ultimo <p> emitido sea de la misma linea fuente
+                            // (caso assignment renderizado). Si no (void stmt
+                            // intermedio, etc.), emit standalone.
                             var csInline2 = (CommentStmt)stmt;
                             var encodedText = System.Net.WebUtility.HtmlEncode(csInline2.Text);
-                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"color:#5c8a48;font-style:italic\">{encodedText}</span></p>\n");
+                            var captionSpan = $"<span style=\"color:#5c8a48;font-style:italic;margin-left:1.5em\">{encodedText}</span>";
+                            const string closeTag = "</p>\n";
+                            bool sameLinePreviousP = lastEmittedPLine == stmtLine
+                                && sb.Length >= closeTag.Length
+                                && sb.ToString(sb.Length - closeTag.Length, closeTag.Length) == closeTag;
+                            if (sameLinePreviousP)
+                            {
+                                sb.Length -= closeTag.Length;
+                                sb.Append(captionSpan);
+                                sb.Append(closeTag);
+                            }
+                            else
+                            {
+                                // Fallback: void stmt o gap. Standalone.
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\">{captionSpan}</p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
                         }
                         else
                         {
                             sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\">");
                             sb.Append(MatlabHtmlWriter.RenderStatement(stmt, result));
                             sb.Append("</p>\n");
+                            lastEmittedPLine = stmtLine;
                         }
                     }
                     catch (Exception renderEx)

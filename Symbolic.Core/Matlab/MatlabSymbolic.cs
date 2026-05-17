@@ -494,6 +494,27 @@ namespace Calcpad.Core.Matlab
             if (b is SymConst c1 && c1.Value == 0) return new SymConst(0);
             if (a is SymConst c2 && c2.Value == 1) return b;
             if (b is SymConst c3 && c3.Value == 1) return a;
+            // ── Distribucion de constante sobre suma/resta ─────────────────
+            // c*(A+B) -> c*A + c*B   y   c*(A-B) -> c*A - c*B
+            // Critico para preservar signos cuando SymSub.Simplify hace (-1)*Fa
+            // donde Fa es un SymAdd: sin esto el -1 queda como factor opaco y
+            // los signos internos no propagan correctamente al like-term collect.
+            if (a is SymConst && b is SymAdd bAdd)
+                return new SymAdd(
+                    new SymMul(a, bAdd.A).Simplify(),
+                    new SymMul(a, bAdd.B).Simplify()).Simplify();
+            if (a is SymConst && b is SymSub bSub)
+                return new SymSub(
+                    new SymMul(a, bSub.A).Simplify(),
+                    new SymMul(a, bSub.B).Simplify()).Simplify();
+            if (b is SymConst && a is SymAdd aAdd)
+                return new SymAdd(
+                    new SymMul(aAdd.A, b).Simplify(),
+                    new SymMul(aAdd.B, b).Simplify()).Simplify();
+            if (b is SymConst && a is SymSub aSub)
+                return new SymSub(
+                    new SymMul(aSub.A, b).Simplify(),
+                    new SymMul(aSub.B, b).Simplify()).Simplify();
             // ── Power collection: x*x→x², x*x²→x³, x²*x³→x⁵ ─────────────────
             var factors = new System.Collections.Generic.List<SymNode>();
             FlattenMul(a, factors);
