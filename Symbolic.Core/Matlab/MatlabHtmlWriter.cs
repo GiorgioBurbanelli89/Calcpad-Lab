@@ -26,7 +26,9 @@ namespace Calcpad.Core.Matlab
                     if (cs.IsHeading)
                         sb.Append($"<h3 style=\"color:#0066b8;margin:.6em 0 .2em 0;font-weight:600\">{HttpUtility.HtmlEncode(cs.Text)}</h3>");
                     else
-                        sb.Append($"<span style=\"color:#5c8a48;font-style:italic\">% {HttpUtility.HtmlEncode(cs.Text)}</span>");
+                        // SIN `%` al frente — consistente con captions inline.
+                        // Para ocultar: usar `%--` (filtrado en MatlabPipeline).
+                        sb.Append($"<span style=\"color:#5c8a48;font-style:italic\">{HttpUtility.HtmlEncode(cs.Text)}</span>");
                     break;
                 case Assignment asg:
                     sb.Append("<span class=\"eq\">");

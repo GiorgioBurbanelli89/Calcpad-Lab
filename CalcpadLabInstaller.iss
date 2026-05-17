@@ -2,7 +2,7 @@
 ; Genera un instalador setup.exe
 
 #define MyAppName "Calcpad-Lab"
-#define MyAppVersion "1.0.15"
+#define MyAppVersion "1.0.16"
 #define MyAppPublisher "Jorge Burbano"
 #define MyAppURL "https://github.com/GiorgioBurbanelli89/Calcpad-Lab"
 #define MyAppExeName "CalcpadLab.exe"
