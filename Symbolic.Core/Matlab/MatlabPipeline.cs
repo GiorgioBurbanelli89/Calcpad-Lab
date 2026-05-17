@@ -94,6 +94,36 @@ namespace Calcpad.Core.Matlab
                 htmlBuffer.Append(MatlabHtmlWriter.RenderStatement(innerStmt, innerRes));
                 htmlBuffer.Append("</p>\n");
             };
+            // Pre-pass: regla Calcpad-Lab para multi-stmt en una linea fuente.
+            // Si `a=1; b=2; c=3` esta todo en una linea, el `;` FINAL (despues de c)
+            // determina si TODOS los stmts de esa linea se muestran. Es decir,
+            // override del Suppressed individual: todos heredan el Suppressed del
+            // ULTIMO stmt no-comment de la linea. Esto desvia de MATLAB (que aplica
+            // `;` per-stmt) pero matchea la expectativa del usuario.
+            {
+                var byLine = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<int>>();
+                for (int i = 0; i < stmts.Count; i++)
+                {
+                    if (stmts[i] is CommentStmt) continue;
+                    int ln = stmts[i]?.Line ?? 0;
+                    if (ln <= 0) continue;
+                    if (!byLine.TryGetValue(ln, out var lst)) byLine[ln] = lst = new System.Collections.Generic.List<int>();
+                    lst.Add(i);
+                }
+                foreach (var kv in byLine)
+                {
+                    if (kv.Value.Count < 2) continue;
+                    int lastIdx = kv.Value[kv.Value.Count - 1];
+                    bool lastSup = GetSuppressed(stmts[lastIdx]);
+                    foreach (var idx in kv.Value)
+                        SetSuppressed(stmts[idx], lastSup);
+                }
+                static bool GetSuppressed(MatlabNode n) =>
+                    n is Assignment a ? a.Suppressed : (n is ExprStmt e ? e.Suppressed : false);
+                static void SetSuppressed(MatlabNode n, bool v)
+                { if (n is Assignment a) a.Suppressed = v; else if (n is ExprStmt e) e.Suppressed = v; }
+            }
+
             // Tracking para comentarios inline (mismo line# que stmt previo no-comment):
             //   - Si el stmt previo NO fue suprimido por `;` → comentario se rendea
             //     como caption SIN `%` al frente.
@@ -197,10 +227,28 @@ namespace Calcpad.Core.Matlab
                         }
                         else
                         {
-                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\">");
-                            sb.Append(MatlabHtmlWriter.RenderStatement(stmt, result));
-                            sb.Append("</p>\n");
-                            lastEmittedPLine = stmtLine;
+                            // Si el stmt anterior emitido pertenece a la MISMA linea
+                            // fuente (caso multi-stmt `a=1; b=2`), appendear al mismo
+                            // <p> con separador inline en vez de abrir uno nuevo.
+                            var stmtHtml = MatlabHtmlWriter.RenderStatement(stmt, result);
+                            const string closeTag2 = "</p>\n";
+                            bool appendSameLine = lastEmittedPLine == stmtLine
+                                && sb.Length >= closeTag2.Length
+                                && sb.ToString(sb.Length - closeTag2.Length, closeTag2.Length) == closeTag2;
+                            if (appendSameLine)
+                            {
+                                sb.Length -= closeTag2.Length;
+                                sb.Append("<span style=\"display:inline-block;width:2em\"></span>");
+                                sb.Append(stmtHtml);
+                                sb.Append(closeTag2);
+                            }
+                            else
+                            {
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\">");
+                                sb.Append(stmtHtml);
+                                sb.Append("</p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
                         }
                     }
                     catch (Exception renderEx)

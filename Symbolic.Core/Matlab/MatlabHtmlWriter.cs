@@ -46,9 +46,17 @@ namespace Calcpad.Core.Matlab
                     break;
                 case ExprStmt es:
                     sb.Append("<span class=\"eq\">");
-                    sb.Append(RenderExpression(es.Expr));
-                    sb.Append(" = ");
-                    sb.Append(RenderValue(result.Value));
+                    {
+                        var lhsHtml = RenderExpression(es.Expr);
+                        var rhsHtml = RenderValue(result.Value);
+                        // Si la expresion es literal/identica al valor (ej. `2`, `x^2+1`
+                        // simbolico sin variables a sustituir), no mostrar `expr = expr`
+                        // redundante. Solo mostrar el lado derecho.
+                        if (lhsHtml == rhsHtml)
+                            sb.Append(rhsHtml);
+                        else
+                        { sb.Append(lhsHtml); sb.Append(" = "); sb.Append(rhsHtml); }
+                    }
                     sb.Append("</span>");
                     break;
                 case ForLoop fl:
