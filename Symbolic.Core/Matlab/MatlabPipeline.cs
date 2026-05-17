@@ -119,7 +119,9 @@ namespace Calcpad.Core.Matlab
                 {
                     var dispRaw = dispBuffer.ToString().TrimEnd();
                     var dispProcessed = RenderDispWithMatrices(dispRaw);
-                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{EncodeWithHtmlSegments(dispProcessed)}</span></span></p>\n");
+                    var encoded = EncodeWithHtmlSegments(dispProcessed);
+                    var stretched = StretchInlineBrackets(encoded);
+                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{stretched}</span></span></p>\n");
                     dispBuffer.Clear();
                 }
                 // Render del statement (incluye el comando como fórmula)
@@ -261,6 +263,38 @@ namespace Calcpad.Core.Matlab
                 }
             }
             return outSb.ToString();
+        }
+
+        /// <summary>
+        /// Post-procesa HTML ya encoded: busca patrones `[ ... ]` inline donde
+        /// el contenido tiene fracciones (<span class="dvc">) y reemplaza los
+        /// corchetes chicos por la estructura `.mat` con corchetes flex-stretch.
+        /// Cubre el caso `LABEL = [ frac1  frac2 ]` que RenderDispWithMatrices
+        /// no agarra (porque la linea no empieza con `[`).
+        /// </summary>
+        private static readonly System.Text.RegularExpressions.Regex InlineMatrixBracketRegex =
+            new(@"\[\s+([^\[\]]*?<span class=""dvc""[^\[\]]*?)\s+\]",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static string StretchInlineBrackets(string html)
+        {
+            if (string.IsNullOrEmpty(html)) return html ?? string.Empty;
+            return InlineMatrixBracketRegex.Replace(html, m =>
+            {
+                var content = m.Groups[1].Value;
+                var cells = System.Text.RegularExpressions.Regex.Split(content, @"[ \t]{2,}");
+                var sb = new StringBuilder();
+                sb.Append("<span class=\"mat\"><span class=\"lb\"></span><span class=\"cells\"><span class=\"row\">");
+                foreach (var cellRaw in cells)
+                {
+                    if (string.IsNullOrWhiteSpace(cellRaw)) continue;
+                    sb.Append("<span class=\"cell\">");
+                    sb.Append(cellRaw.Trim());
+                    sb.Append("</span>");
+                }
+                sb.Append("</span></span><span class=\"rb\"></span></span>");
+                return sb.ToString();
+            });
         }
 
         private static bool TryParseMatrixRow(string line, out string content)
