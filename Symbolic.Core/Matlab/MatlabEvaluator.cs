@@ -271,10 +271,31 @@ namespace Calcpad.Core.Matlab
         private readonly Dictionary<string, Func<MValue[], MValue[]>> _multiOutBuiltins = new(StringComparer.Ordinal);
         /// <summary>User-defined functions registradas con <c>function ... end</c>.</summary>
         private readonly Dictionary<string, FunctionDef> _userFunctions = new(StringComparer.Ordinal);
+        /// <summary>Symbolic functions (symfun) MATLAB-style: `f(x) = x^2`. Mapea
+        /// nombre → lista de nombres de parametros formales. El valor de la
+        /// expresion vive en `Globals.Vars[name]` como MValue.Symbolic. Cuando
+        /// `f(args)` se invoca y `f` esta aqui, sustituye los params por los args.</summary>
+        private readonly Dictionary<string, List<string>> _symFunParams = new(StringComparer.Ordinal);
         /// <summary>Clases definidas via <c>classdef</c>.</summary>
         private readonly Dictionary<string, ClassDef> _classes = new(StringComparer.Ordinal);
         /// <summary>Registra función para uso en pre-pass del pipeline (MATLAB script + helpers).</summary>
         public void RegisterFunction(FunctionDef fd) => _userFunctions[fd.Name] = fd;
+
+        /// <summary>True si todos los args son IdentRef y referencian sym vars
+        /// existentes en scope (declaradas via `syms`). Usado para detectar el
+        /// patron symfun: `f(x) = ...` requiere que x ya sea sym var.</summary>
+        private bool AllArgsAreSymVars(List<MatlabNode> args, MatlabScope scope)
+        {
+            if (args == null || args.Count == 0) return false;
+            foreach (var a in args)
+            {
+                if (a is not IdentRef ir) return false;
+                if (!scope.TryGet(ir.Name, out var v)) return false;
+                if (v == null || !v.IsSymbolic) return false;
+                if (v.Symbolic is not SymVar) return false;
+            }
+            return true;
+        }
         /// <summary>Registra clase para uso en pre-pass.</summary>
         public void RegisterClass(ClassDef cd) => _classes[cd.Name] = cd;
         /// <summary>Variables persistent — guardadas por (funcName + varName) entre invocaciones.</summary>
@@ -6040,6 +6061,23 @@ namespace Calcpad.Core.Matlab
             }
             if (tgt is CallOrIndex idx && idx.Target is IdentRef targetId)
             {
+                // SYMFUN MATLAB-style: `f(x) = x^2` despues de `syms x` crea una
+                // funcion simbolica. Detectamos: args son todos IdentRef que
+                // referencian sym vars existentes, RHS es simbolico, target no
+                // existe ya como matriz. Si calza → registrar en _symFunParams
+                // y guardar el valor como simbolico. Skipea IndexedAssign.
+                bool targetExistsAsMatrix = scope.TryGet(targetId.Name, out var existingTgt)
+                    && existingTgt != null && !existingTgt.IsSymbolic
+                    && existingTgt.Data != null && existingTgt.Data.Length > 1;
+                if (!targetExistsAsMatrix && val != null && val.IsSymbolic
+                    && AllArgsAreSymVars(idx.Args, scope))
+                {
+                    var paramNames = new List<string>();
+                    foreach (var a in idx.Args) paramNames.Add(((IdentRef)a).Name);
+                    _symFunParams[targetId.Name] = paramNames;
+                    scope.Set(targetId.Name, val);
+                    return new StatementResult(targetId.Name, val, asg.Suppressed);
+                }
                 // Indexed assignment: A(i, j) = val
                 if (!scope.TryGet(targetId.Name, out var existing))
                     existing = new MValue(0);
@@ -6849,6 +6887,25 @@ namespace Calcpad.Core.Matlab
                 if (scope.TryGet(id.Name, out var v))
                 {
                     if (v.IsCallable) return v.Callable(EvalArgs(c.Args, scope));
+                    // SYMFUN: `f(arg1, arg2, ...)` donde f esta registrado como
+                    // symfun via `f(x) = expr`. Sustituye cada param formal por
+                    // el argumento correspondiente.
+                    if (v.IsSymbolic && _symFunParams.TryGetValue(id.Name, out var symfunParams))
+                    {
+                        var symfunArgs = EvalArgs(c.Args, scope);
+                        if (symfunArgs.Length != symfunParams.Count)
+                            throw new MatlabRuntimeException(
+                                $"Symfun '{id.Name}' espera {symfunParams.Count} args, recibio {symfunArgs.Length}");
+                        var expr = v.Symbolic;
+                        for (int i = 0; i < symfunParams.Count; i++)
+                        {
+                            SymNode argSym = symfunArgs[i].IsSymbolic
+                                ? symfunArgs[i].Symbolic
+                                : new SymConst(symfunArgs[i].Scalar);
+                            expr = expr.Subs(symfunParams[i], argSym);
+                        }
+                        return MValue.NewSymbolic(expr.Simplify());
+                    }
                     return IndexInto(v, c.Args, scope);
                 }
                 // 2) Class constructor
