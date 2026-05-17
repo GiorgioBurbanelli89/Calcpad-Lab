@@ -117,7 +117,9 @@ namespace Calcpad.Core.Matlab
                 // la familia tipográfica heredada de .eq.
                 if (dispBuffer.Length > 0)
                 {
-                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{EncodeWithHtmlSegments(dispBuffer.ToString().TrimEnd())}</span></span></p>\n");
+                    var dispRaw = dispBuffer.ToString().TrimEnd();
+                    var dispProcessed = RenderDispWithMatrices(dispRaw);
+                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{EncodeWithHtmlSegments(dispProcessed)}</span></span></p>\n");
                     dispBuffer.Clear();
                 }
                 // Render del statement (incluye el comando como fórmula)
@@ -206,6 +208,85 @@ namespace Calcpad.Core.Matlab
         /// HtmlEncode selectivo: escapa todo el texto SALVO los segmentos
         /// delimitados por ... (HTML pre-renderizado del simbólico).
         /// </summary>
+        private static string RenderDispWithMatrices(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw ?? string.Empty;
+            if (raw.IndexOf('[') < 0) return raw;
+
+            var lines = raw.Split('\n');
+            var outSb = new StringBuilder(raw.Length + 64);
+            var matRows = new System.Collections.Generic.List<string>();
+
+            void FlushMatrix()
+            {
+                if (matRows.Count == 0) return;
+                outSb.Append(HtmlStart);
+                outSb.Append("<span class=\"mat\"><span class=\"lb\"></span><span class=\"cells\">");
+                foreach (var rowContent in matRows)
+                {
+                    outSb.Append("<span class=\"row\">");
+                    var cells = System.Text.RegularExpressions.Regex.Split(rowContent, @"[ \t]{2,}");
+                    foreach (var cellRaw in cells)
+                    {
+                        if (string.IsNullOrWhiteSpace(cellRaw)) continue;
+                        outSb.Append("<span class=\"cell\">");
+                        outSb.Append(EncodeWithHtmlSegments(cellRaw));
+                        outSb.Append("</span>");
+                    }
+                    outSb.Append("</span>");
+                }
+                outSb.Append("</span><span class=\"rb\"></span></span>");
+                outSb.Append(HtmlEnd);
+                matRows.Clear();
+            }
+
+            for (int idx = 0; idx < lines.Length; idx++)
+            {
+                var line = lines[idx];
+                if (TryParseMatrixRow(line, out var content))
+                {
+                    matRows.Add(content);
+                    bool isLast = idx == lines.Length - 1;
+                    bool nextIsRow = !isLast && TryParseMatrixRow(lines[idx + 1], out _);
+                    if (isLast || !nextIsRow)
+                    {
+                        FlushMatrix();
+                        if (!isLast) outSb.Append('\n');
+                    }
+                }
+                else
+                {
+                    outSb.Append(line);
+                    if (idx != lines.Length - 1) outSb.Append('\n');
+                }
+            }
+            return outSb.ToString();
+        }
+
+        private static bool TryParseMatrixRow(string line, out string content)
+        {
+            content = null;
+            if (string.IsNullOrEmpty(line)) return false;
+            int i = 0;
+            while (i < line.Length && (line[i] == ' ' || line[i] == '\t')) i++;
+            if (i >= line.Length || line[i] != '[') return false;
+            i++;
+            int j = line.Length - 1;
+            while (j > i && (line[j] == ' ' || line[j] == '\t')) j--;
+            if (j <= i || line[j] != ']') return false;
+            var inner = line.Substring(i, j - i).Trim();
+            if (inner.Length == 0) return false;
+            int depth = 0;
+            foreach (var ch in inner)
+            {
+                if (ch == '[') depth++;
+                else if (ch == ']') { depth--; if (depth < 0) return false; }
+            }
+            if (depth != 0) return false;
+            content = inner;
+            return true;
+        }
+
         private static string EncodeWithHtmlSegments(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return raw ?? string.Empty;

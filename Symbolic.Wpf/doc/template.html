@@ -637,6 +637,44 @@
             white-space: nowrap;
         }
 
+        /* Matriz con corchetes flex-stretch (auto-altura) */
+        .mat {
+            display: inline-flex;
+            vertical-align: middle;
+            align-items: stretch;
+            margin: 0.25em 0.1em;
+            font-style: normal;
+        }
+        .mat .lb, .mat .rb {
+            width: 0.45em;
+            min-height: 1.2em;
+            border-top: 1.4pt solid currentColor;
+            border-bottom: 1.4pt solid currentColor;
+            flex-shrink: 0;
+        }
+        .mat .lb {
+            border-left: 1.4pt solid currentColor;
+            margin-right: 0.35em;
+        }
+        .mat .rb {
+            border-right: 1.4pt solid currentColor;
+            margin-left: 0.35em;
+        }
+        .mat .cells {
+            display: table;
+            border-collapse: collapse;
+        }
+        .mat .row {
+            display: table-row;
+        }
+        .mat .cell {
+            display: table-cell;
+            padding: 0.15em 0.55em;
+            vertical-align: middle;
+            text-align: center;
+            white-space: nowrap;
+        }
+
         .dvc {
             padding-left: 2pt;
             padding-right: 2pt;
