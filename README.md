@@ -8,6 +8,10 @@ of `.cpd`. Native MATLAB engine in C#, **no MATLAB installation required**.
 > Same renderized HTML/PDF/DOCX output as Calcpad, same auto-run-on-save,
 > same template — only the input syntax is MATLAB.
 
+📥 **Download v1.0.5:** [Calcpad-Lab-Setup-1.0.5.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.5/Calcpad-Lab-Setup-1.0.5.exe) (68 MB, self-contained, no .NET required)
+🎬 **Video demo:** https://youtu.be/-Xcyc2SsG7s
+📁 **107 ejemplos `.m`** en 18 categorías bundleadas con el installer.
+
 ---
 
 ## Why Calcpad Lab?
@@ -59,15 +63,15 @@ And you get the same beautifully-rendered HTML/PDF as Calcpad.
 
 ---
 
-## Quick start (Windows portable)
+## Quick start (Windows installer)
 
-1. Download `CalcpadLab-portable-win-x64.zip` from
-   [Releases](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases)
-   (or build from source — see below).
-2. Extract to any folder (e.g. `C:\CalcpadLab\`).
-3. Double-click `CalcpadLab.exe`. **No .NET install required** — fully
-   self-contained.
-4. Open any `.m` file or create a new one (`Ctrl+N`) and press `F9` to run.
+1. Descargar **[Calcpad-Lab-Setup-1.0.5.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.5/Calcpad-Lab-Setup-1.0.5.exe)** desde
+   [Releases](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases).
+2. Doble-click → aceptar UAC → seguir el wizard (acepta asociación `.m` para abrir scripts con doble-click).
+3. Al primer arranque, los **107 ejemplos** se copian a `Documents\Calcpad-Lab\Examples\`.
+4. Abrir cualquier `.m` (`Ctrl+O`) o crear uno nuevo (`Ctrl+N`) y `F9` para ejecutar.
+
+**No requiere .NET Desktop Runtime** — el runtime .NET 10 viaja dentro del installer (self-contained).
 
 CLI usage:
 
@@ -137,6 +141,51 @@ SAP 2000 v24 via OAPI:
 
 See [hekatan-struct/validacion](https://github.com/GiorgioBurbanelli89/hekatan-struct/tree/main/validacion)
 for the full cross-language benchmark (Python / Julia / C++ WASM / SAP API).
+
+---
+
+## ¿Por qué Calcpad-Lab para validar Hekatan Struct?
+
+Hekatan Struct es la plataforma de análisis estructural en navegador. Su
+validación numérica se hace contra **cuatro lenguajes en paralelo** — cada
+uno entendido nativamente por ingenieros y por modelos de IA:
+
+| Lenguaje | Rol en la validación |
+|---|---|
+| **MATLAB** (Calcpad-Lab) | Memoria de cálculo legible, render simbólico, comparación celda-por-celda |
+| **Python** (NumPy / SciPy) | Scripts batch, integración con notebooks Jupyter |
+| **Julia** | Solver rápido para FEM no lineal, tipos paramétricos |
+| **C++ / WASM** (Eigen 3) | Solver de producción que corre en el browser |
+
+La idea: si el mismo benchmark da el mismo resultado en los cuatro
+lenguajes, la implementación es correcta. **La IA entiende cada uno de
+estos lenguajes con fluidez**, lo que permite generar, revisar y debuggear
+validaciones cruzadas mucho más rápido que con DSLs propietarios.
+
+Calcpad-Lab es la pieza que cierra el ciclo MATLAB: te permite escribir
+una memoria de cálculo legible (con prosa intercalada con ecuaciones
+simbólicas renderizadas como en Calcpad) que sirve **al mismo tiempo como
+documento técnico publicable y como caso de validación numérico**.
+
+---
+
+## What's new in v1.0.5
+
+- **Render simbólico estilo Calcpad** — `char(M_max)` dentro de `fprintf`
+  ahora sale con fracciones apiladas, variables en azul, subíndices
+  (`R_A`, `sigma_adm`), superíndices (`x²`, `L⁴`) y unidades en verde
+  (`kN·m`, `MPa`, `cm³`). Todo HTML+CSS puro, sin MathJax/KaTeX.
+- **Texto plano se beautifica solo** — el `fprintf` con texto descriptivo
+  como `'M_max = q*L^2/8 kN*m'` detecta variables, unidades y operadores
+  matemáticos automáticamente.
+- **Escape `''` arreglado** — `fprintf('don''t worry')`, `fprintf('y''(x)')`,
+  todo el escape estándar MATLAB ahora funciona.
+- **`fprintf(['a' 'b'])`** — concatenación de single-quoted strings ya no
+  crashea (era IndexOutOfRange).
+- **Self-contained installer** — no requiere .NET Desktop Runtime preinstalado.
+- **107 ejemplos `.m`** en 18 categorías (cálculo simbólico, mecánica
+  estructural, FEM, álgebra lineal, visualización, diseño de acero,
+  ETABS, sismo).
 
 ---
 
