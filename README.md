@@ -8,7 +8,7 @@ of `.cpd`. Native MATLAB engine in C#, **no MATLAB installation required**.
 > Same renderized HTML/PDF/DOCX output as Calcpad, same auto-run-on-save,
 > same template — only the input syntax is MATLAB.
 
-📥 **Download v1.0.5:** [Calcpad-Lab-Setup-1.0.5.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.5/Calcpad-Lab-Setup-1.0.5.exe) (68 MB, self-contained, no .NET required)
+📥 **Download v1.0.5:** [Calcpad-Lab-Setup-1.0.19.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.19/Calcpad-Lab-Setup-1.0.19.exe) (68 MB, self-contained, no .NET required)
 🎬 **Video demo:** https://youtu.be/-Xcyc2SsG7s
 📁 **107 ejemplos `.m`** en 18 categorías bundleadas con el installer.
 
@@ -65,7 +65,7 @@ And you get the same beautifully-rendered HTML/PDF as Calcpad.
 
 ## Quick start (Windows installer)
 
-1. Descargar **[Calcpad-Lab-Setup-1.0.5.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.5/Calcpad-Lab-Setup-1.0.5.exe)** desde
+1. Descargar **[Calcpad-Lab-Setup-1.0.19.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.19/Calcpad-Lab-Setup-1.0.19.exe)** desde
    [Releases](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases).
 2. Doble-click → aceptar UAC → seguir el wizard (acepta asociación `.m` para abrir scripts con doble-click).
 3. Al primer arranque, los **107 ejemplos** se copian a `Documents\Calcpad-Lab\Examples\`.
@@ -169,23 +169,37 @@ documento técnico publicable y como caso de validación numérico**.
 
 ---
 
-## What's new in v1.0.5
+## What's new in v1.0.19
 
-- **Render simbólico estilo Calcpad** — `char(M_max)` dentro de `fprintf`
-  ahora sale con fracciones apiladas, variables en azul, subíndices
-  (`R_A`, `sigma_adm`), superíndices (`x²`, `L⁴`) y unidades en verde
-  (`kN·m`, `MPa`, `cm³`). Todo HTML+CSS puro, sin MathJax/KaTeX.
-- **Texto plano se beautifica solo** — el `fprintf` con texto descriptivo
-  como `'M_max = q*L^2/8 kN*m'` detecta variables, unidades y operadores
-  matemáticos automáticamente.
-- **Escape `''` arreglado** — `fprintf('don''t worry')`, `fprintf('y''(x)')`,
-  todo el escape estándar MATLAB ahora funciona.
-- **`fprintf(['a' 'b'])`** — concatenación de single-quoted strings ya no
-  crashea (era IndexOutOfRange).
-- **Self-contained installer** — no requiere .NET Desktop Runtime preinstalado.
-- **107 ejemplos `.m`** en 18 categorías (cálculo simbólico, mecánica
-  estructural, FEM, álgebra lineal, visualización, diseño de acero,
-  ETABS, sismo).
+### FEM y ejemplos
+- **Nuevo:** `Examples-Lab/18 FEA Slab/rectangular_slab_bfs.m` — placa Kirchhoff
+  con elemento Q4-BFS (16 GDL/elem, splines Hermíticas cúbicas). 6×4 m con SS
+  en 4 bordes valida contra Calcpad oficial y SAP 2000 a 4-6 decimales.
+- **6.2× más rápido que Octave 10.1** en ensamblaje FEM (1000 elem × 8 DOF:
+  34 ms vs 211 ms) sin código GPL — ver [PERFORMANCE_VS_OCTAVE.md](./PERFORMANCE_VS_OCTAVE.md).
+
+### Sintaxis MATLAB (incrementos)
+- **`symfun` estilo MATLAB** (`f(x) = expr` reconocido como función simbólica) — v1.0.18.
+- **Multi-statement en una línea**: `a = 1; b = 2; c = 3;` con display compacto — v1.0.17.
+- **Comentarios standalone sin `%` al frente** — v1.0.16.
+- **Factorización polinómica Fase 1** (factor común) — v1.0.15.
+- **Captions inline en misma línea** (`%`-less después de `;`) — v1.0.12-14.
+
+### Render simbólico (heredado de v1.0.5)
+- `char(M_max)` dentro de `fprintf` sale con fracciones apiladas, variables azules,
+  subíndices (`R_A`, `sigma_adm`), superíndices (`x²`, `L⁴`) y unidades verdes
+  (`kN·m`, `MPa`, `cm³`). HTML+CSS puro, sin MathJax/KaTeX.
+- Texto plano descriptivo (`'M_max = q*L^2/8 kN*m'`) se beautifica solo.
+- Escape `''` y concatenación `['a' 'b']` arreglados.
+
+### Performance (kernel C++ `matlab_helpers.dll`, 670 KB sin dependencias)
+- `polyval` 500k pts: **2 ms** (10× más rápido que Octave)
+- `solve A\b` 200×200: **3 ms** (4.3× más rápido que Octave)
+- `ml_assemble_K` 1000 elem × 8 DOF: **34 ms** (6.2× más rápido que Octave)
+
+### Installer
+- **Self-contained** — no requiere .NET Desktop Runtime preinstalado.
+- 107 ejemplos `.m` bundleados en 18 categorías.
 
 ---
 
