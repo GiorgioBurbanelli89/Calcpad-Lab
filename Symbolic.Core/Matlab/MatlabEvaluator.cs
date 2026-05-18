@@ -5876,6 +5876,34 @@ namespace Calcpad.Core.Matlab
             if (_builtins.TryGetValue(name, out var fn))       return fn(args);
             throw new MatlabRuntimeException($"Undefined: {name}");
         }
+        // Wrappers de operaciones matriciales para el JIT (delegan al engine existente).
+        public static MValue JitMatMul(MValue a, MValue b) => MatMul(a, b);
+        public static MValue JitMatAdd(MValue a, MValue b) => MapBinary(a, b, (x, y) => x + y);
+        public static MValue JitMatSub(MValue a, MValue b) => MapBinary(a, b, (x, y) => x - y);
+        public static MValue JitMatTrans(MValue a) => Transpose(a);
+        public static MValue JitMatNeg(MValue a)
+        {
+            if (a.IsScalar) return new MValue(-a.Scalar);
+            var r = new MValue(a.Rows, a.Cols);
+            for (int i = 0; i < a.Rows; i++)
+                for (int j = 0; j < a.Cols; j++)
+                    r.Set(i, j, -a.At(i, j));
+            return r;
+        }
+        public static MValue JitMatScalarMul(MValue a, double s) => MapBinary(a, new MValue(s), (x, y) => x * y);
+        public static MValue JitMakeRowVec(double[] elements)
+        {
+            var v = new MValue(1, elements.Length);
+            for (int i = 0; i < elements.Length; i++) v.Set(0, i, elements[i]);
+            return v;
+        }
+        public static double JitMatToScalar(MValue v)
+        {
+            if (v.IsScalar) return v.Scalar;
+            // Conversión común MATLAB: 1×1 → scalar
+            if (v.Rows == 1 && v.Cols == 1) return v.At(0, 0);
+            throw new MatlabRuntimeException("Expected scalar, got matrix");
+        }
 
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
