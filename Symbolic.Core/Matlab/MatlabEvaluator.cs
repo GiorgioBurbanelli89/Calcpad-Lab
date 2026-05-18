@@ -696,6 +696,55 @@ namespace Calcpad.Core.Matlab
             _builtins["numel"] = a => new MValue(a[0].Rows * a[0].Cols);
             _builtins["zeros"] = a => MakeFill(a, 0);
             _builtins["ones"] = a => MakeFill(a, 1);
+            // ─── FEM pattern fusion kernels (Calcpad-Lab specific) ────────
+            // btdb(B, D) ≡ B' * D * B     — assembly kernel
+            // dbz(D, B, z) ≡ D * B * z    — postproc moment kernel
+            // Fusionan 2-3 matmuls + transpose + allocations en una sola pasada.
+            _builtins["btdb"] = a => {
+                var B = a[0]; var D = a[1];
+                int M = B.Rows, N = B.Cols;
+                if (D.Rows != M || D.Cols != M)
+                    throw new MatlabRuntimeException($"btdb: B is {B.Rows}×{B.Cols}, D must be {M}×{M}, got {D.Rows}×{D.Cols}");
+                var T = new double[M * N];
+                for (int p = 0; p < M; p++)
+                    for (int j = 0; j < N; j++) {
+                        double s = 0;
+                        for (int q = 0; q < M; q++)
+                            s += D.At(p, q) * B.At(q, j);
+                        T[p * N + j] = s;
+                    }
+                var R = new MValue(N, N);
+                for (int i = 0; i < N; i++)
+                    for (int j = 0; j < N; j++) {
+                        double s = 0;
+                        for (int p = 0; p < M; p++)
+                            s += B.At(p, i) * T[p * N + j];
+                        R.Set(i, j, s);
+                    }
+                return R;
+            };
+            _builtins["dbz"] = a => {
+                var D = a[0]; var B = a[1]; var z = a[2];
+                int m = D.Rows, p = D.Cols, n = B.Cols;
+                if (B.Rows != p || z.Rows * z.Cols != n)
+                    throw new MatlabRuntimeException(
+                        $"dbz: D is {D.Rows}×{D.Cols}, B is {B.Rows}×{B.Cols}, z is {z.Rows}×{z.Cols}");
+                var Bz = new double[p];
+                for (int pp = 0; pp < p; pp++) {
+                    double s = 0;
+                    for (int q = 0; q < n; q++)
+                        s += B.At(pp, q) * z.Data[q];
+                    Bz[pp] = s;
+                }
+                var R = new MValue(m, 1);
+                for (int i = 0; i < m; i++) {
+                    double s = 0;
+                    for (int pp = 0; pp < p; pp++)
+                        s += D.At(i, pp) * Bz[pp];
+                    R.Set(i, 0, s);
+                }
+                return R;
+            };
             _builtins["zeros3"] = a => Make3D(a, 0);
             _builtins["ones3"] = a => Make3D(a, 1);
             _builtins["ndims"] = a => new MValue(a[0].Is3D ? 3 : (a[0].Rows > 1 && a[0].Cols > 1 ? 2 : (a[0].Rows == 1 && a[0].Cols == 1 ? 0 : 1)));
