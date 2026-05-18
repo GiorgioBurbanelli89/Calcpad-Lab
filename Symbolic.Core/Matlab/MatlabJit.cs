@@ -108,6 +108,9 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MMatNeg        = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatNeg));
         internal static readonly MethodInfo MMatScalarMul  = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatScalarMul));
         internal static readonly MethodInfo MMakeRowVec    = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeRowVec));
+        internal static readonly MethodInfo MMakeMatrix2D  = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeMatrix2D));
+        internal static readonly MethodInfo MGetMatRow     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatRow));
+        internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
         internal static readonly ConstructorInfo CMValueScalar = typeof(MValue).GetConstructor(new[] { typeof(double) });
     }
@@ -524,6 +527,7 @@ namespace Calcpad.Core.Matlab
             // Matrix indexing
             if (args.Count == 1)
             {
+                if (args[0] is ColonAll) return null;   // A(:) flatten — no soportado
                 var idx1 = ConvertExprAsKind(args[0], cc, TKind.Scalar);
                 if (idx1 == null) return null;
                 return Expression.Call(cc.CtxParam, JitCtx.MGetMatElem1,
@@ -531,6 +535,28 @@ namespace Calcpad.Core.Matlab
             }
             if (args.Count == 2)
             {
+                bool firstColon  = args[0] is ColonAll;
+                bool secondColon = args[1] is ColonAll;
+                if (firstColon && secondColon) return null;   // A(:,:) → copy, no util en hot loop
+                if (firstColon)
+                {
+                    // A(:, j) → columna j
+                    var jExpr = ConvertExprAsKind(args[1], cc, TKind.Scalar);
+                    if (jExpr == null) return null;
+                    // Cargar la matriz como MValue y extraer columna
+                    var matVar = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar,
+                        Expression.Constant(name));
+                    return Expression.Call(JitCtx.MGetMatCol, matVar, jExpr);
+                }
+                if (secondColon)
+                {
+                    // A(i, :) → fila i
+                    var iExpr = ConvertExprAsKind(args[0], cc, TKind.Scalar);
+                    if (iExpr == null) return null;
+                    var matVar = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar,
+                        Expression.Constant(name));
+                    return Expression.Call(JitCtx.MGetMatRow, matVar, iExpr);
+                }
                 var idx1 = ConvertExprAsKind(args[0], cc, TKind.Scalar);
                 var idx2 = ConvertExprAsKind(args[1], cc, TKind.Scalar);
                 if (idx1 == null || idx2 == null) return null;
@@ -542,18 +568,38 @@ namespace Calcpad.Core.Matlab
 
         private static Expression ConvertMatrixLit(MatrixLit ml, CompileCtx cc)
         {
-            // PoC: solo row vector (1 fila) con elementos escalares
-            if (ml.Rows.Count != 1) return null;
-            var elems = ml.Rows[0];
-            var exprs = new Expression[elems.Count];
-            for (int i = 0; i < elems.Count; i++)
+            if (ml.Rows.Count == 0) return null;
+            // Row vector: 1 fila → MakeRowVec
+            if (ml.Rows.Count == 1)
             {
-                var e = ConvertExprAsKind(elems[i], cc, TKind.Scalar);
-                if (e == null) return null;
-                exprs[i] = e;
+                var elems = ml.Rows[0];
+                var exprs = new Expression[elems.Count];
+                for (int i = 0; i < elems.Count; i++)
+                {
+                    var e = ConvertExprAsKind(elems[i], cc, TKind.Scalar);
+                    if (e == null) return null;
+                    exprs[i] = e;
+                }
+                var arr = Expression.NewArrayInit(typeof(double), exprs);
+                return Expression.Call(JitCtx.MMakeRowVec, arr);
             }
-            var arr = Expression.NewArrayInit(typeof(double), exprs);
-            return Expression.Call(JitCtx.MMakeRowVec, arr);
+            // Matriz 2D: row-major flatten + MakeMatrix2D(rows, cols, flat)
+            int rows = ml.Rows.Count;
+            int cols = ml.Rows[0].Count;
+            // Verificar consistencia
+            for (int i = 0; i < rows; i++)
+                if (ml.Rows[i].Count != cols) return null;
+            var flat = new Expression[rows * cols];
+            for (int i = 0; i < rows; i++)
+                for (int j = 0; j < cols; j++)
+                {
+                    var e = ConvertExprAsKind(ml.Rows[i][j], cc, TKind.Scalar);
+                    if (e == null) return null;
+                    flat[i * cols + j] = e;
+                }
+            var arr2 = Expression.NewArrayInit(typeof(double), flat);
+            return Expression.Call(JitCtx.MMakeMatrix2D,
+                Expression.Constant(rows), Expression.Constant(cols), arr2);
         }
 
         // ─── Eval scalar para los limites del range ───────────────────────

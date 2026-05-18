@@ -5897,6 +5897,31 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < elements.Length; i++) v.Set(0, i, elements[i]);
             return v;
         }
+        /// <summary>Construye una matriz 2D desde un buffer row-major de doubles.</summary>
+        public static MValue JitMakeMatrix2D(int rows, int cols, double[] elements)
+        {
+            var v = new MValue(rows, cols);
+            for (int i = 0; i < rows; i++)
+                for (int j = 0; j < cols; j++)
+                    v.Set(i, j, elements[i * cols + j]);
+            return v;
+        }
+        /// <summary>Extrae fila i (1-based) de una matriz como vector 1×cols.</summary>
+        public static MValue JitGetMatRow(MValue m, double iOneBased)
+        {
+            int i = (int)iOneBased - 1;
+            var r = new MValue(1, m.Cols);
+            for (int j = 0; j < m.Cols; j++) r.Set(0, j, m.At(i, j));
+            return r;
+        }
+        /// <summary>Extrae columna j (1-based) de una matriz como vector rows×1.</summary>
+        public static MValue JitGetMatCol(MValue m, double jOneBased)
+        {
+            int j = (int)jOneBased - 1;
+            var r = new MValue(m.Rows, 1);
+            for (int i = 0; i < m.Rows; i++) r.Set(i, 0, m.At(i, j));
+            return r;
+        }
         public static double JitMatToScalar(MValue v)
         {
             if (v.IsScalar) return v.Scalar;
