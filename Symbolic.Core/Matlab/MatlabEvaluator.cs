@@ -5865,13 +5865,25 @@ namespace Calcpad.Core.Matlab
             _innerStmtOut?.Invoke(stmt, r);
         }
 
+        // ─── Helpers expuestos al JIT ───────────────────────────────────────
+        /// <summary>Verdadero si `name` resuelve a función (user-def o builtin).</summary>
+        public bool JitIsFunction(string name) =>
+            _userFunctions.ContainsKey(name) || _builtins.ContainsKey(name);
+        /// <summary>Dispatch de single-output call para el JIT (user fn → builtin → undefined).</summary>
+        public MValue JitCall(string name, MValue[] args)
+        {
+            if (_userFunctions.TryGetValue(name, out var def)) return CallUserFunction(def, args);
+            if (_builtins.TryGetValue(name, out var fn))       return fn(args);
+            throw new MatlabRuntimeException($"Undefined: {name}");
+        }
+
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
         {
             // JIT fast path: intenta compilar el loop a IL nativo (Expression Trees).
             // Si el patron no es soportado, cae al interprete debajo. Idempotente:
             // un loop dado se compila una vez, las siguientes ejecuciones reusan el delegate.
-            if (MatlabJit.TryExecute(f, scope)) return;
+            if (MatlabJit.TryExecute(f, scope, this)) return;
 
             var iter = Eval(f.Iter, scope);
             // for var = vec → itera columnas (1×N vec → escalares; N×M → cada col)
