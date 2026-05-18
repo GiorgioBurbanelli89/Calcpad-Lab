@@ -5868,6 +5868,11 @@ namespace Calcpad.Core.Matlab
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
         {
+            // JIT fast path: intenta compilar el loop a IL nativo (Expression Trees).
+            // Si el patron no es soportado, cae al interprete debajo. Idempotente:
+            // un loop dado se compila una vez, las siguientes ejecuciones reusan el delegate.
+            if (MatlabJit.TryExecute(f, scope)) return;
+
             var iter = Eval(f.Iter, scope);
             // for var = vec → itera columnas (1×N vec → escalares; N×M → cada col)
             int cols = iter.Cols, rows = iter.Rows;
