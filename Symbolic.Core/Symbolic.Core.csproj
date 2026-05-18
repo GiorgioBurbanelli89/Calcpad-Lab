@@ -47,6 +47,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>matlab_helpers.dll</Link>
     </None>
+    <None Include="Native\libopenblas.dll" Condition="Exists('Native\libopenblas.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libopenblas.dll</Link>
+    </None>
     <None Include="Native\triangle.dll" Condition="Exists('Native\triangle.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>triangle.dll</Link>

@@ -6877,6 +6877,17 @@ namespace Calcpad.Core.Matlab
                 return TransposeSimple(rT);
             }
             var rd = new MValue(a.Rows, b.Cols);
+            // Dispatch a OpenBLAS DGEMM si las matrices son grandes
+            // y tienen storage real puro (sin partes imaginarias).
+            int mx = a.Rows > b.Cols ? (a.Rows > a.Cols ? a.Rows : a.Cols)
+                                     : (b.Cols > a.Cols ? b.Cols : a.Cols);
+            if (mx >= BlasInterop.BlasThreshold && BlasInterop.Available
+                && a.Imag == null && b.Imag == null)
+            {
+                BlasInterop.MatMul(a.Rows, a.Cols, b.Cols, a.Data, b.Data, rd.Data);
+                return rd;
+            }
+            // Loop naive para matrices chicas (overhead BLAS > compute).
             for (int i = 0; i < a.Rows; i++)
                 for (int j = 0; j < b.Cols; j++)
                 {
