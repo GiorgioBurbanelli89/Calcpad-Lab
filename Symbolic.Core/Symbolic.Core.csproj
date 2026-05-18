@@ -51,6 +51,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libopenblas.dll</Link>
     </None>
+    <None Include="Native\liblapack.dll" Condition="Exists('Native\liblapack.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>liblapack.dll</Link>
+    </None>
     <None Include="Native\triangle.dll" Condition="Exists('Native\triangle.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>triangle.dll</Link>

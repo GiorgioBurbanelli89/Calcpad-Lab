@@ -7936,7 +7936,7 @@ namespace Calcpad.Core.Matlab
                 int n = A.Rows;
                 if (IsSymmetric(A))
                 {
-                    // Detectar bandwidth — si bw < n/3, banded Cholesky (~10-100× más rápido)
+                    // Banded Cholesky O(n·bw²) — fastest para sparse-band típicas FEM
                     int bw = DetectBandwidth(A);
                     if (n >= 100 && bw < n / 3)
                     {
@@ -7944,6 +7944,19 @@ namespace Calcpad.Core.Matlab
                         catch { /* fallback */ }
                     }
                     try { return CholeskySolve(A, b); } catch { /* fallback */ }
+                }
+                // LAPACK DGESV — fastest para dense no-simetricas grandes (n >= 64)
+                if (n >= LapackInterop.LapackThreshold && LapackInterop.Available
+                    && b.Cols == 1 && A.Imag == null && b.Imag == null)
+                {
+                    try
+                    {
+                        var x = LapackInterop.Solve(n, A.Data, b.Data);
+                        var rd = new MValue(n, 1);
+                        for (int i = 0; i < n; i++) rd.Set(i, 0, x[i]);
+                        return rd;
+                    }
+                    catch { /* fallback al solver C# si DGESV falla */ }
                 }
                 return GaussSolveOptim(A, b);
             }

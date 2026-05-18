@@ -106,4 +106,67 @@ namespace Calcpad.Core
             }
         }
     }
+
+    /// <summary>P/Invoke a LAPACK DGESV (liblapack.dll) — solver lineal LU con pivoting parcial.
+    /// Fortran calling convention: todos los args por referencia, column-major.</summary>
+    public static class LapackInterop
+    {
+        private const string DllName = "liblapack";
+        /// <summary>Threshold: DGESV solo conviene para n ≥ 64 (overhead transpose + dispatch).</summary>
+        public const int LapackThreshold = 64;
+
+        public static readonly bool Available;
+
+        static LapackInterop()
+        {
+            try
+            {
+                // Probe: solve [1, 2; 3, 4] * x = [5; 11] → x = [1; 2]
+                var A = new[] { 1.0, 3.0, 2.0, 4.0 };   // ya column-major
+                var B = new[] { 5.0, 11.0 };
+                var ipiv = new int[2];
+                int n = 2, nrhs = 1, lda = 2, ldb = 2, info = 0;
+                DGESV(ref n, ref nrhs, A, ref lda, ipiv, B, ref ldb, ref info);
+                Available = info == 0 && Math.Abs(B[0] - 1.0) < 1e-9 && Math.Abs(B[1] - 2.0) < 1e-9;
+            }
+            catch
+            {
+                Available = false;
+            }
+        }
+
+        [DllImport(DllName, EntryPoint = "dgesv_", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void DGESV(
+            ref int n,
+            ref int nrhs,
+            [In, Out] double[] A,
+            ref int lda,
+            [In, Out] int[] ipiv,
+            [In, Out] double[] B,
+            ref int ldb,
+            ref int info);
+
+        /// <summary>
+        /// Resuelve A·x = b para A cuadrada n×n y b vector n×1.
+        /// A es row-major, b es 1D n-vector. Retorna x row-major.
+        /// </summary>
+        public static double[] Solve(int n, double[] A_row, double[] b)
+        {
+            if (!Available) throw new InvalidOperationException("LAPACK no disponible");
+            // Transponer A row-major → column-major (A_row[i*n+j] → A_col[j*n+i])
+            var A_col = new double[n * n];
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                    A_col[j * n + i] = A_row[i * n + j];
+            // b copy (DGESV lo sobreescribe con la solucion)
+            var x = new double[n];
+            Array.Copy(b, x, n);
+            var ipiv = new int[n];
+            int N = n, nrhs = 1, lda = n, ldb = n, info = 0;
+            DGESV(ref N, ref nrhs, A_col, ref lda, ipiv, x, ref ldb, ref info);
+            if (info != 0)
+                throw new InvalidOperationException($"DGESV info={info} (singular or argument error)");
+            return x;
+        }
+    }
 }
