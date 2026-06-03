@@ -5982,10 +5982,11 @@ namespace Calcpad.Core.Matlab
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
         {
-            // JIT fast path: intenta compilar el loop a IL nativo (Expression Trees).
-            // Si el patron no es soportado, cae al interprete debajo. Idempotente:
-            // un loop dado se compila una vez, las siguientes ejecuciones reusan el delegate.
-            if (MatlabJit.TryExecute(f, scope, this)) return;
+            // JIT fast path DESHABILITADO en WPF — el codegen IL corrompia heap
+            // bajo WebView2 host (FEM scripts crashean en indexado post-solve).
+            // El interprete es ~3x mas lento pero estable. Para usar JIT, setear
+            // MatlabJit.Enabled = true (CLI lo hace).
+            if (MatlabJit.Enabled && MatlabJit.TryExecute(f, scope, this)) return;
 
             var iter = Eval(f.Iter, scope);
             // for var = vec → itera columnas (1×N vec → escalares; N×M → cada col)
@@ -6522,6 +6523,19 @@ namespace Calcpad.Core.Matlab
             {
                 var rows = indices[0];
                 var cols = indices[1];
+                // Auto-grow 2D como MATLAB: M(r,c)=v agranda M con ceros si r/c
+                // exceden el tamaño actual (clave para ensamblar K(i,j) en loops FEM).
+                int needRows = m.Rows, needCols = m.Cols;
+                foreach (var rr in rows) if (rr + 1 > needRows) needRows = rr + 1;
+                foreach (var cc in cols) if (cc + 1 > needCols) needCols = cc + 1;
+                if (needRows > m.Rows || needCols > m.Cols)
+                {
+                    var grown = new MValue(needRows, needCols);
+                    for (int gc = 0; gc < m.Cols; gc++)
+                        for (int gr = 0; gr < m.Rows; gr++)
+                            grown.Set(gr, gc, m.At(gr, gc));
+                    m = grown;
+                }
                 // Scalar broadcast OR shape-match
                 if (v.IsScalar)
                 {
@@ -6926,8 +6940,17 @@ namespace Calcpad.Core.Matlab
                 return TransposeSimple(rT);
             }
             var rd = new MValue(a.Rows, b.Cols);
-            // Dispatch a OpenBLAS DGEMM si las matrices son grandes
-            // y tienen storage real puro (sin partes imaginarias).
+            // FAST PATH 1: matrix-vector (b.Cols == 1) → DGEMV nativo
+            // Para FEM: M_vec = D*Bm*Z_e es cadena de matvec — DGEMV es L2 BLAS
+            // optimizado, ~2x mas rapido que DGEMM con n=1.
+            if (b.Cols == 1 && BlasInterop.Available
+                && a.Imag == null && b.Imag == null
+                && a.Rows >= BlasInterop.BlasThreshold)
+            {
+                BlasInterop.MatVec(a.Rows, a.Cols, a.Data, b.Data, rd.Data);
+                return rd;
+            }
+            // FAST PATH 2: matrix-matrix grande → DGEMM nativo
             int mx = a.Rows > b.Cols ? (a.Rows > a.Cols ? a.Rows : a.Cols)
                                      : (b.Cols > a.Cols ? b.Cols : a.Cols);
             if (mx >= BlasInterop.BlasThreshold && BlasInterop.Available
@@ -7985,8 +8008,24 @@ namespace Calcpad.Core.Matlab
                 int n = A.Rows;
                 if (IsSymmetric(A))
                 {
-                    // Banded Cholesky O(n·bw²) — fastest para sparse-band típicas FEM
                     int bw = DetectBandwidth(A);
+                    // PRIORIDAD 1: LAPACK DPBSV banded SPD — código Fortran optimizado.
+                    // 10-20× más rápido que BandedCholeskySolve managed, Y al ser
+                    // nativo no tiene heap corruption GC-related bajo WPF+WebView2
+                    // (fix probable del crash AV en FEM scripts).
+                    if (n >= 64 && bw < n / 3 && LapackInterop.Available
+                        && b.Cols == 1 && A.Imag == null && b.Imag == null)
+                    {
+                        try
+                        {
+                            var x = LapackInterop.SolveSymBanded(n, bw, A.Data, b.Data);
+                            var rd = new MValue(n, 1);
+                            for (int i = 0; i < n; i++) rd.Set(i, 0, x[i]);
+                            return rd;
+                        }
+                        catch { /* fallback a managed */ }
+                    }
+                    // FALLBACK 1: Banded Cholesky managed
                     if (n >= 100 && bw < n / 3)
                     {
                         try { return BandedCholeskySolve(A, b, bw); }
@@ -8111,7 +8150,10 @@ namespace Calcpad.Core.Matlab
             int n = A.Rows;
             int k = b.Cols;
             int w = bw + 1;
-            var L = new double[n * w];
+            // ArrayPool: reusa el buffer L entre invocaciones — reduce GC pressure
+            // que estaba corrompiendo heap bajo WPF+WebView2 (FEM scripts crashean
+            // en indexado post-solve por allocaciones masivas K_e Gauss loop).
+            var L = Calcpad.Core.DoubleArrayPool.Rent(n * w);
             // Copiar banda superior de A
             for (int i = 0; i < n; i++)
             {
@@ -8161,6 +8203,7 @@ namespace Calcpad.Core.Matlab
                     x.Set(i, rhs, s / L[i * w + 0]);
                 }
             }
+            Calcpad.Core.DoubleArrayPool.Return(L);
             return x;
         }
         private static MValue GaussSolveOptim(MValue A, MValue b)
