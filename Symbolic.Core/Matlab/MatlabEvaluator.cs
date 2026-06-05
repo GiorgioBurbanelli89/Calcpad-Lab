@@ -307,6 +307,22 @@ namespace Calcpad.Core.Matlab
 
         private void RegisterBuiltins()
         {
+            // ETABS — corre un modelo .EDB con SAPFire (OAPI) y devuelve un struct con resultados.
+            //   r = etabs_run("mesa.edb")            % caso "Live" por defecto
+            //   r = etabs_run("mesa.edb", "Dead")    % caso específico
+            // Campos: col_P col_V2 col_V3 col_T col_M2 col_M3  beam_V3 beam_T beam_M2  slab_Mxx slab_Myy slab_Mxy
+            _builtins["etabs_run"] = a =>
+            {
+                if (a.Length < 1 || !a[0].IsString)
+                    throw new MatlabRuntimeException("etabs_run: primer argumento = ruta del .EDB (string)");
+                string model = a[0].StringValue;
+                string lc = (a.Length >= 2 && a[1].IsString) ? a[1].StringValue : "Live";
+                var r = EtabsBridge.Run(model, lc);
+                var s = MValue.NewStruct();
+                foreach (var kv in r) s.Fields[kv.Key] = new MValue(kv.Value);
+                return s;
+            };
+
             // Elementary math (element-wise on matrices)
             _builtins["sin"] = a => MapUnary(a[0], Math.Sin);
             _builtins["cos"] = a => MapUnary(a[0], Math.Cos);
