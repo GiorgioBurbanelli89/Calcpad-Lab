@@ -20,6 +20,23 @@ namespace Calcpad.Core.Matlab
         private readonly MatlabEvaluator _evaluator = new();
         public MatlabScope GlobalScope => _evaluator.Globals;
 
+        /// <summary>Si está en true, evita las mutaciones retroactivas del StringBuilder
+        /// (inline comments / multi-stmt same-line) que rompen el streaming chunk-based,
+        /// ya que el chunk previo ya fue enviado al UI. En modo streaming los inline
+        /// comments y multi-stmts se renderean como `<p>` standalone.</summary>
+        public bool StreamingMode { get; set; }
+
+        /// <summary>Fires antes de ejecutar cada statement top-level (line, sourceText).
+        /// La UI lo usa para mostrar "Calculando línea N..." progresivamente.</summary>
+        public event Action<int> StatementStarting;
+        /// <summary>Fires después de ejecutar cada statement top-level. `chunkHtml`
+        /// es el HTML emitido por ese statement (incluyendo disp/plot flushes).
+        /// La UI lo appendea al output panel sin esperar a que termine el script.</summary>
+        public event Action<int, string> StatementCompleted;
+        /// <summary>Fires una vez al finalizar el script (después del foreach principal,
+        /// incluye la figura final si quedó abierta).</summary>
+        public event Action<string> ScriptFinished;
+
         /// <summary>
         /// Procesa un fragmento de código MATLAB. Devuelve HTML concatenado de
         /// todos los statements. Lanza <see cref="MatlabParseException"/> o
@@ -85,10 +102,12 @@ namespace Calcpad.Core.Matlab
             _evaluator.InnerStmtOut = (innerStmt, innerRes) =>
             {
                 if (innerRes.Suppressed) return;
-                // Comentarios `%-- ...` son ocultos (mismo criterio que top-level).
-                if (innerStmt is CommentStmt csInner
-                    && !csInner.IsHeading
-                    && csInner.Text.StartsWith("--")) return;
+                // TODOS los comentarios (NO solo `%--`) dentro de loops/branches
+                // se omiten — sino se emiten una vez por iteracion (e.g. for con
+                // n_s=20 iters, un `% w=0 en apoyos` saldria 20 veces, llenando
+                // el output de basura repetida). Los comentarios son documentacion
+                // del codigo, NO resultado de ejecucion.
+                if (innerStmt is CommentStmt) return;
                 int innerLine = innerStmt?.Line ?? 0;
                 htmlBuffer.Append($"<p class=\"line\" id=\"line-{innerLine}\" style=\"margin-left:1.5em;color:#555\">");
                 htmlBuffer.Append(MatlabHtmlWriter.RenderStatement(innerStmt, innerRes));
@@ -137,6 +156,13 @@ namespace Calcpad.Core.Matlab
             // captions inline para decidir si pegar dentro del mismo <p> (cuando
             // matchea la linea) o emit standalone.
             int lastEmittedPLine = -1;
+            // Streaming buffering por linea-fuente: acumulamos todos los stmts
+            // que comparten line# en un solo chunk para que la logica de merge
+            // (inline-comment / multi-stmt) pueda mutar `sb` antes de enviar al
+            // UI. Sin esto, `a=2;b=2;c=3 %comm` se enviaria como 4 chunks
+            // independientes -> 4 <p> visualmente separados.
+            int pendingChunkStart = sb.Length;
+            int pendingChunkLine = -1;
 
             foreach (var stmt in stmts)
             {
@@ -154,6 +180,21 @@ namespace Calcpad.Core.Matlab
                     // Skipear sin ejecutar ni alterar el tracking
                     continue;
                 }
+
+                // Streaming: si cambiamos de linea-fuente, flushear chunk pendiente
+                // (todos los stmts de la linea anterior ya rendearon a `sb`).
+                if (StreamingMode && pendingChunkLine != -1
+                    && pendingChunkLine != stmtLine
+                    && sb.Length > pendingChunkStart
+                    && StatementCompleted != null)
+                {
+                    var pending = sb.ToString(pendingChunkStart, sb.Length - pendingChunkStart);
+                    StatementCompleted.Invoke(pendingChunkLine, pending);
+                    pendingChunkStart = sb.Length;
+                }
+                pendingChunkLine = stmtLine;
+                StatementStarting?.Invoke(stmtLine);
+                try {
 
                 StatementResult result;
                 try { result = _evaluator.ExecuteOne(stmt, _evaluator.Globals); }
@@ -207,8 +248,13 @@ namespace Calcpad.Core.Matlab
                             // intermedio, etc.), emit standalone.
                             var csInline2 = (CommentStmt)stmt;
                             var encodedText = System.Net.WebUtility.HtmlEncode(csInline2.Text);
-                            var captionSpan = $"<span style=\"color:#5c8a48;font-style:italic;margin-left:1.5em\">{encodedText}</span>";
+                            // Comentario en NEGRO como el texto `'...` de Calcpad puro (no verde).
+                            var captionSpan = $"<span style=\"margin-left:1.5em\">{encodedText}</span>";
                             const string closeTag = "</p>\n";
+                            // Streaming mode tambien permite esta mutacion porque el chunk
+                            // se difiere hasta el cambio de linea-fuente (ver loop principal):
+                            // todos los stmts de la misma linea acumulan en `sb` antes de
+                            // enviarse como un solo chunk al UI.
                             bool sameLinePreviousP = lastEmittedPLine == stmtLine
                                 && sb.Length >= closeTag.Length
                                 && sb.ToString(sb.Length - closeTag.Length, closeTag.Length) == closeTag;
@@ -232,6 +278,7 @@ namespace Calcpad.Core.Matlab
                             // <p> con separador inline en vez de abrir uno nuevo.
                             var stmtHtml = MatlabHtmlWriter.RenderStatement(stmt, result);
                             const string closeTag2 = "</p>\n";
+                            // Streaming mode tambien permite esta mutacion (chunk diferido).
                             bool appendSameLine = lastEmittedPLine == stmtLine
                                 && sb.Length >= closeTag2.Length
                                 && sb.ToString(sb.Length - closeTag2.Length, closeTag2.Length) == closeTag2;
@@ -269,14 +316,44 @@ namespace Calcpad.Core.Matlab
                     sb.Append(htmlBuffer);
                     htmlBuffer.Clear();
                 }
+
+                } finally {
+                    // Streaming: NO emitir aquí — diferimos hasta el cambio de
+                    // linea-fuente (siguiente iteracion) o el final del script,
+                    // para que la logica de merge mismo-renglón pueda mutar `sb`
+                    // antes de que el chunk se envie al UI.
+                }
+            }
+            // Streaming: flushear el chunk pendiente de la ultima linea procesada.
+            if (StreamingMode && pendingChunkLine != -1
+                && sb.Length > pendingChunkStart
+                && StatementCompleted != null)
+            {
+                var pending = sb.ToString(pendingChunkStart, sb.Length - pendingChunkStart);
+                StatementCompleted.Invoke(pendingChunkLine, pending);
+                pendingChunkStart = sb.Length;
             }
             // Al final del script: cerrar figura abierta (patch/line acumulados sin saveas)
+            int finalChunkStart = sb.Length;
             if (MatlabPlots.HasOpenFigure)
             {
                 var finalFig = MatlabPlots.FinishFigure();
                 if (!string.IsNullOrEmpty(finalFig)) sb.Append(finalFig);
             }
-            return sb.ToString();
+            if (sb.Length > finalChunkStart && StatementCompleted != null)
+            {
+                var chunk = sb.ToString(finalChunkStart, sb.Length - finalChunkStart);
+                StatementCompleted.Invoke(0, chunk);
+            }
+            var fullHtml = sb.ToString();
+            // Auto-contenido: si la salida usa Plotly (plot/surf/contour de Lab),
+            // anteponer la libreria UNA vez. Script bloqueante en document.write =>
+            // queda definida antes de los Plotly.newPlot del cuerpo. Asi el HTML
+            // sirve en web, WPF/CLI y exportado, sin inyeccion del host.
+            if (fullHtml.Contains("Plotly.newPlot") && !fullHtml.Contains("cdn.plot.ly"))
+                fullHtml = "<script src=\"https://cdn.plot.ly/plotly-2.35.2.min.js\" charset=\"utf-8\"></script>\n" + fullHtml;
+            ScriptFinished?.Invoke(fullHtml);
+            return fullHtml;
         }
 
         /// <summary>
@@ -478,16 +555,20 @@ namespace Calcpad.Core.Matlab
             new(@"(?<![A-Za-z])(" + string.Join("|", UnitTokens) + @")(?![A-Za-z])",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
-        // Subíndice estilo MATLAB: ident_word
+        // Subíndice estilo MATLAB: ident_word — subscript puede empezar con dígito
+        // (Phi_1, Phi_2, K_3 etc) o letra (M_xx, sigma_max).
+        // Lookbehind/ahead excluye: letras Unicode (acentos á é í ó ú ñ),
+        // dígitos, y `;` (cierre de HTML entity `&#243;` que rodea acentos).
         private static readonly System.Text.RegularExpressions.Regex SubscriptRegex =
-            new(@"\b([A-Za-z][A-Za-z]{0,9})_([A-Za-z][A-Za-z0-9]{0,9})\b",
+            new(@"(?<![\p{L}\p{N};])([A-Za-z][A-Za-z]{0,9})_([A-Za-z0-9][A-Za-z0-9]{0,9})(?![\p{L}\p{N}])",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
         // Letra suelta o palabra griega corta (variable matemática).
-        // Excluye `a, y, o` para evitar capturar conjunciones/artículos españoles
-        // en frases descriptivas ("Diseno a flexion", "Bornes a y b").
+        // Excluye `a, y, o` para evitar capturar conjunciones/artículos españoles.
+        // Lookbehind excluye letras Unicode + `;` (cierre de HTML entity `&#243;`
+        // que rodea acentos), para no romper palabras como "Verificación".
         private static readonly System.Text.RegularExpressions.Regex LooseVarRegex =
-            new(@"(?<![A-Za-z0-9<>/""=])(alpha|beta|gamma|delta|epsilon|zeta|eta|theta|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|phi|chi|psi|omega|[B-DF-NP-XZb-df-np-xz]|[Ee]|[Ii]|[Uu])(?![A-Za-z0-9])",
+            new(@"(?<![\p{L}\p{N}<>/""=;])(alpha|beta|gamma|delta|epsilon|zeta|eta|theta|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|phi|chi|psi|omega|[B-DF-NP-XZb-df-np-xz]|[Ee]|[Ii]|[Uu])(?![\p{L}\p{N}])",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
         // ^N (exponente entero)
@@ -564,13 +645,14 @@ namespace Calcpad.Core.Matlab
                 return $"<i class=\"unit\">{u}</i>";
             });
 
-            // 1.5) Integrales: int_a^b → ∫_a^b (con limites como sub/sup).
-            // Usamos <span> en vez de <i> para no chocar con `.eq i` (90%/teal).
+            // 1.5) Integrales: int_a^b → ∫_a^b con estilo template `.dvr > .nary`
+            // (BIG integral, sub/sup stacked vertical) — mismo que el HtmWriter
+            // produce para int(f,x,a,b) en expresiones reales.
             s = IntegralRegex.Replace(s, m =>
             {
-                var sub = m.Groups[1].Success ? $"<sub>{m.Groups[1].Value}</sub>" : "";
-                var sup = m.Groups[2].Success ? $"<sup>{m.Groups[2].Value}</sup>" : "";
-                return $"<span class=\"intsym\">&int;</span>{sub}{sup}";
+                var sub = m.Groups[1].Success ? m.Groups[1].Value : "";
+                var sup = m.Groups[2].Success ? m.Groups[2].Value : "";
+                return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\">&int;</span><small>{sub}</small></span>";
             });
 
             // 1.6) Sumatoria/productoria: sum_a^b → ∑_a^b, prod_a^b → ∏_a^b

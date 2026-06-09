@@ -65,6 +65,15 @@ namespace Calcpad.Core.Matlab
                 _figTraces = null; _figAnnotations = null;
                 return "";
             }
+            // DIBUJO 2D estructural (malla: patches/texto/markers) → SVG inline (nítido,
+            // numeración fiable). Plotly se reserva para resultados (surf/contour/datos).
+            if (!_figIs3D && _figPrims != null &&
+                _figPrims.Exists(p => p.Kind == "patch2d" || p.Kind == "text2d" || p.Kind == "markers2d"))
+            {
+                string svgInner = ExportSvg(760, 580);
+                _figTraces = null; _figAnnotations = null; _figPrims = null;
+                return svgInner == null ? "" : $"<div class=\"matlab-plot matlab-svg\">{svgInner}</div>\n";
+            }
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{_figId}\" class=\"matlab-plot\" style=\"width:720px;height:560px\"></div>\n");
             sb.Append("<script>(function() {\n  var data = [\n");
@@ -86,15 +95,18 @@ namespace Calcpad.Core.Matlab
             }
             else
             {
-                if (_figXLabel != null) sb.Append($", xaxis:{{title:'{EscapeJs(_figXLabel)}'");
-                else sb.Append(", xaxis:{");
-                if (_figXMin.HasValue) sb.Append($", range:[{_figXMin.Value.ToString(Inv)}, {_figXMax.Value.ToString(Inv)}]");
-                sb.Append("}");
-                if (_figYLabel != null) sb.Append($", yaxis:{{title:'{EscapeJs(_figYLabel)}'");
-                else sb.Append(", yaxis:{");
-                if (_figYMin.HasValue) sb.Append($", range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
-                sb.Append(", scaleanchor:'x', scaleratio:1");
-                sb.Append("}");
+                // xaxis: unir partes presentes con coma (evita '{,' inicial inválido)
+                var xparts = new System.Collections.Generic.List<string>();
+                if (_figXLabel != null) xparts.Add($"title:'{EscapeJs(_figXLabel)}'");
+                if (_figXMin.HasValue) xparts.Add($"range:[{_figXMin.Value.ToString(Inv)}, {_figXMax.Value.ToString(Inv)}]");
+                sb.Append(", xaxis:{").Append(string.Join(", ", xparts)).Append("}");
+                // yaxis: igual + aspecto cuadrado (scaleanchor)
+                var yparts = new System.Collections.Generic.List<string>();
+                if (_figYLabel != null) yparts.Add($"title:'{EscapeJs(_figYLabel)}'");
+                if (_figYMin.HasValue) yparts.Add($"range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
+                yparts.Add("scaleanchor:'x'");
+                yparts.Add("scaleratio:1");
+                sb.Append(", yaxis:{").Append(string.Join(", ", yparts)).Append("}");
             }
             // annotations
             if (_figAnnotations.Count > 0)
@@ -326,11 +338,29 @@ namespace Calcpad.Core.Matlab
                 Color=color, LineWidth=lineWidth
             });
         }
+        /// <summary>Markers 2D — puntos (scatter mode:markers) que se ACUMULAN en la figura.
+        /// Permite que plot(x,y,'o') componga con patch/line/text en los mismos ejes.</summary>
+        public static void Markers2D(double[] xs, double[] ys, string fillColor, string edgeColor,
+                                      string symbol, double size)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{type:'scatter', mode:'markers'");
+            sb.Append($", marker:{{symbol:'{symbol}', size:{size.ToString(Inv)}, color:'{fillColor}'");
+            sb.Append($", line:{{color:'{edgeColor}', width:1}}}}");
+            sb.Append($", x:[{Csv(xs)}], y:[{Csv(ys)}]");
+            sb.Append(", showlegend:false, hoverinfo:'skip'}");
+            AddTrace(sb.ToString());
+            if (_figPrims != null) _figPrims.Add(new FigPrim{
+                Kind="markers2d", Xs=(double[])xs.Clone(), Ys=(double[])ys.Clone(),
+                FaceColor=fillColor, EdgeColor=edgeColor, FontSize=size, Text=symbol
+            });
+        }
         public static void Text2D(double x, double y, string text, string color, double fontSize)
         {
             var sb = new StringBuilder();
             sb.Append("{");
             sb.Append($"x:{x.ToString(Inv)}, y:{y.ToString(Inv)}, ");
+            sb.Append("xref:'x', yref:'y', ");   // posicionar en coords de DATOS, no de papel
             sb.Append($"text:'{EscapeJs(text)}', ");
             sb.Append($"font:{{color:'{color}', size:{fontSize.ToString(Inv)}}}, ");
             sb.Append("showarrow:false");
@@ -422,10 +452,32 @@ namespace Calcpad.Core.Matlab
                     }
                     svg.AppendLine($"    <polyline points='{pts}' fill='none' stroke='{p.Color}' stroke-width='{p.LineWidth.ToString(Inv)}'/>");
                 }
+                else if (p.Kind == "markers2d" && p.Xs.Length > 0)
+                {
+                    double r = Math.Max(2.0, p.FontSize / 2.0);
+                    string sym = p.Text ?? "circle";
+                    for (int i = 0; i < p.Xs.Length; i++)
+                    {
+                        double cx = TX(p.Xs[i]); double cy = TY(p.Ys[i]);
+                        if (sym.StartsWith("triangle"))
+                        {
+                            // triángulo equilátero (apuntando arriba)
+                            double h = r * 1.3;
+                            string pts = $"{cx.ToString("F2",Inv)},{(cy-h).ToString("F2",Inv)} " +
+                                         $"{(cx-h).ToString("F2",Inv)},{(cy+h*0.7).ToString("F2",Inv)} " +
+                                         $"{(cx+h).ToString("F2",Inv)},{(cy+h*0.7).ToString("F2",Inv)}";
+                            svg.AppendLine($"    <polygon points='{pts}' fill='{p.FaceColor}' stroke='{p.EdgeColor}' stroke-width='1'/>");
+                        }
+                        else
+                        {
+                            svg.AppendLine($"    <circle cx='{cx.ToString("F2", Inv)}' cy='{cy.ToString("F2", Inv)}' r='{r.ToString("F2", Inv)}' fill='{p.FaceColor}' stroke='{p.EdgeColor}' stroke-width='1'/>");
+                        }
+                    }
+                }
                 else if (p.Kind == "text2d")
                 {
                     double tx = TX(p.Xs[0]); double ty = TY(p.Ys[0]);
-                    svg.AppendLine($"    <text x='{tx.ToString("F2", Inv)}' y='{ty.ToString("F2", Inv)}' fill='{p.Color}' font-family='sans-serif' font-size='{p.FontSize.ToString(Inv)}' text-anchor='middle'>{EscapeXml(p.Text)}</text>");
+                    svg.AppendLine($"    <text x='{tx.ToString("F2", Inv)}' y='{ty.ToString("F2", Inv)}' fill='{p.Color}' font-family='sans-serif' font-size='{p.FontSize.ToString(Inv)}' text-anchor='middle' dominant-baseline='central'>{EscapeXml(p.Text)}</text>");
                 }
             }
             svg.AppendLine($"  </g>");
@@ -447,7 +499,7 @@ namespace Calcpad.Core.Matlab
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'surface', colorscale: '{ColormapToPlotly(colormap)}',\n");
+            sb.Append($"    type: 'surface', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")},\n");
             sb.Append($"    x: {EmitMatrixJs(X)},\n");
             sb.Append($"    y: {EmitMatrixJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
@@ -467,7 +519,7 @@ namespace Calcpad.Core.Matlab
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'contour', colorscale: '{ColormapToPlotly(colormap)}', ncontours: {nLevels}, contours: {{coloring: 'fill'}},\n");
+            sb.Append($"    type: 'contour', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, ncontours: {nLevels}, contours: {{coloring: 'fill'}},\n");
             sb.Append($"    x: {EmitRowJs(X, true)},\n");
             sb.Append($"    y: {EmitColJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
@@ -484,7 +536,7 @@ namespace Calcpad.Core.Matlab
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
-            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: '{ColormapToPlotly(colormap)}', z: {EmitMatrixJs(Z)} }}];\n");
+            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'imagesc', margin:{{l:40,r:40,t:40,b:40}}, yaxis: {{autorange:'reversed'}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
@@ -504,6 +556,42 @@ namespace Calcpad.Core.Matlab
             sb.Append("})();</script>\n");
             return sb.ToString();
         }
+
+        /// <summary>Viewer interactivo de campo sobre losa: 2D (canvas jet + crosshair hover)
+        /// + 3D (Three.js, malla deformada coloreada + hover) con selector de resultado.
+        /// Lo GENERA el script Lab (no HTML crudo): los campos vienen del .m.</summary>
+        public static string SlabView3D(double A, double B, double H, int na, int nb,
+            System.Collections.Generic.List<(string key, string label, string unit, double[] data)> fields)
+        {
+            int id = ++_plotCounter;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            var opts = new StringBuilder(); var dinit = new StringBuilder();
+            var uinit = new StringBuilder(); var ddata = new StringBuilder();
+            for (int f = 0; f < fields.Count; f++)
+            {
+                var fl = fields[f];
+                opts.Append($"<option value=\"{fl.key}\">{fl.label}</option>");
+                if (f > 0) { dinit.Append(','); uinit.Append(','); }
+                dinit.Append(fl.key).Append(":[]");
+                uinit.Append(fl.key).Append(":'").Append(fl.unit).Append('\'');
+                ddata.Append("D.").Append(fl.key).Append("=[");
+                for (int k = 0; k < fl.data.Length; k++) { if (k > 0) ddata.Append(','); ddata.Append(fl.data[k].ToString("0.#####", ci)); }
+                ddata.Append("];");
+            }
+            return SlabViewerTemplate
+                .Replace("__ID__", id.ToString(ci))
+                .Replace("__NA__", na.ToString(ci)).Replace("__NB__", nb.ToString(ci))
+                .Replace("__A__", A.ToString(ci)).Replace("__BB__", B.ToString(ci)).Replace("__HC__", H.ToString(ci))
+                .Replace("__OPTIONS__", opts.ToString())
+                .Replace("__DINIT__", dinit.ToString()).Replace("__UINIT__", uinit.ToString())
+                .Replace("__DDATA__", ddata.ToString())
+                .Replace("__FIRSTKEY__", fields.Count > 0 ? fields[0].key : "w");
+        }
+
+        // Template del viewer (JS interactivo 2D canvas jet + 3D Three.js, con hover y selector).
+        // Placeholders: __ID__ __NA__ __NB__ __A__ __BB__ __HC__ __OPTIONS__ __DINIT__ __UINIT__ __DDATA__ __FIRSTKEY__
+        private const string SlabViewerTemplate =
+@"<div id=""rv__ID__"" style=""font:13px Segoe UI""> <b>Resultado:</b> <select id=""rvs__ID__"" style=""font:13px Segoe UI;padding:2px 6px;margin:4px 0"">__OPTIONS__</select> <div style=""display:flex;flex-wrap:wrap;gap:10px""><div id=""rv2__ID__""></div><div id=""rv3__ID__""></div></div></div> <script>(function(){ var na=__NA__,nb=__NB__,A=__A__,Bb=__BB__,Hc=__HC__; var D={__DINIT__},U={__UINIT__}; __DDATA__ var nx=na+1,ny=nb+1; function jt(t){t=Math.max(0,Math.min(1,t));return[Math.max(0,Math.min(1,Math.min(4*t-1.5,-4*t+4.5)))*255|0,Math.max(0,Math.min(1,Math.min(4*t-0.5,-4*t+3.5)))*255|0,Math.max(0,Math.min(1,Math.min(4*t+0.5,-4*t+2.5)))*255|0];} function jc(t){var c=jt(t);return new THREE.Color(c[0]/255,c[1]/255,c[2]/255);} var P2=document.getElementById(""rv2__ID__""),P3=document.getElementById(""rv3__ID__""),SEL=document.getElementById(""rvs__ID__""); var tip=document.createElement(""div"");tip.style.cssText=""position:fixed;pointer-events:none;background:rgba(20,20,28,.9);color:#fff;font:12px Consolas;padding:3px 7px;border-radius:4px;display:none;z-index:99999"";document.body.appendChild(tip); function draw2D(g,uni){var W=420,H=380,ml=38,mr=64,mt=16,pw=W-ml-mr,ph=H-mt-26;P2.innerHTML='';var hd=document.createElement(""div"");var wr=document.createElement(""div"");wr.style.cssText=""position:relative;width:""+W+""px;height:""+H+""px;flex:0 0 auto"";var bs=document.createElement(""canvas"");bs.width=W;bs.height=H;bs.style.cssText=""position:absolute;border:1px solid #ddd"";var ov=document.createElement(""canvas"");ov.width=W;ov.height=H;ov.style.cssText=""position:absolute;pointer-events:none"";wr.appendChild(bs);wr.appendChild(ov);P2.appendChild(hd);P2.appendChild(wr);var cx=bs.getContext(""2d""),ox=ov.getContext(""2d""); var xs=[];for(var i=0;i<nx;i++)xs.push(i*A/na);var ys=[];for(var j=0;j<ny;j++)ys.push(j*Bb/nb);function gv(i,j){return g[i*ny+j];} function SX(x){return ml+x/A*pw;}function SY(y){return mt+(Bb-y)/Bb*ph;}function wX(p){return(p-ml)/pw*A;}function wY(p){return Bb-(p-mt)/ph*Bb;} function bl(x,y){if(x<0||x>A||y<0||y>Bb)return null;var i=0;while(i<nx-2&&xs[i+1]<x)i++;var j=0;while(j<ny-2&&ys[j+1]<y)j++;var u=(x-xs[i])/(xs[i+1]-xs[i]),v=(y-ys[j])/(ys[j+1]-ys[j]);return gv(i,j)*(1-u)*(1-v)+gv(i+1,j)*u*(1-v)+gv(i,j+1)*(1-u)*v+gv(i+1,j+1)*u*v;} var vn=1e30,vx=-1e30;for(var k=0;k<g.length;k++){if(g[k]<vn)vn=g[k];if(g[k]>vx)vx=g[k];}if(vx-vn<1e-9)vx=vn+1; var im=cx.createImageData(pw,ph),dd=im.data;for(var py=0;py<ph;py++)for(var px=0;px<pw;px++){var v=bl(wX(ml+px),wY(mt+py)),qq=(py*pw+px)*4;if(v==null){dd[qq+3]=0;}else{var c=jt((v-vn)/(vx-vn));dd[qq]=c[0];dd[qq+1]=c[1];dd[qq+2]=c[2];dd[qq+3]=255;}}cx.putImageData(im,ml,mt); cx.strokeStyle=""rgba(40,40,40,.25)"";for(var i=0;i<nx;i++){cx.beginPath();cx.moveTo(SX(xs[i]),mt);cx.lineTo(SX(xs[i]),mt+ph);cx.stroke();}for(var j=0;j<ny;j++){cx.beginPath();cx.moveTo(ml,SY(ys[j]));cx.lineTo(ml+pw,SY(ys[j]));cx.stroke();}cx.strokeStyle=""#888"";cx.strokeRect(ml,mt,pw,ph); var cbx=W-mr+20;cx.font=""10px Consolas"";for(var k=0;k<ph;k++){var c=jt(1-k/ph);cx.fillStyle=""rgb(""+c[0]+"",""+c[1]+"",""+c[2]+"")"";cx.fillRect(cbx,mt+k,13,1);}cx.fillStyle=""#333"";cx.fillText(vx.toFixed(2),cbx-2,mt-3);cx.fillText(vn.toFixed(2),cbx-2,mt+ph+10); hd.innerHTML=""<b>2D (planta)</b> max=""+vx.toFixed(2)+uni+"" min=""+vn.toFixed(2)+uni; bs.onmousemove=function(ev){var rc=bs.getBoundingClientRect();var px=ev.clientX-rc.left,py=ev.clientY-rc.top,x=wX(px),y=wY(py);var v=(px>=ml&&px<=ml+pw&&py>=mt&&py<=mt+ph)?bl(x,y):null;ox.clearRect(0,0,W,H);if(v==null)return;ox.strokeStyle=""#000"";ox.beginPath();ox.moveTo(px,mt);ox.lineTo(px,mt+ph);ox.moveTo(ml,py);ox.lineTo(ml+pw,py);ox.stroke();ox.fillStyle=""rgba(20,20,28,.9)"";ox.fillRect(px+8,py-15,140,15);ox.fillStyle=""#fff"";ox.font=""11px Consolas"";ox.fillText(v.toFixed(2)+uni+"" @(""+x.toFixed(1)+"",""+y.toFixed(1)+"")"",px+11,py-4);};bs.onmouseleave=function(){ox.clearRect(0,0,W,H);};} var scn,cam,ren,ctrl,grp,mesh,geo,vv,rdy=false; function init3D(){var W=440,H=400;scn=new THREE.Scene();scn.background=new THREE.Color(0xeef0f4);cam=new THREE.PerspectiveCamera(45,W/H,.001,9000);ren=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});ren.setSize(W,H);var hd=document.createElement(""div"");hd.id=""rv3h__ID__"";P3.appendChild(hd);P3.appendChild(ren.domElement);cam.up.set(0,0,1);var dg0=Math.hypot(A,Bb,Hc)||1;cam.position.set(A/2+dg0,Bb/2-dg0*1.4,Hc/2+dg0);cam.lookAt(A/2,Bb/2,Hc/2);ctrl=new THREE.OrbitControls(cam,ren.domElement);ctrl.target.set(A/2,Bb/2,Hc/2);ctrl.update();scn.add(new THREE.AmbientLight(0xffffff,.9));var dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(8,-12,18);scn.add(dl);var ray=new THREE.Raycaster(),mo=new THREE.Vector2();ren.domElement.addEventListener(""mousemove"",function(ev){if(!mesh)return;var r=ren.domElement.getBoundingClientRect();mo.x=((ev.clientX-r.left)/r.width)*2-1;mo.y=-((ev.clientY-r.top)/r.height)*2+1;ray.setFromCamera(mo,cam);var h=ray.intersectObject(mesh,false);if(h.length){var f=h[0].face,ap=geo.attributes.position,p0=new THREE.Vector3().fromBufferAttribute(ap,f.a),p1=new THREE.Vector3().fromBufferAttribute(ap,f.b),p2=new THREE.Vector3().fromBufferAttribute(ap,f.c),bc=new THREE.Vector3();new THREE.Triangle(p0,p1,p2).getBarycoord(h[0].point,bc);var val=bc.x*vv[f.a]+bc.y*vv[f.b]+bc.z*vv[f.c];tip.style.display=""block"";tip.style.left=(ev.clientX+13)+""px"";tip.style.top=(ev.clientY+8)+""px"";tip.innerHTML=val.toFixed(2);}else tip.style.display=""none"";});ren.domElement.addEventListener(""mouseleave"",function(){tip.style.display=""none"";});function anim(){requestAnimationFrame(anim);ctrl.update();ren.render(scn,cam);}anim();rdy=true;} function build3D(colorG,uni){if(!rdy)return;if(grp)scn.remove(grp);grp=new THREE.Group(); var wG=D.w;function wv(i,j){return wG[i*ny+j];}function cg(i,j){return colorG[i*ny+j];} var wn=Math.min.apply(null,wG),wx=Math.max.apply(null,wG);var wa=Math.max(Math.abs(wn),Math.abs(wx),1e-9);var ampw=(.40*Hc)/wa; function Pt(i,j){return new THREE.Vector3(i*A/na,j*Bb/nb,Hc+wv(i,j)*ampw);} var cn=Math.min.apply(null,colorG),cx2=Math.max.apply(null,colorG);if(cx2-cn<1e-9)cx2=cn+1; var pos=[],col=[];vv=[];function pv(p,t){pos.push(p.x,p.y,p.z);var c=jc(t);col.push(c.r,c.g,c.b);} for(var i=0;i<nx-1;i++)for(var j=0;j<ny-1;j++){var pa=Pt(i,j),pb=Pt(i+1,j),pc=Pt(i+1,j+1),pd=Pt(i,j+1),ta=(cg(i,j)-cn)/(cx2-cn),tb=(cg(i+1,j)-cn)/(cx2-cn),tc=(cg(i+1,j+1)-cn)/(cx2-cn),td=(cg(i,j+1)-cn)/(cx2-cn);pv(pa,ta);pv(pb,tb);pv(pc,tc);vv.push(cg(i,j),cg(i+1,j),cg(i+1,j+1));pv(pa,ta);pv(pc,tc);pv(pd,td);vv.push(cg(i,j),cg(i+1,j+1),cg(i,j+1));} geo=new THREE.BufferGeometry();geo.setAttribute(""position"",new THREE.Float32BufferAttribute(pos,3));geo.setAttribute(""color"",new THREE.Float32BufferAttribute(col,3));geo.computeVertexNormals();mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide}));grp.add(mesh); var wp=[];for(var i=0;i<nx;i++)for(var j=0;j<ny-1;j++){var aa=Pt(i,j),bb=Pt(i,j+1);wp.push(aa.x,aa.y,aa.z,bb.x,bb.y,bb.z);}for(var j=0;j<ny;j++)for(var i=0;i<nx-1;i++){var aa=Pt(i,j),bb=Pt(i+1,j);wp.push(aa.x,aa.y,aa.z,bb.x,bb.y,bb.z);}var wg=new THREE.BufferGeometry();wg.setAttribute(""position"",new THREE.Float32BufferAttribute(wp,3));grp.add(new THREE.LineSegments(wg,new THREE.LineBasicMaterial({color:0x556677}))); var corn=[[0,0],[nx-1,0],[nx-1,ny-1],[0,ny-1]]; var cp=[];for(var k=0;k<4;k++){var ci=corn[k][0],cj=corn[k][1],ptop=Pt(ci,cj);cp.push(ci*A/na,cj*Bb/nb,0,ptop.x,ptop.y,ptop.z);}var cgeo=new THREE.BufferGeometry();cgeo.setAttribute(""position"",new THREE.Float32BufferAttribute(cp,3));grp.add(new THREE.LineSegments(cgeo,new THREE.LineBasicMaterial({color:0x222222}))); var bp=[];function edge(ii,jj,di,dj,n){for(var s=0;s<n;s++){var a1=Pt(ii+di*s,jj+dj*s),a2=Pt(ii+di*(s+1),jj+dj*(s+1));bp.push(a1.x,a1.y,a1.z,a2.x,a2.y,a2.z);}} edge(0,0,1,0,nx-1);edge(0,ny-1,1,0,nx-1);edge(0,0,0,1,ny-1);edge(nx-1,0,0,1,ny-1);var bgeo=new THREE.BufferGeometry();bgeo.setAttribute(""position"",new THREE.Float32BufferAttribute(bp,3));grp.add(new THREE.LineSegments(bgeo,new THREE.LineBasicMaterial({color:0x8d6e63,linewidth:2}))); for(var k=0;k<4;k++){var ci=corn[k][0]*A/na,cj=corn[k][1]*Bb/nb,cm=new THREE.Mesh(new THREE.ConeGeometry(.05*Math.max(A,Bb),.10*Math.max(A,Bb),4),new THREE.MeshBasicMaterial({color:0x2244aa}));cm.position.set(ci,cj,-.05*Math.max(A,Bb));cm.rotation.x=Math.PI/2;grp.add(cm);} scn.add(grp); var cxx=A/2,cyy=Bb/2,czz=Hc/2,diag=Math.hypot(A,Bb,Hc)||1;cam.up.set(0,0,1);cam.position.set(cxx+diag*1.0,cyy-diag*1.4,czz+diag*.9);cam.lookAt(cxx,cyy,czz);ctrl.target.set(cxx,cyy,czz);ctrl.update(); document.getElementById(""rv3h__ID__"").innerHTML=""<b>Mesa 3D - ""+SEL.options[SEL.selectedIndex].text+""</b> max=""+cx2.toFixed(2)+uni+"" min=""+cn.toFixed(2)+uni+"" (arrastra/zoom/hover)"";} function render(){var k=SEL.value,g=D[k],uni=U[k];draw2D(g,uni);build3D(g,uni);} SEL.onchange=render; var s1=document.createElement(""script"");s1.src=""https://cdn.jsdelivr.net/npm/three@0.145.0/build/three.min.js"";s1.onload=function(){var s2=document.createElement(""script"");s2.src=""https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/controls/OrbitControls.js"";s2.onload=function(){init3D();render();};document.head.appendChild(s2);};document.head.appendChild(s1); draw2D(D.__FIRSTKEY__,U.__FIRSTKEY__); })();</script>";
 
         public static string Plot3(MValue X, MValue Y, MValue Z)
         {
@@ -604,7 +692,7 @@ namespace Calcpad.Core.Matlab
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
-            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: '{ColormapToPlotly(colormap)}', z: {EmitMatrixJs(Z)} }}];\n");
+            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'heatmap', margin:{{l:50,r:30,t:40,b:50}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
@@ -838,7 +926,18 @@ namespace Calcpad.Core.Matlab
             sb.Append("]");
             return sb.ToString();
         }
-        private static string ColormapToPlotly(string name) => name?.ToLowerInvariant() switch
+        /// <summary>True si el nombre pide colormap INVERTIDO (sufijo `_r`, ej. jet_r — estilo SAP2000/PyVista).</summary>
+        private static bool ColormapReversed(string name) =>
+            (name ?? "").ToLowerInvariant().EndsWith("_r");
+
+        private static string ColormapToPlotly(string nameRaw)
+        {
+            var name = (nameRaw ?? "").ToLowerInvariant();
+            if (name.EndsWith("_r")) name = name.Substring(0, name.Length - 2);   // jet_r -> jet (+reversescale)
+            return ColormapToPlotlyBase(name);
+        }
+
+        private static string ColormapToPlotlyBase(string name) => name switch
         {
             "jet" => "Jet",
             "parula" or "viridis" => "Viridis",

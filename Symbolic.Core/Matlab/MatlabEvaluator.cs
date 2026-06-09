@@ -230,7 +230,7 @@ namespace Calcpad.Core.Matlab
         private Action<MatlabNode, StatementResult> _innerStmtOut;
         public Action<MatlabNode, StatementResult> InnerStmtOut { get => _innerStmtOut; set => _innerStmtOut = value; }
         /// <summary>Colormap activo. Cambiado por <c>colormap('jet')</c> y consumido por surf/contourf.</summary>
-        private string _activeColormap = "viridis";
+        private string _activeColormap = "jet_r";   // default = jet INVERTIDO (estilo SAP2000), 2D y 3D
         /// <summary>Subplot grid activo (m, n) si subplot(m, n, p) fue llamado.</summary>
         internal (int m, int n)? _subplotGrid;
         /// <summary>Posición 1-based del subplot activo.</summary>
@@ -1225,6 +1225,10 @@ namespace Calcpad.Core.Matlab
                 if (a.Length > 0 && a[0] != null) _activeColormap = a[0].IsString ? a[0].StringValue : "custom";
                 return a.Length > 0 ? a[0] : new MValue(0);
             };
+            // Nombres de colormap como funciones (MATLAB): colormap(jet), colormap(jet_r) — `_r` = INVERTIDO.
+            foreach (var cm in new[] { "jet", "jet_r", "parula", "viridis", "hot", "cool", "gray", "grey",
+                                       "bone", "hsv", "spring", "summer", "autumn", "winter", "copper" })
+                _builtins[cm] = _a => new MValue(cm);
             _builtins["surf"] = a => {
                 MValue X, Y, Z;
                 if (a.Length >= 3) { X = a[0]; Y = a[1]; Z = a[2]; }
@@ -1255,18 +1259,72 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["plot"] = a => {
+                // plot(Y) | plot(X,Y) | plot(X,Y,'spec') | + name-value (Color, LineWidth,
+                // MarkerFaceColor, MarkerEdgeColor, MarkerSize). Respeta el linespec ('o','^','-',...)
+                // y, si hay figura abierta, COMPONE en los mismos ejes que patch/line/text.
                 MValue X, Y;
-                if (a.Length == 1) {
+                int rest;
+                if (a.Length >= 2 && !a[1].IsString) { X = a[0]; Y = a[1]; rest = 2; }
+                else {
                     Y = a[0];
                     X = new MValue(1, Y.Data.Length);
                     for (int i = 0; i < X.Data.Length; i++) X.Data[i] = i + 1;
-                } else { X = a[0]; Y = a[1]; }
-                _htmlOut?.Invoke(MatlabPlots.Plot(X, Y));
+                    rest = 1;
+                }
+                bool wantLine = false, wantMarker = false;
+                string specColor = null, symbol = "circle";
+                if (rest < a.Length && a[rest].IsString) {
+                    ParseLineSpec(a[rest].StringValue, out wantLine, out wantMarker, out specColor, out symbol);
+                    rest++;
+                }
+                if (!wantLine && !wantMarker) wantLine = true;   // default MATLAB = línea
+                string lineColor = specColor ?? "#1f77b4";
+                string markerFill = specColor, markerEdge = specColor;
+                double lineWidth = 1.5, markerSize = 6;
+                for (int i = rest; i + 1 < a.Length; i += 2) {
+                    if (!a[i].IsString) break;
+                    switch (a[i].StringValue.ToLowerInvariant()) {
+                        case "color": lineColor = ColorArg(a[i+1]);
+                            if (specColor == null) { markerFill = lineColor; markerEdge = lineColor; } break;
+                        case "linewidth": lineWidth = a[i+1].Scalar; break;
+                        case "markerfacecolor": markerFill = ColorArg(a[i+1]); break;
+                        case "markeredgecolor": markerEdge = ColorArg(a[i+1]); break;
+                        case "markersize": markerSize = a[i+1].Scalar; break;
+                    }
+                }
+                markerFill ??= lineColor; markerEdge ??= "black";
+                if (MatlabPlots.HasOpenFigure) {
+                    if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth);
+                    if (wantMarker) MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize);
+                } else if (wantMarker && !wantLine) {
+                    MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize);
+                    _htmlOut?.Invoke(MatlabPlots.FinishFigure());
+                } else {
+                    _htmlOut?.Invoke(MatlabPlots.Plot(X, Y));
+                }
                 return new MValue(0);
             };
             _builtins["plot3"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("plot3(x, y, z)");
                 _htmlOut?.Invoke(MatlabPlots.Plot3(a[0], a[1], a[2]));
+                return new MValue(0);
+            };
+            // Viewer interactivo de la mesa: slabview3d(A, B, H, na, nb, struct_campos)
+            //   struct con campos nodales (length (na+1)*(nb+1), indexados i*(nb+1)+j):
+            //   s.w, s.Mxy, s.Mx, s.My ... → 2D color map (jet+hover) + 3D Three.js + selector.
+            _builtins["slabview3d"] = a => {
+                if (a.Length < 6 || a[5] == null || a[5].Fields == null)
+                    throw new MatlabRuntimeException("slabview3d(A, B, H, na, nb, struct con campos)");
+                double A = a[0].Scalar, B = a[1].Scalar, H = a[2].Scalar;
+                int na = (int)a[3].Scalar, nb = (int)a[4].Scalar;
+                var fields = new System.Collections.Generic.List<(string, string, string, double[])>();
+                foreach (var kv in a[5].Fields)
+                {
+                    string unit = kv.Key == "w" ? "mm" : "kNm/m";
+                    var arr = kv.Value?.Data ?? System.Array.Empty<double>();
+                    fields.Add((kv.Key, kv.Key + " [" + unit + "]", unit, (double[])arr.Clone()));
+                }
+                _htmlOut?.Invoke(MatlabPlots.SlabView3D(A, B, H, na, nb, fields));
                 return new MValue(0);
             };
             _builtins["peaks"] = a => {
@@ -1477,9 +1535,11 @@ namespace Calcpad.Core.Matlab
                 string faceColor = "lightblue", edgeColor = "black";
                 double faceAlpha = 1, lineWidth = 1;
                 int next = 2;
-                if (a.Length >= 4 && !a[2].IsString)
+                // patch(X, Y, Z, color) — 3D: a[2] es Z SOLO si es vector del mismo nº de
+                // vértices que X. Un color [r g b] (1×3) NO es Z → es el faceColor.
+                if (a.Length >= 4 && !a[2].IsString &&
+                    a[2].Data.Length == X.Data.Length && X.Data.Length != 3)
                 {
-                    // patch(X, Y, Z, color) — 3D
                     next = 3;
                 }
                 if (a.Length > next)
@@ -1539,32 +1599,39 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["text"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("text(x, y, str [, props...])");
-                double x = a[0].Scalar, y = a[1].Scalar;
-                string str = a[2].IsString ? a[2].StringValue : a[2].ToString();
+                // text(x,y,z,str): si a[2] escalar y a[3] string
+                bool zForm = a.Length >= 4 && a[2].IsScalar && a[3].IsString;
+                int start = zForm ? 4 : 3;
                 string color = "black";
                 double fontSize = 11;
-                int start = 3;
-                // Si tercero es escalar y cuarto es string → text(x,y,z,str)
-                if (a.Length >= 4 && a[2].IsScalar && a[3].IsString)
-                {
-                    str = a[3].StringValue;
-                    start = 4;
-                }
                 for (int i = start; i + 1 < a.Length; i += 2)
                 {
                     if (!a[i].IsString) break;
-                    string key = a[i].StringValue.ToLowerInvariant();
-                    var val = a[i + 1];
-                    switch (key)
+                    switch (a[i].StringValue.ToLowerInvariant())
                     {
-                        case "color":
-                            color = val.IsString ? MatlabColorToJs(val.StringValue) :
-                                    (val.Rows == 1 && val.Cols == 3 ? RgbVecToCss(val) : color);
-                            break;
-                        case "fontsize": fontSize = val.Scalar; break;
+                        case "color": color = ColorArg(a[i + 1]); break;
+                        case "fontsize": fontSize = a[i + 1].Scalar; break;
                     }
                 }
-                MatlabPlots.Text2D(x, y, str, color, fontSize);
+                MValue X = a[0], Y = a[1];
+                MValue lbl = zForm ? a[3] : a[2];
+                // VECTORIZADO: text(xv, yv, etiquetas) → una etiqueta por punto, SIN for de MATLAB.
+                //   etiquetas string → misma para todos;  vector numérico → num por punto.
+                int n = Math.Max(X.Data.Length, Y.Data.Length);
+                for (int i = 0; i < n; i++)
+                {
+                    double xi = X.Data.Length == 1 ? X.Data[0] : X.Data[i];
+                    double yi = Y.Data.Length == 1 ? Y.Data[0] : Y.Data[i];
+                    string str;
+                    if (lbl.IsString) str = lbl.StringValue;
+                    else
+                    {
+                        double v = lbl.Data.Length == 1 ? lbl.Data[0] : (i < lbl.Data.Length ? lbl.Data[i] : lbl.Data[lbl.Data.Length - 1]);
+                        str = (v == Math.Floor(v)) ? ((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                                   : v.ToString("G4", System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                    MatlabPlots.Text2D(xi, yi, str, color, fontSize);
+                }
                 return new MValue(0);
             };
             _builtins["clf"] = a => new MValue(0);
@@ -1668,16 +1735,10 @@ namespace Calcpad.Core.Matlab
             _builtins["material"] = a => new MValue(0);
             _builtins["camlight"] = a => new MValue(0);
             _builtins["shading"] = a => new MValue(0);
-            _builtins["text"] = a => {
-                // text(x, y, 'str') — annotation sobre el último plot
-                if (a.Length < 3 || !a[2].IsString) return new MValue(0);
-                double x = a[0].Scalar, y = a[1].Scalar;
-                string str = a[2].StringValue;
-                int id = MatlabPlots.LastPlotId;
-                if (id == 0) return new MValue(0);
-                _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, {{annotations:[{{x:{x.ToString("G", System.Globalization.CultureInfo.InvariantCulture)},y:{y.ToString("G", System.Globalization.CultureInfo.InvariantCulture)},text:\"{System.Web.HttpUtility.JavaScriptStringEncode(str)}\",showarrow:false}}]}});}})();</script>\n");
-                return new MValue(0);
-            };
+            // NOTA: la definición buena de text() está arriba (usa MatlabPlots.Text2D →
+            // se acumula en la figura con xref:'x'/yref:'y'). Se quitó un segundo text()
+            // duplicado que hacía Plotly.relayout (reemplazaba el array → solo sobrevivía
+            // la última anotación, y en coords de papel). Ver [[reference-lab-matlab-plot-limits]].
             _builtins["annotation"] = a => {
                 // annotation('textbox', [x y w h], 'String', 'foo')
                 // MVP: solo texto en el último plot
@@ -4834,11 +4895,34 @@ namespace Calcpad.Core.Matlab
                     a.Length >= 3 ? a[2].Scalar : 1e-10,
                     a.Length >= 4 ? (int)a[3].Scalar : 1000);
             };
-            _builtins["eig"] = a => MatlabLinAlg.Eig(a[0]).eigenvalues;
+            _builtins["eig"] = a => {
+                if (a.Length >= 2 && Calcpad.Core.LapackInterop.Available
+                    && IsSymmetricM(a[0]) && IsSymmetricM(a[1]))
+                {
+                    int ns = a[0].Rows;
+                    var (wv, _) = Calcpad.Core.LapackInterop.SymGenEig(ns, ToRowMajor(a[0]), ToRowMajor(a[1]));
+                    var col = new MValue(ns, 1); for (int i = 0; i < ns; i++) col.Set(i, 0, wv[i]);
+                    return col;
+                }
+                return MatlabLinAlg.Eig(a.Length >= 2 ? MatlabLinAlg.Linsolve(a[1], a[0]) : a[0]).eigenvalues;
+            };
             _builtins["eigenvals"] = a => MatlabLinAlg.Eig(a[0]).eigenvalues;
             _builtins["eigenvecs"] = a => MatlabLinAlg.Eig(a[0]).eigenvectors;
             _multiOutBuiltins["eig"] = a => {
-                var (vals, vecs) = MatlabLinAlg.Eig(a[0]);
+                // eig(A, B) GENERALIZADO simétrico → LAPACK DSYGV (robusto para sistemas grandes,
+                // ej. modal FEM K·φ=ω²·M·φ). Si no es simétrico, cae a eig(B\A).
+                if (a.Length >= 2 && Calcpad.Core.LapackInterop.Available
+                    && IsSymmetricM(a[0]) && IsSymmetricM(a[1]))
+                {
+                    int ns = a[0].Rows;
+                    var (wv, vv) = Calcpad.Core.LapackInterop.SymGenEig(ns, ToRowMajor(a[0]), ToRowMajor(a[1]));
+                    var Dg = new MValue(ns, ns); for (int i = 0; i < ns; i++) Dg.Set(i, i, wv[i]);
+                    var Vg = new MValue(ns, ns);
+                    for (int i = 0; i < ns; i++) for (int j = 0; j < ns; j++) Vg.Set(i, j, vv[i * ns + j]);
+                    return new[] { Vg, Dg };
+                }
+                MValue mat = a.Length >= 2 ? MatlabLinAlg.Linsolve(a[1], a[0]) : a[0];
+                var (vals, vecs) = MatlabLinAlg.Eig(mat);
                 // MATLAB: [V, D] = eig(A) → V eigenvectors, D diagonal de eigenvalues
                 int n = vals.Rows;
                 var D = new MValue(n, n);
@@ -4939,6 +5023,33 @@ namespace Calcpad.Core.Matlab
                 return new[] { new MValue(v.Rows, v.Cols, data), new MValue(v.Rows, v.Cols, idx) };
             };
 
+            // unique multi-output (MATLAB):  [C, ia, ic] = unique(A)
+            //   C  = valores únicos ordenados   (C = A(ia))
+            //   ia = índice del PRIMER ocurrencia de cada único (1-based)
+            //   ic = índice en C de cada elemento de A  (A = C(ic))
+            // Verificado vs MATLAB R2017a: unique([10;30;10;20]) → C=[10;20;30], ia=[1;4;2], ic=[1;3;1;2]
+            _multiOutBuiltins["unique"] = a => {
+                var v = a[0];
+                var input = v.Data;
+                int n = input.Length;
+                var sorted = new SortedSet<double>(input);
+                int nu = sorted.Count;
+                var C = new double[nu];
+                var posOf = new Dictionary<double, int>();
+                int kk = 0;
+                foreach (var x in sorted) { C[kk] = x; posOf[x] = kk; kk++; }
+                var firstIdx = new Dictionary<double, int>();
+                for (int i = 0; i < n; i++) if (!firstIdx.ContainsKey(input[i])) firstIdx[input[i]] = i + 1;
+                var ia = new double[nu];
+                for (int j = 0; j < nu; j++) ia[j] = firstIdx[C[j]];
+                var ic = new double[n];
+                for (int i = 0; i < n; i++) ic[i] = posOf[input[i]] + 1;
+                // orientación: columna si el input es columna; si no, fila (como MATLAB)
+                bool col = v.Cols == 1 && v.Rows > 1;
+                Func<double[], MValue> mk = d => col ? new MValue(d.Length, 1, d) : new MValue(1, d.Length, d);
+                return new[] { mk(C), mk(ia), mk(ic) };
+            };
+
             // 'end' usado en indexing — handled contextualmente en EvalCallOrIndex
 
             // Multi-output builtins
@@ -4984,6 +5095,50 @@ namespace Calcpad.Core.Matlab
         }
 
         // ── Helpers para patch/line/text ──────────────────────────────────────
+        /// <summary>Parsea un linespec MATLAB ('o','^','r-','--', etc.):
+        /// detecta si pide línea, marcadores, color y símbolo Plotly.</summary>
+        private static void ParseLineSpec(string spec, out bool wantLine, out bool wantMarker,
+                                           out string color, out string symbol)
+        {
+            wantLine = false; wantMarker = false; color = null; symbol = "circle";
+            if (string.IsNullOrEmpty(spec)) return;
+            // Estilos de línea primero (más largos antes), y se quitan para no confundir '.' de '-.'
+            string s = spec;
+            if (s.Contains("--")) { wantLine = true; s = s.Replace("--", ""); }
+            if (s.Contains("-.")) { wantLine = true; s = s.Replace("-.", ""); }
+            if (s.Contains(":"))  { wantLine = true; s = s.Replace(":", ""); }
+            if (s.Contains("-"))  { wantLine = true; s = s.Replace("-", ""); }
+            foreach (char c in s)
+            {
+                switch (c)
+                {
+                    case 'o': case '.': symbol = "circle"; wantMarker = true; break;
+                    case '+': symbol = "cross"; wantMarker = true; break;
+                    case '*': symbol = "star"; wantMarker = true; break;
+                    case 'x': symbol = "x"; wantMarker = true; break;
+                    case 's': symbol = "square"; wantMarker = true; break;
+                    case 'd': symbol = "diamond"; wantMarker = true; break;
+                    case '^': symbol = "triangle-up"; wantMarker = true; break;
+                    case 'v': symbol = "triangle-down"; wantMarker = true; break;
+                    case '>': symbol = "triangle-right"; wantMarker = true; break;
+                    case '<': symbol = "triangle-left"; wantMarker = true; break;
+                    case 'p': symbol = "pentagon"; wantMarker = true; break;
+                    case 'h': symbol = "hexagon"; wantMarker = true; break;
+                    case 'r': case 'g': case 'b': case 'c':
+                    case 'm': case 'y': case 'k': case 'w':
+                        color = MatlabColorToJs(c.ToString()); break;
+                }
+            }
+        }
+        /// <summary>Convierte un argumento de color (string, [r g b] o escalar) a CSS/JS.</summary>
+        private static string ColorArg(MValue val)
+        {
+            if (val == null) return "black";
+            if (val.IsString) return MatlabColorToJs(val.StringValue);
+            if (val.Rows == 1 && val.Cols == 3) return RgbVecToCss(val);
+            if (val.IsScalar) return ScalarToColorJs(val.Scalar);
+            return "black";
+        }
         private static string MatlabColorToJs(string c)
         {
             // MATLAB color shortcuts: 'r','g','b','c','m','y','k','w'
@@ -6141,14 +6296,15 @@ namespace Calcpad.Core.Matlab
                 if (outs.Length < asg.Targets.Count)
                     throw new MatlabRuntimeException($"Function '{ident.Name}' returned {outs.Length} outputs, expected {asg.Targets.Count}");
                 for (int k = 0; k < asg.Targets.Count; k++)
+                    AssignMultiTarget(asg.Targets[k], outs[k], scope);
+                // El "valor principal" de display es el primer target NO ignorado
+                for (int k = 0; k < asg.Targets.Count; k++)
                 {
-                    if (asg.Targets[k] is IdentRef target)
-                        scope.Set(target.Name, outs[k]);
-                    else
-                        throw new MatlabRuntimeException("Multi-output target must be identifier");
+                    string nm = MultiTargetName(asg.Targets[k]);
+                    if (nm != null && nm != "~")
+                        return new StatementResult(nm, outs[k], asg.Suppressed);
                 }
-                // El "valor principal" de display es el primero
-                return new StatementResult(((IdentRef)asg.Targets[0]).Name, outs[0], asg.Suppressed);
+                return new StatementResult(MultiTargetName(asg.Targets[0]) ?? "ans", outs[0], asg.Suppressed);
             }
             // Single target
             var tgt = asg.Targets[0];
@@ -6243,6 +6399,72 @@ namespace Calcpad.Core.Matlab
             }
             throw new MatlabRuntimeException("Unsupported assignment target");
         }
+
+        /// <summary>Asigna un valor a UN target de un multi-output `[a, b(:,1), ~] = f()`.
+        /// Soporta `~` (ignorar), identificador simple, indexado `CG(:,1)`, field y cell.</summary>
+        private void AssignMultiTarget(MatlabNode tgt, MValue val, MatlabScope scope)
+        {
+            switch (tgt)
+            {
+                case IdentRef id when id.Name == "~":
+                    return;                                   // salida ignorada (MATLAB)
+                case IdentRef id:
+                    scope.Set(id.Name, val);
+                    return;
+                case CallOrIndex idx when idx.Target is IdentRef tId:
+                    if (!scope.TryGet(tId.Name, out var existing) || existing == null)
+                        existing = new MValue(0);
+                    scope.Set(tId.Name, IndexedAssign(existing, idx.Args, val, scope));
+                    return;
+                case FieldAccess fa:
+                    AssignToField(fa, val, scope);
+                    return;
+                case CellIndex ci when ci.Target is IdentRef cId:
+                    if (!scope.TryGet(cId.Name, out var ex) || ex == null || !ex.IsCell)
+                        ex = MValue.NewCell(new MValue[1, 0]);
+                    scope.Set(cId.Name, CellIndexedAssign(ex, ci.Args, val, scope));
+                    return;
+                default:
+                    throw new MatlabRuntimeException("Unsupported multi-output target");
+            }
+        }
+
+        /// <summary>Matriz MValue → array row-major double[r*c] (para LAPACK).</summary>
+        private static double[] ToRowMajor(MValue m)
+        {
+            int r = m.Rows, c = m.Cols;
+            var d = new double[r * c];
+            for (int i = 0; i < r; i++)
+                for (int j = 0; j < c; j++)
+                    d[i * c + j] = m.At(i, j);
+            return d;
+        }
+
+        /// <summary>True si la matriz es cuadrada (n≥2), real y simétrica (A=Aᵀ con tolerancia).</summary>
+        private static bool IsSymmetricM(MValue m)
+        {
+            if (m == null || m.Rows != m.Cols || m.Rows < 2) return false;
+            if (m.IsString || m.IsComplex || m.CellData != null || m.Fields != null) return false;
+            int n = m.Rows;
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n; j++)
+                {
+                    double a = m.At(i, j), b = m.At(j, i);
+                    if (Math.Abs(a - b) > 1e-9 * (1 + Math.Abs(a) + Math.Abs(b))) return false;
+                }
+            return true;
+        }
+
+        /// <summary>Nombre de la variable raíz de un target multi-output (para display).</summary>
+        private string MultiTargetName(MatlabNode tgt) => tgt switch
+        {
+            IdentRef id => id.Name,
+            CallOrIndex c when c.Target is IdentRef ci => ci.Name,
+            CellIndex ce when ce.Target is IdentRef cei => cei.Name,
+            FieldAccess fa => GetRootVarName(fa),
+            _ => null
+        };
+
         /// <summary>
         /// Clona el Data (y Imag, SparseVals, etc.) de un MValue numérico para garantizar
         /// MATLAB-style copy semantics en `A = B` (alias). El MValue retornado tiene
