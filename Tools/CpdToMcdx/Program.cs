@@ -20,11 +20,15 @@ class Program
         string version = "9.0";
         bool htmlPreview = false;
         string? htmlOutput = null;
+        bool noPreview = false;
 
         for (int i = 1; i < args.Length; i++)
         {
             switch (args[i])
             {
+                case "--no-preview":
+                    noPreview = true;
+                    break;
                 case "--version" or "-v" when i + 1 < args.Length:
                     version = args[++i];
                     break;
@@ -57,12 +61,15 @@ class Program
                 var regions = CpdParser.Parse(File.ReadAllText(input));
                 Console.WriteLine($"Parsed {regions.Count} regions from CPD");
 
-                // Always generate HTML preview and open in browser
-                string htmlPath = htmlOutput ?? Path.ChangeExtension(input, "_preview.html");
-                string html = HtmlPreview.Generate(regions, Path.GetFileNameWithoutExtension(input));
-                File.WriteAllText(htmlPath, html);
-                Console.WriteLine($"HTML preview: {htmlPath}");
-                OpenInBrowser(htmlPath);
+                // HTML preview (se omite con --no-preview, ej. al exportar desde Hekatan Math)
+                if (!noPreview)
+                {
+                    string htmlPath = htmlOutput ?? Path.ChangeExtension(input, "_preview.html");
+                    string html = HtmlPreview.Generate(regions, Path.GetFileNameWithoutExtension(input));
+                    File.WriteAllText(htmlPath, html);
+                    Console.WriteLine($"HTML preview: {htmlPath}");
+                    OpenInBrowser(htmlPath);
+                }
 
                 string mcdxPath = output ?? Path.ChangeExtension(input, ".mcdx");
                 McdxWriter.Write(mcdxPath, regions, version);
