@@ -6,6 +6,7 @@
     <RootNamespace>Calcpad.Core</RootNamespace>
     <AssemblyName>Calcpad.Core</AssemblyName>
     <OutputType>Library</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Version>1.0.0</Version>
     <Authors>Nedelcho Ganchovski</Authors>
     <Company>Proektsoft EOOD</Company>
@@ -50,6 +51,13 @@
     <None Include="Native\libopenblas.dll" Condition="Exists('Native\libopenblas.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libopenblas.dll</Link>
+    </None>
+    <!-- Runtime Intel oneMKL (redistribuible ISSL) → se copia a bin\mkl\. NO va a
+         git (ver .gitignore); el instalador lo empaqueta. El loader BlasInterop lo
+         prefiere sobre OpenBLAS. ~388 MB. -->
+    <None Include="Native\mkl\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>mkl\%(Filename)%(Extension)</Link>
     </None>
     <None Include="Native\liblapack.dll" Condition="Exists('Native\liblapack.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
