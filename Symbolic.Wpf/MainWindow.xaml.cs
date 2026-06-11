@@ -222,6 +222,16 @@ namespace Calcpad.Wpf
             var log = _startupLog;
             void Mark(string what) { log.AppendLine($"  {sw.ElapsedMilliseconds,6} ms  {what}"); }
             log.AppendLine($"═══ Calcpad-Lab WPF startup ═══ {DateTime.Now:HH:mm:ss}");
+            // JIT HABILITADO en WPF — con libopenblas v0.3.33 (bundled BLAS+LAPACK
+            // sin dep externa rota) el crash AV en indexado post-K\F que motivo
+            // deshabilitar JIT ya no ocurre. Loops FEM en WPF ahora corren al
+            // ritmo CLI (~5-10ms ensamblaje, ~60ms solve).
+            Calcpad.Core.Matlab.MatlabJit.Enabled = true;
+            Mark("MatlabJit enabled (WPF)");
+            // Pre-load LAPACK/BLAS DLLs antes de WebView2
+            _ = Calcpad.Core.BlasInterop.Available;
+            _ = Calcpad.Core.LapackInterop.Available;
+            Mark($"Native DLLs pre-loaded (BLAS={Calcpad.Core.BlasInterop.Available}, LAPACK={Calcpad.Core.LapackInterop.Available})");
             _parser = new();
             Mark("ExpressionParser ctor");
             _highlighter = new();
@@ -1224,6 +1234,11 @@ namespace Calcpad.Wpf
             CurrentFileName = fileName;
 
             var hasForm = GetInputTextFromFile();
+            // .m (MATLAB) siempre se abre en layout Code+Output split, nunca en input-form.
+            // MacroParser.HasInputFields detecta cualquier '?' como input field, pero en MATLAB
+            // '?' aparece legítimamente en strings/comentarios — debe ignorarse.
+            if (ext == ".m")
+                hasForm = false;
             _parser.ShowWarnings = ext != ".cpdz";
             if (ext == ".cpdz")
             {
@@ -1407,16 +1422,22 @@ namespace Calcpad.Wpf
             }
             string htmlResult;
             // ── PURE MATLAB pipeline para archivos .m: usar motor MATLAB nativo,
-            //    no MatlabPreprocessor (que rompe sintaxis tic, transpose, slicing) ──
+            //    no MatlabPreprocessor (que rompe sintaxis tic, transpose, slicing).
+            //    STREAMING: cada statement emite su HTML al WebView2 apenas se computa
+            //    via ExecuteScriptAsync(__appendChunk(...)). Mientras se computa una
+            //    línea larga, un banner sticky muestra "Calculando línea N..." ──
             if (isMatlabFile && !IsWebForm && !toWebForm)
             {
-                StartupMark("MATLAB pure pipeline: start");
+                StartupMark("MATLAB pure pipeline: start (streaming)");
                 _isParsing = true;
                 FreezeOutputButtons(true);
+                // Construir página de streaming: worksheet header + status banner +
+                // output div + JS helpers + footer. Se navega ANTES de arrancar el
+                // pipeline, así los chunks van apareciendo en vivo.
+                var streamingPage = BuildStreamingPage();
                 try
                 {
-                    var delayScript = $"setTimeout(function(){{window.location.replace(\"{_htmlParsingUrl}\");}},1000);";
-                    await WebViewer.ExecuteScriptAsync(delayScript);
+                    await _wv2Warper.NavigateToStringAsync(streamingPage);
                 }
                 catch
                 {
@@ -1426,21 +1447,121 @@ namespace Calcpad.Wpf
                 string pureErr = null;
                 int pureErrLine = 0;
                 var sourceCapture = outputText;
+                // === DIAG LOG: registra cada stmt en %TEMP%\calcpad_lab_diag.log
+                // para diagnosticar crashes nativos. Usar con `Get-Content` si el WPF
+                // se cierra inesperadamente — la ultima linea logueada apunta al stmt
+                // que fallo. Se sobreescribe en cada parse. Costo minimo (1 fila/stmt).
+                var diagLogPath = Path.Combine(Path.GetTempPath(), "calcpad_lab_diag.log");
+                try { File.WriteAllText(diagLogPath, $"=== PARSE START {DateTime.Now:HH:mm:ss.fff} ===\n"); } catch { }
+                void DiagLog(string s)
+                {
+                    try { File.AppendAllText(diagLogPath, $"{DateTime.Now:HH:mm:ss.fff} {s}\n"); } catch { }
+                }
+                // Pre-parse cleanup: forzar GC + compact LOH para que MatlabPipeline
+                // arranque con heap limpio. Reduce el riesgo de corrupcion bajo WPF+
+                // WebView2 (FEM scripts grandes generan muchas allocaciones managed).
+                GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
+                    System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+                GC.WaitForPendingFinalizers();
+                DiagLog("Pre-parse GC done");
                 await Task.Run(() =>
                 {
                     var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
-                    var (h, e, el) = pipeline.RunLine(sourceCapture);
-                    pureHtml = h; pureErr = e; pureErrLine = el;
+                    pipeline.StreamingMode = true;  // chunks vivos al WebView2
+                    // Pre-split del source en lineas para mostrar la linea actual en el banner.
+                    var sourceLines = sourceCapture.Replace("\r\n", "\n").Split('\n');
+                    var parseStart = DateTime.UtcNow;
+                    pipeline.StatementStarting += line => DiagLog($"START L{line}");
+                    pipeline.StatementCompleted += (line, html) => DiagLog($"DONE  L{line} chunk={html.Length}b");
+                    // Wire up streaming events: chunks → WebView2 vía Dispatcher
+                    // (ExecuteScriptAsync requiere UI thread).
+                    pipeline.StatementStarting += line =>
+                        Dispatcher.InvokeAsync(async () =>
+                        {
+                            try {
+                                var elapsed = (DateTime.UtcNow - parseStart).TotalSeconds;
+                                string preview = "";
+                                if (line >= 1 && line <= sourceLines.Length)
+                                {
+                                    preview = sourceLines[line - 1].Trim();
+                                    if (preview.Length > 70) preview = preview.Substring(0, 67) + "...";
+                                }
+                                var label = elapsed < 1.0
+                                    ? $"L{line} ({(elapsed * 1000):F0}ms) — {preview}"
+                                    : $"L{line} ({elapsed:F1}s) — {preview}";
+                                var escapedLabel = System.Text.Json.JsonSerializer.Serialize(label);
+                                await WebViewer.ExecuteScriptAsync(
+                                    $"window.__matlabSetStatus && window.__matlabSetStatus({escapedLabel});");
+                            }
+                            catch { /* WebView2 cerrándose, ignorar */ }
+                        }, System.Windows.Threading.DispatcherPriority.Background);
+                    pipeline.StatementCompleted += (line, html) =>
+                        Dispatcher.InvokeAsync(async () =>
+                        {
+                            try
+                            {
+                                var escaped = System.Text.Json.JsonSerializer.Serialize(html);
+                                await WebViewer.ExecuteScriptAsync(
+                                    $"window.__matlabAppendChunk && window.__matlabAppendChunk({escaped});");
+                            }
+                            catch { /* idem */ }
+                        }, System.Windows.Threading.DispatcherPriority.Background);
+                    try
+                    {
+                        DiagLog("Calling pipeline.RunLine");
+                        var (h, e, el) = pipeline.RunLine(sourceCapture);
+                        DiagLog($"pipeline.RunLine returned: htmlLen={h?.Length ?? 0}, err={e}");
+                        pureHtml = h; pureErr = e; pureErrLine = el;
+                    }
+                    catch (Exception runEx)
+                    {
+                        DiagLog($"EXCEPTION in pipeline.RunLine: {runEx.GetType().Name}: {runEx.Message}\n{runEx.StackTrace}");
+                        pureErr = $"Internal: {runEx.GetType().Name}: {runEx.Message}";
+                        pureErrLine = 0;
+                    }
+                    DiagLog("After Task.Run body");
                 });
+                DiagLog("After await Task.Run");
                 StartupMark($"MATLAB pure pipeline: done (HTML {(pureHtml?.Length ?? 0) / 1024} KB)");
-                if (pureErr != null)
-                    htmlResult = $"<p class=\"err\">Error on line {pureErrLine}: {System.Net.WebUtility.HtmlEncode(pureErr)}</p>";
-                else
-                    htmlResult = HtmlApplyWorksheet(pureHtml ?? "");
+                // Limpiar el banner "Calculando..." y mostrar errores top-level si hay
+                try
+                {
+                    if (pureErr != null)
+                    {
+                        var errHtml = $"<p class=\"err\">Error on line {pureErrLine}: " +
+                            $"{System.Net.WebUtility.HtmlEncode(pureErr)}</p>";
+                        var escErr = System.Text.Json.JsonSerializer.Serialize(errHtml);
+                        await WebViewer.ExecuteScriptAsync(
+                            $"window.__matlabAppendChunk && window.__matlabAppendChunk({escErr});");
+                    }
+                    await WebViewer.ExecuteScriptAsync(
+                        "window.__matlabClearStatus && window.__matlabClearStatus();");
+                }
+                catch { /* WebView2 cerrándose */ }
+                // Persistir HTML final a log + sidecar (mismo comportamiento que antes)
+                htmlResult = pureErr != null
+                    ? HtmlApplyWorksheet($"<p class=\"err\">Error on line {pureErrLine}: " +
+                        $"{System.Net.WebUtility.HtmlEncode(pureErr)}</p>")
+                    : HtmlApplyWorksheet(pureHtml ?? "");
+                try
+                {
+                    var logPath = Path.Combine(Path.GetTempPath(), "calcpad_lab_log.html");
+                    File.WriteAllText(logPath, htmlResult, Encoding.UTF8);
+                    if (!string.IsNullOrEmpty(CurrentFileName))
+                    {
+                        var sidecar = Path.ChangeExtension(CurrentFileName, ".html");
+                        try { File.WriteAllText(sidecar, htmlResult, Encoding.UTF8); }
+                        catch { /* read-only folder */ }
+                    }
+                }
+                catch { /* log secundario */ }
                 _isParsing = false;
                 FreezeOutputButtons(false);
                 IsCalculated = true;
-                goto RENDER_OUTPUT;
+                _autoRun = false;
+                return; // skip RENDER_OUTPUT — el WebView2 ya tiene todo
             }
             if (!string.IsNullOrEmpty(_htmlUnwarpedCode) && !(IsWebForm || toWebForm))
             {
@@ -1720,6 +1841,113 @@ namespace Calcpad.Wpf
             return _stringBuilder.ToString();
         }
 
+        // Construye la página inicial para streaming progresivo del pipeline MATLAB.
+        // Estructura: worksheet header + <div id="matlab-status"> (banner sticky) +
+        // <div id="matlab-output"> (donde se appendean los chunks) + JS helpers.
+        // Los chunks son inyectados desde C# via WebViewer.ExecuteScriptAsync.
+        private string BuildStreamingPage()
+        {
+            var ssf = Math.Round(0.9 * Math.Sqrt(_screenScaleFactor), 2).ToString(CultureInfo.InvariantCulture);
+            var sb = new StringBuilder(_htmlWorksheet.Length + 2048);
+            sb.Append(_htmlWorksheet.Replace("var(--screen-scale-factor)", ssf));
+            sb.Append(@"
+<div id=""matlab-status"" style=""position:sticky;top:0;z-index:100;background:#fff3cd;border-bottom:1px solid #ffc107;padding:6px 12px;font-size:0.9em;color:#664d03;font-family:sans-serif"">
+  <span class=""spinner"" style=""display:inline-block;width:0.8em;height:0.8em;border:2px solid #664d03;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px""></span>
+  <span id=""matlab-status-text"">Iniciando…</span>
+</div>
+<style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>
+<div id=""matlab-output""></div>
+<script>
+  (function(){
+    var status = document.getElementById('matlab-status');
+    var statusText = document.getElementById('matlab-status-text');
+    var output = document.getElementById('matlab-output');
+    window.__matlabSetStatus = function(label){
+      if (!statusText) return;
+      // `label` ahora viene formateado desde C# (`L289 (1.2s) — Z = K \ F`)
+      // con line#, tiempo transcurrido (ms o s), y preview del source.
+      statusText.textContent = 'Calculando ' + label + '…';
+    };
+    window.__matlabAppendChunk = function(html){
+      if (!output) return;
+      // insertAdjacentHTML NO ejecuta <script> tags inyectados (seguridad
+      // browser). Para que Plotly.newPlot, MathJax y otros runtimes corran,
+      // parseamos en un container tmp y re-creamos cada <script> via document
+      // .createElement('script') — esos SÍ ejecutan al appendear.
+      var tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      var scripts = tmp.querySelectorAll('script');
+      var executables = [];
+      scripts.forEach(function(oldScript){
+        var newScript = document.createElement('script');
+        for (var i = 0; i < oldScript.attributes.length; i++) {
+          newScript.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
+        }
+        newScript.textContent = oldScript.textContent;
+        oldScript.parentNode.replaceChild(newScript, oldScript);
+        executables.push(newScript);
+      });
+      // Mover todos los hijos del tmp al output (los <script> re-creados se
+      // ejecutan apenas se appendean al DOM).
+      while (tmp.firstChild) output.appendChild(tmp.firstChild);
+      // Re-bindear los lineLinks (hover → flecha ← que navega al source).
+      // El template.html los bindea con $(document).ready() pero los chunks
+      // streamed llegan DESPUÉS de ese ready → tienen que bindearse acá.
+      window.__matlabBindLineLinks && window.__matlabBindLineLinks();
+      // Auto-scroll al final si el usuario no scrolleó manualmente arriba
+      var nearBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 200);
+      if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    };
+    // Bindea lineLinks en cualquier `<p class=""line"">` que aún no tenga uno.
+    // Replica el patrón del template.html (line 1126) pero ejecuta on-demand
+    // después de cada chunk inyectado, no solo en $(document).ready.
+    window.__matlabBindLineLinks = function(){
+      if (typeof jQuery === 'undefined' && typeof $ === 'undefined') return;
+      var jq = typeof jQuery !== 'undefined' ? jQuery : $;
+      jq('#matlab-output .line:not(style, script)').each(function(){
+        var $p = jq(this);
+        if ($p.find('> .lineLink').length > 0) return; // ya tiene link
+        var idStr = $p.prop('id') || '';
+        var idx = idStr.indexOf('-');
+        if (idx < 0) return;
+        var line = idStr.substring(idx + 1);
+        if (!line) return;
+        var $lineLink = jq('<a class=""lineLink"" href=""#0"" data-text=""' + line +
+          '"" title=""Code line ' + line + '"">&larr;</a>');
+        $p.append($lineLink);
+        $lineLink.hide();
+        $p.hover(function(){
+          jq('.lineLink').hide();
+          $lineLink.show();
+        });
+        jq(window).scroll(function(){ $lineLink.hide(); });
+      });
+    };
+    // Click delegation: chrome.webview.postMessage('clicked') para que C# detecte
+    // el click sobre cualquier <a> (incluyendo los inyectados luego del ready).
+    // El handler original en template.html bindea con $(""a"").click(...) y solo
+    // captura los presentes al cargar la página.
+    if (typeof chrome !== 'undefined' && chrome.webview && chrome.webview.postMessage) {
+      document.body.addEventListener('click', function(ev){
+        var t = ev.target;
+        while (t && t !== document.body) {
+          if (t.tagName === 'A') {
+            try { chrome.webview.postMessage('clicked'); } catch(e){}
+            return;
+          }
+          t = t.parentNode;
+        }
+      }, true);
+    }
+    window.__matlabClearStatus = function(){
+      if (status) status.style.display = 'none';
+    };
+  })();
+</script>
+ </body></html>");
+            return sb.ToString();
+        }
+
         private void ShowHelp()
         {
             if (!_isParsing)
@@ -1785,7 +2013,7 @@ namespace Calcpad.Wpf
                 }
                 else
                 {
-                    return File.ReadAllText(fileName).EnumerateLines();
+                    return ReadTextSmart(fileName).EnumerateLines();
                 }
             }
             catch (Exception ex)
@@ -1793,6 +2021,41 @@ namespace Calcpad.Wpf
                 ShowErrorMessage(ex.Message);
             }
             return lines;
+        }
+
+        // Detecta encoding del archivo: BOM (UTF-8/UTF-16) → UTF-8 estricto →
+        // fallback Windows-1252. Match con el comportamiento de MATLAB R2017a
+        // en Windows, que guarda .m en codepage del sistema (CP1252 en ES/EN).
+        // Sin esto los bytes legacy (0x97 em-dash, 0xE1 á, 0xF1 ñ, etc.) se
+        // mostraban como `�` en el editor.
+        private static bool _cp1252Registered;
+        private static string ReadTextSmart(string fileName)
+        {
+            var bytes = File.ReadAllBytes(fileName);
+            // 1) BOM detection
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+                return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+            if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+                return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+            if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+                return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
+            // 2) Probar UTF-8 estricto
+            try
+            {
+                var strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false,
+                                              throwOnInvalidBytes: true);
+                return strict.GetString(bytes);
+            }
+            catch (DecoderFallbackException)
+            {
+                // 3) Caer a Windows-1252 (codepage MATLAB R2017a por defecto en Windows)
+                if (!_cp1252Registered)
+                {
+                    Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+                    _cp1252Registered = true;
+                }
+                return Encoding.GetEncoding(1252).GetString(bytes);
+            }
         }
 
         private static void WriteFile(string fileName, string s, bool zip = false)
@@ -4188,6 +4451,8 @@ namespace Calcpad.Wpf
             StartupMark("InitializeWebViewer: CoreWebView2Environment created");
             await WebViewer.EnsureCoreWebView2Async(env);
             StartupMark("InitializeWebViewer: EnsureCoreWebView2 done");
+            // DefaultBackgroundColor DESPUES de EnsureCoreWebView2Async — antes
+            // de inicializarse, setearlo tira COMException 0x8007139F (ERROR_INVALID_STATE).
             WebViewer.DefaultBackgroundColor = System.Drawing.Color.White;
             RichTextBox.IsEnabled = true;
             WebViewer.CoreWebView2.SetVirtualHostNameToFolderMapping(

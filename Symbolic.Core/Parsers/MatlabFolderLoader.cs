@@ -74,6 +74,11 @@ namespace Calcpad.Core
                 catch { continue; }
 
                 if (!IsFunctionFile(content, out var fnName)) continue;
+                // Robustez: si una function-file usa sintaxis MATLAB aún NO soportada
+                // por el parser (multi-output indexado, etc.), NO debe romper TODA la
+                // carpeta. La validamos por separado y la salteamos si no parsea —
+                // queda no-disponible, pero el resto de la carpeta renderiza igual.
+                if (!ParsesOk(content)) continue;
                 // Eager-load: incluir TODAS las function-files del path (como MATLAB
                 // real, que tiene todas las funciones del current directory + path
                 // disponibles). Esto resuelve cadenas de dispatch transitivas donde
@@ -81,13 +86,35 @@ namespace Calcpad.Core
                 // Evitar duplicados (mismo nombre de funcion en archivos distintos).
                 if (!includedFunctions.Add(fnName)) continue;
 
-                // Auto-include silencioso: sin comentarios visibles en el output.
-                sb.AppendLine(content.TrimEnd());
+                // Auto-include silencioso: las function-files se REGISTRAN (sus
+                // funciones quedan disponibles) pero sus comentarios de doc a nivel
+                // de módulo NO deben renderizarse como worksheet. Por eso se quitan
+                // las líneas-comentario completas antes de anexar (sino el header
+                // `%` de p.ej. calcpad_lab_lib.m se volcaba al output).
+                sb.AppendLine(StripFullLineComments(content).TrimEnd());
                 sb.AppendLine();
             }
 
             // Anexar el script principal al final (las funciones quedan disponibles).
             sb.Append(mainScript);
+            return sb.ToString();
+        }
+
+        /// <summary>Quita las líneas que son ENTERAMENTE un comentario (`%...` o `%%...`)
+        /// de una function-file auto-incluida, para que su documentación no aparezca en
+        /// el output. El código se conserva intacto (los comentarios inline tras código
+        /// quedan, pero igual no se renderizan porque están dentro de funciones que sólo
+        /// se registran). Quitar líneas-comentario completas es siempre seguro en MATLAB.</summary>
+        private static string StripFullLineComments(string content)
+        {
+            if (string.IsNullOrEmpty(content)) return content ?? string.Empty;
+            var sb = new StringBuilder(content.Length);
+            foreach (var line in content.Replace("\r\n", "\n").Split('\n'))
+            {
+                var t = line.TrimStart();
+                if (t.StartsWith("%", StringComparison.Ordinal)) continue;
+                sb.Append(line).Append('\n');
+            }
             return sb.ToString();
         }
 
@@ -103,6 +130,20 @@ namespace Calcpad.Core
         /// si el helper no cumple las reglas estrictas del parser (e.g. function
         /// sin end). Strippear comentarios inline elimina ese acoplamiento.
         /// </summary>
+        /// <summary>True si la function-file parsea sin error con el parser MATLAB de Lab.
+        /// Red de seguridad: una function-file con sintaxis aún no soportada se saltea en
+        /// vez de romper el parseo de TODA la carpeta auto-incluida.</summary>
+        private static bool ParsesOk(string content)
+        {
+            try
+            {
+                var toks = Calcpad.Core.Matlab.MatlabTokenizer.Tokenize(content);
+                new Calcpad.Core.Matlab.MatlabParser(toks).ParseAllStatements();
+                return true;
+            }
+            catch { return false; }
+        }
+
         public static bool ReferencesIdentifier(string script, string name)
         {
             if (string.IsNullOrEmpty(script) || string.IsNullOrEmpty(name))

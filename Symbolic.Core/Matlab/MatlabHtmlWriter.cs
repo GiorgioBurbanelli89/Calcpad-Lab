@@ -24,23 +24,62 @@ namespace Calcpad.Core.Matlab
             {
                 case CommentStmt cs:
                     if (cs.IsHeading)
-                        sb.Append($"<h3 style=\"color:#0066b8;margin:.6em 0 .2em 0;font-weight:600\">{HttpUtility.HtmlEncode(cs.Text)}</h3>");
+                        // Encabezado limpio que usa el CSS del template (como Calcpad),
+                        // sin estilos inline ni color forzado.
+                        sb.Append($"<h3>{HttpUtility.HtmlEncode(cs.Text)}</h3>");
+                    // El texto de comentario en Calcpad-Lab admite HTML enriquecido — igual
+                    // que el texto `'...` de Calcpad puro (headings, <p>, <table>, <svg>...).
+                    // Si contiene tags HTML, se emite RAW (se renderiza).
+                    else if (System.Text.RegularExpressions.Regex.IsMatch(cs.Text, "<[a-zA-Z/!]"))
+                        sb.Append(cs.Text);
                     else
-                        // SIN `%` al frente — consistente con captions inline.
+                        // Comentario visible = texto normal (como Calcpad `'...`), NUNCA verde.
                         // Para ocultar: usar `%--` (filtrado en MatlabPipeline).
-                        sb.Append($"<span style=\"color:#5c8a48;font-style:italic\">{HttpUtility.HtmlEncode(cs.Text)}</span>");
+                        sb.Append(HttpUtility.HtmlEncode(cs.Text));
                     break;
                 case Assignment asg:
                     sb.Append("<span class=\"eq\">");
                     RenderAssignmentLhs(sb, asg);
                     sb.Append(" = ");
-                    // Mostrar LHS de la formula (con notacion matematica nativa para
-                    // diff/int/limit/taylor/subs) Y el resultado final, separados por '='.
-                    sb.Append(RenderExpression(asg.Rhs));
-                    if (!IsTrivialAssignment(asg))
                     {
-                        sb.Append(" = ");
-                        sb.Append(RenderValue(result.Value));
+                        // Reglas (en orden):
+                        //  1. Si RHS es llamada simbólica (int/diff/limit/taylor/subs/...),
+                        //     SIEMPRE mostrar la notación pretty (∫ … dx, d/dx …, lim, etc.)
+                        //     seguida del valor — esa es la informacion mas util.
+                        //  2. Si el resultado es Symbolic puro (RHS = polinomio/expresion sin
+                        //     funcion simbolica wrapper), mostrar solo el valor normalizado —
+                        //     evita duplicacion tipo `Φ₁ = 1 - 3·ξ² + 2·ξ³ = -3·ξ² + 2·ξ³ + 1`.
+                        //  3. Otros casos: rhs source = value, con short-circuit si ambos
+                        //     renderean identico (literales, matrices puras, etc).
+                        bool symbolicCall = IsSymbolicFunctionCall(asg.Rhs);
+                        bool symbolicResult = result.Value != null && result.Value.IsSymbolic;
+                        if (symbolicCall)
+                        {
+                            // (1) Pretty notation + value
+                            sb.Append(RenderExpression(asg.Rhs));
+                            sb.Append(" = ");
+                            sb.Append(RenderValue(result.Value));
+                        }
+                        else if (symbolicResult)
+                        {
+                            // (2) Solo valor (evita duplicacion polinomica)
+                            sb.Append(RenderValue(result.Value));
+                        }
+                        else
+                        {
+                            // (3) Default: source = value con short-circuit visual
+                            var rhsHtml = RenderExpression(asg.Rhs);
+                            sb.Append(rhsHtml);
+                            if (!IsTrivialAssignment(asg))
+                            {
+                                var valHtml = RenderValue(result.Value);
+                                if (valHtml != rhsHtml)
+                                {
+                                    sb.Append(" = ");
+                                    sb.Append(valHtml);
+                                }
+                            }
+                        }
                     }
                     sb.Append("</span>");
                     break;
@@ -435,7 +474,13 @@ namespace Calcpad.Core.Matlab
             if (string.IsNullOrEmpty(name)) return "";
             int idx = name.IndexOf('_');
             if (idx <= 0 || idx == name.Length - 1)
-                return $"<var>{HttpUtility.HtmlEncode(name)}</var>";
+            {
+                // Sin underscore: igual probamos translit a letra griega.
+                // Ej: `xi` → ξ, `phi` → φ, `Phi` → Φ. Si no matchea, se queda
+                // como texto literal.
+                string greek = GreekLetterMap(name);
+                return $"<var>{(greek ?? HttpUtility.HtmlEncode(name))}</var>";
+            }
             string baseName = name.Substring(0, idx);
             string sub = name.Substring(idx + 1).Replace("_", ",");
             // Greek letters: si baseName matches greek prefix, renderizar como letra griega
@@ -594,18 +639,26 @@ namespace Calcpad.Core.Matlab
                     else { num = "d"; den = $"d{vExpr}"; }
                     return $"<span class=\"dvc\"><span class=\"dvc-num\">{num}</span><span class=\"dvl\"></span><span class=\"dvc-den\">{den}</span></span>&thinsp;{fExpr}";
                 }
-                // int (indefinida o definida)
+                // int (indefinida o definida) — formato identico al HtmWriter de Calcpad:
+                //   <span class="dvr"><small>SUP</small><span class="nary">∫</span><small>SUB</small></span>
+                //   {f}&thinsp;<var>d{x}</var>
+                // El diferencial va dentro de <var>...</var> para que se rendea italica como
+                // las demas variables (Georgia Pro italic via .eq var en template.html).
                 if (fname == "int" && c.Args.Count >= 2)
                 {
                     var fExpr = RenderExpression(c.Args[0]);
-                    var vExpr = RenderExpression(c.Args[1]);
+                    // Diferencial: usar el nombre crudo (NO el render con <var> wrapper),
+                    // sino quedaria `<var>d<var>x</var></var>` (anidado invalido).
+                    string vName = c.Args[1] is IdentRef vId
+                        ? (GreekLetterMap(vId.Name) ?? System.Web.HttpUtility.HtmlEncode(vId.Name))
+                        : RenderExpression(c.Args[1]);
                     string sup = "", sub = "";
                     if (c.Args.Count >= 4)
                     {
                         sub = RenderExpression(c.Args[2]);
                         sup = RenderExpression(c.Args[3]);
                     }
-                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\">&int;</span><small>{sub}</small></span>{fExpr}&thinsp;d{vExpr}";
+                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\">∫</span><small>{sub}</small></span>{fExpr} <var>d{vName}</var>";
                 }
                 // limit(f, x, c)
                 if (fname == "limit" && c.Args.Count >= 3)
@@ -673,7 +726,9 @@ namespace Calcpad.Core.Matlab
                 if (IsCommonBuiltin(id.Name))
                     sb.Append($"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{HttpUtility.HtmlEncode(id.Name)}</span>");
                 else
-                    sb.Append($"<var>{HttpUtility.HtmlEncode(id.Name)}</var>");
+                    // Aplicar Greek mapping y underscore-subscript a nombres de funciones
+                    // de usuario tambien: phi(u) -> φ(u), phi_d(u) -> φ_d(u), Phi(x) -> Φ(x).
+                    sb.Append(RenderIdentName(id.Name));
             }
             else
                 sb.Append(RenderExpression(c.Target));

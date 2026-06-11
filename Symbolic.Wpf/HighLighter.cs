@@ -99,50 +99,103 @@ namespace Calcpad.Wpf
         ];
 
         // =====================================================================
-        // MATLAB bare keywords (sin '#'). Case-sensitive.
+        // MATLAB bare keywords (sin '#'). Case-sensitive. Sincronizado con
+        // MatlabParser.cs (control de flujo + OOP classdef).
         // =====================================================================
         internal static readonly FrozenSet<string> Keywords =
         new HashSet<string>(StringComparer.Ordinal)
         {
+            // Control de flujo
             "break", "case", "catch", "continue", "do", "else", "elseif",
-            "end", "for", "function", "global", "if", "otherwise", "persistent",
-            "return", "switch", "try", "while",
+            "end", "for", "function", "if", "otherwise", "return",
+            "switch", "try", "while",
+            // Scope
+            "global", "persistent",
+            // OOP — classdef / properties / methods / events / enumeration
+            "classdef", "properties", "methods", "events", "enumeration",
+            // Lógicos textuales (no son operadores en MATLAB pero se usan así)
+            "import",
+        }.ToFrozenSet(StringComparer.Ordinal);
+
+        // =====================================================================
+        // MATLAB constantes built-in (pintadas como Types.Const).
+        // Fuente: MatlabEvaluator.cs línea 6573 (switch de IdentRef sin scope).
+        // =====================================================================
+        internal static readonly FrozenSet<string> Constants =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "pi", "e", "Inf", "inf", "NaN", "nan", "eps", "i", "j",
+            "ans", "realmax", "realmin", "intmax", "intmin",
         }.ToFrozenSet(StringComparer.Ordinal);
 
         // =====================================================================
         // MATLAB built-in functions. Pintadas como Types.Function (bold).
-        // El preprocessor MatlabPreprocessor las mapea a las equivalentes
-        // Calcpad (length→len, log→ln, log10→log, ceil→ceiling, prod→product,
-        // mean→average, etc.) cuando hace falta.
+        // FUENTE DE VERDAD: `_builtins[...]` + `_multiOutBuiltins[...]` en
+        // Symbolic.Core/Matlab/MatlabEvaluator.cs (412 entradas al 2026-05).
+        //
+        // Si agregás un builtin al engine, sumalo también acá para que aparezca
+        // bold en el editor. `true`/`false` también son builtins (logical(N)) pero
+        // los tratamos como variables/constantes visualmente.
         // =====================================================================
         internal static readonly FrozenSet<string> Functions =
         new HashSet<string>(StringComparer.Ordinal)
         {
-            // Trigonometría
-            "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
-            "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
-            "csc", "sec", "cot", "acsc", "asec", "acot",
-            // Exp / log
-            "exp", "log", "log2", "log10", "ln", "sqrt", "cbrt", "nthroot",
-            // Abs / sign / round
-            "abs", "sign", "floor", "ceil", "round", "fix", "mod", "rem",
-            // Agregaciones
-            "sum", "prod", "mean", "median", "min", "max", "std", "var",
-            "length", "numel", "size", "ndims", "norm",
-            // Matrix
-            "zeros", "ones", "eye", "diag", "transpose", "inv", "pinv",
-            "det", "rank", "trace", "eig", "svd", "lu", "qr", "chol",
-            // Rangos / búsqueda
-            "linspace", "logspace", "find", "sort", "unique", "flip", "reverse",
-            "any", "all", "isempty", "isnan", "isinf", "isfinite", "true", "false",
-            // I/O
-            "disp", "display", "fprintf", "sprintf", "printf", "clear", "clc",
-            "format", "input", "error", "warning",
-            // Plot
-            "plot", "plot3", "surf", "mesh", "contour", "contourf", "quiver",
-            "scatter", "bar", "histogram", "title", "xlabel", "ylabel", "zlabel",
-            "legend", "figure", "subplot", "grid", "hold", "axis", "colormap",
-            "colorbar", "shading", "view",
+            "abs", "accumarray", "acos", "addpath", "all", "and", "angle", "annotation",
+            "any", "arrayfun", "asin", "assignin", "assume", "assumeAlso", "atan", "atan2",
+            "axis", "bar", "barh", "beta", "bicg", "binopdf", "bode", "bsxfun",
+            "btdb", "butter", "bvp4c", "c2d", "camlight", "care", "cat", "cat3",
+            "ceil", "cellfun", "char", "cheby1", "cheby2", "chi2cdf", "chi2pdf", "chol",
+            "cla", "clc", "clear", "clf", "close", "coeffs", "collect", "colorbar",
+            "colormap", "colspace", "complex", "conj", "contains", "contour", "contourf", "conv",
+            "conv2", "cos", "cosd", "cosh", "cross", "csvread", "csvwrite", "cumprod",
+            "cumsum", "cumtrapz", "d2c", "damp", "dblquad", "dbz", "dcgain", "deg2rad",
+            "delaunay", "density", "det", "diag", "diff", "dirac", "disp", "dlmread",
+            "dlmwrite", "dot", "double", "drawnow", "dsolve", "eig", "eigenvals", "eigenvecs",
+            "ellip", "endsWith", "eq", "erf", "erfc", "erfinv", "evalin", "exist",
+            "exp", "expand", "expm", "eye", "factor", "factorial", "feedback",
+            "feval", "fft", "fft2", "fftshift", "fieldnames", "figure", "fill", "fill3",
+            "filter", "find", "fix", "fliplr", "flipud", "floor", "fminbnd", "fmincon",
+            "fminsearch", "fourier", "fpdf", "fprintf", "freqz", "fsolve", "fspecial", "full",
+            "funm", "fzero", "gamma", "gampdf", "gauss_seidel", "gca", "gcf", "ge",
+            "gmres", "gradient", "grid", "gt", "heatmap", "heaviside", "hilbert", "hist",
+            "histcounts", "histogram", "histogram2", "hold", "horzcat", "ifft", "ifft2", "ilaplace",
+            "imag", "imagesc", "imfilter", "impulse", "imread", "imresize", "imwrite", "int",
+            "integral", "integral2", "integral3", "interp1", "intersect", "inv", "inverse", "ipermute",
+            "iscell", "ischar", "iscomplex", "isempty", "isfield", "isfinite", "isinf", "islogical",
+            "ismember", "isnan", "isnumeric", "isreal", "isscalar", "issparse", "isstring", "isstruct",
+            "isvector", "iztrans", "jsondecode", "jsonencode", "kron", "laplace", "latex", "ldivide",
+            "le", "legend", "length", "light", "lighting", "limit", "line", "linprog",
+            "linsolve", "linspace", "load", "log", "log10", "log2", "logm", "logspace",
+            "lower", "lqe", "lqr", "lsim", "lsqcurvefit", "lsqnonlin", "lt", "lu",
+            "magic", "map", "margin", "mat2str", "material", "max", "mean", "median",
+            "mesh", "meshgrid", "min", "minus", "mkdir", "mldivide", "mod", "mtimes",
+            "nchoosek", "ndims", "ne", "nnz", "nonzeros", "norm", "normcdf", "norminv",
+            "normpdf", "not", "null", "num2str", "numel", "nyquist", "ode23", "ode4",
+            "ode45", "ode_euler", "ones", "ones3", "or", "orth", "parallel", "patch",
+            "pause", "pcg", "pchip", "pcolor", "pdepe", "peaks", "permute", "piecewise",
+            "pinv", "plot", "plot3", "plus", "plus_str", "poisspdf", "polar", "pole",
+            "poly2sym", "polyfit", "polyval", "power", "pretty", "prod", "qr", "quad",
+            "quadgk", "quadl", "quadprog", "quiver", "quiver3", "rad2deg", "rand", "randi",
+            "randn", "randperm", "rank", "rdivide", "real", "rectpuls", "regexp", "regexpi",
+            "regexprep", "rem", "repmat", "reshape", "rgb2gray", "rlocus", "rmpath", "roots",
+            "rot90", "round", "rowspace", "save", "saveas", "scatter", "scatter3", "schur",
+            "series", "setdiff", "sgtitle", "shading", "sign", "simplify", "sin", "sinc",
+            "sind", "sinh", "size", "slice", "solve", "sort", "sparse", "spdiags",
+            "speye", "spline", "spones", "sprintf", "spy", "sqrt", "sqrtm", "squeeze",
+            "ss", "ss2tf", "startsWith", "std", "stem", "step", "stepinfo", "str2num",
+            "strcat", "strcmp", "strcmpi", "streamslice", "strfind", "string", "strjoin", "strlen",
+            "strlength", "strncmp", "strncmpi", "strrep", "strsplit", "strtrim", "struct", "structfun",
+            "subplot", "subs", "sum", "surf", "svd", "sym", "sym2poly", "syms",
+            "symsum", "tabulate", "tan", "tand", "tanh", "taylor", "tcdf", "text",
+            "tf", "tf2ss", "tic", "times", "title", "toc", "tpdf", "trace",
+            "transpose", "trapz", "trigexpand", "trigsimplify", "triplequad", "trisurf", "trunc",
+            "uminus", "union", "unique", "uplus", "upper", "var", "vertcat", "view",
+            "who", "whos", "xcorr", "xcov", "xlabel", "ylabel", "zero", "zeros",
+            "zeros3", "zlabel", "zpk", "ztrans",
+            // Aliases comunes que el preprocessor mapea internamente:
+            "asinh", "acosh", "atanh", "csc", "sec", "cot", "acsc", "asec", "acot",
+            "ln", "cbrt", "nthroot", "display", "printf", "format", "input", "error", "warning",
+            "flip", "reverse",
         }.ToFrozenSet(StringComparer.Ordinal);
 
         // =====================================================================
@@ -408,11 +461,13 @@ namespace Calcpad.Wpf
                     int idBeg = i;
                     while (i < n && (char.IsLetterOrDigit(text[i]) || text[i] == '_')) i++;
                     var ident = text[idBeg..i];
-                    // Clasificar:
+                    // Clasificar (orden importa: Keywords > Constants > Functions > User > fallback):
                     Types t;
                     bool bold = false;
                     if (Keywords.Contains(ident))
                         t = Types.Keyword;
+                    else if (Constants.Contains(ident))
+                        t = Types.Const;
                     else if (Functions.Contains(ident))
                     {
                         t = Types.Function; bold = true;

@@ -258,18 +258,24 @@ end
 
 %% Aplicar condiciones de contorno (simply supported)
 %-- En cada joint apoyado: penalizar la K en los DOFs apropiados.
+%-- Convencion .m: DOF g=w, g+1=theta_x=dw/dy, g+2=theta_y=dw/dx, g+3=psi=d2w/dxdy.
+%-- Borde y=0 o y=b (paralelo a x): w=0 (auto) Y dw/dx=0 a lo largo del borde
+%--   (porque w=0 a lo largo del borde implica derivada tangencial nula).
+%--   dw/dx = theta_y = DOF g+2.
+%-- Borde x=0 o x=a (paralelo a y): w=0 Y dw/dy=0 (derivada tangencial = 0).
+%--   dw/dy = theta_x = DOF g+1.
 k_s = 1e20;
 for i = 1:n_s
     js = s_j(i);
     g = 4*(js - 1) + 1;
     K(g, g) = K(g, g) + k_s;  % w = 0 en apoyos
-    % Bordes paralelos a x (y=0 o y=b): adicionalmente theta_x = 0
     if abs(y_j(js)) < 1e-9 || abs(y_j(js) - b) < 1e-9
-        K(g+1, g+1) = K(g+1, g+1) + k_s;
-    end
-    % Bordes paralelos a y (x=0 o x=a): adicionalmente theta_y = 0
-    if abs(x_j(js)) < 1e-9 || abs(x_j(js) - a) < 1e-9
+        % Borde paralelo a x: dw/dx = theta_y = 0
         K(g+2, g+2) = K(g+2, g+2) + k_s;
+    end
+    if abs(x_j(js)) < 1e-9 || abs(x_j(js) - a) < 1e-9
+        % Borde paralelo a y: dw/dy = theta_x = 0
+        K(g+1, g+1) = K(g+1, g+1) + k_s;
     end
 end
 

@@ -1,0 +1,6 @@
+ 
+To get started, type one of these: helpwin, helpdesk, or demo.
+For product information, visit www.mathworks.com.
+ 
+T torsor en vigas: max |T| = 22.768 kN*m
+Plot guardado: mesa_vigas_torsion.png

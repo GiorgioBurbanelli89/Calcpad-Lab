@@ -813,6 +813,255 @@ namespace Calcpad.Wpf
             items.Add(new ListBoxItem() { Content = "μWh", Foreground = Brushes.DarkCyan });
             items.Add(new ListBoxItem() { Content = "μΩ", Foreground = Brushes.DarkCyan });
             items.Add(new ListBoxItem() { Content = "μ℧", Foreground = Brushes.DarkCyan });
+
+            // ════════════════════════════════════════════════════════════════
+            // MATLAB BUILTINS — sincronizado con MatlabEvaluator.RegisterBuiltins
+            // (412 entradas al 2026-05). Aparecen bold (Types.Function).
+            // Las entradas legacy Calcpad arriba se conservan por compat con
+            // el UI compartido — Calcpad-Lab es MATLAB-only pero la ventana
+            // del editor es la misma base WPF.
+            // ════════════════════════════════════════════════════════════════
+            AddMatlabBuiltins(items);
+            AddMatlabConstants(items);
+            AddMatlabKeywordsExtra(items);
+        }
+
+        // Set con nombre (sin paréntesis) de cada item ya presente; evita
+        // duplicados al agregar el bloque MATLAB.
+        private static HashSet<string> ExistingFunctionNames(ItemCollection items)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ListBoxItem it in items)
+            {
+                var s = (string)it.Content;
+                if (string.IsNullOrEmpty(s)) continue;
+                int p = s.IndexOf('(');
+                set.Add(p > 0 ? s[..p] : s);
+            }
+            return set;
+        }
+
+        // Mapeo nombre → firma de parámetros (estilo MATLAB con comas).
+        // Si el nombre no está aquí, se usa `name(...)` como placeholder.
+        private static readonly Dictionary<string, string> MatlabSignatures = new(StringComparer.Ordinal)
+        {
+            // Aritmética / trig / log
+            ["abs"] = "(x)",  ["sign"] = "(x)",  ["sqrt"] = "(x)",  ["exp"] = "(x)",
+            ["log"] = "(x)",  ["log2"] = "(x)",  ["log10"] = "(x)",
+            ["sin"] = "(x)",  ["cos"] = "(x)",  ["tan"] = "(x)",
+            ["asin"] = "(x)", ["acos"] = "(x)", ["atan"] = "(x)", ["atan2"] = "(y, x)",
+            ["sinh"] = "(x)", ["cosh"] = "(x)", ["tanh"] = "(x)",
+            ["sind"] = "(x)", ["cosd"] = "(x)", ["tand"] = "(x)",
+            ["deg2rad"] = "(x)", ["rad2deg"] = "(x)",
+            ["floor"] = "(x)", ["ceil"] = "(x)", ["round"] = "(x)", ["fix"] = "(x)",
+            ["mod"] = "(a, b)", ["rem"] = "(a, b)",
+            ["real"] = "(z)", ["imag"] = "(z)", ["conj"] = "(z)", ["angle"] = "(z)",
+            ["complex"] = "(re, im)",
+            // Agregaciones / vector
+            ["sum"] = "(v)", ["prod"] = "(v)", ["mean"] = "(v)", ["median"] = "(v)",
+            ["min"] = "(v)", ["max"] = "(v)", ["std"] = "(v)", ["var"] = "(v)",
+            ["norm"] = "(v)", ["cumsum"] = "(v)", ["cumprod"] = "(v)", ["diff"] = "(v)",
+            // Matrix
+            ["zeros"] = "(m, n)", ["ones"] = "(m, n)", ["eye"] = "(n)",
+            ["rand"] = "(m, n)", ["randn"] = "(m, n)", ["randi"] = "(imax, m, n)",
+            ["magic"] = "(n)",
+            ["inv"] = "(M)", ["pinv"] = "(M)", ["det"] = "(M)", ["rank"] = "(M)",
+            ["trace"] = "(M)", ["transpose"] = "(M)", ["expm"] = "(M)", ["logm"] = "(M)",
+            ["sqrtm"] = "(M)", ["funm"] = "(M, f)",
+            ["eig"] = "(M)", ["svd"] = "(M)", ["lu"] = "(M)", ["qr"] = "(M)",
+            ["chol"] = "(M)", ["schur"] = "(M)", ["null"] = "(M)", ["orth"] = "(M)",
+            ["kron"] = "(A, B)", ["cross"] = "(a, b)", ["dot"] = "(a, b)",
+            ["reshape"] = "(M, m, n)", ["repmat"] = "(M, m, n)",
+            ["squeeze"] = "(M)", ["fliplr"] = "(M)", ["flipud"] = "(M)", ["rot90"] = "(M)",
+            ["horzcat"] = "(A, B)", ["vertcat"] = "(A, B)", ["cat"] = "(dim, A, B)",
+            ["meshgrid"] = "(x, y)", ["sparse"] = "(M)", ["full"] = "(S)",
+            // Ranges / búsqueda
+            ["linspace"] = "(a, b, n)", ["logspace"] = "(a, b, n)",
+            ["find"] = "(v)", ["sort"] = "(v)", ["unique"] = "(v)",
+            ["intersect"] = "(A, B)", ["union"] = "(A, B)", ["setdiff"] = "(A, B)",
+            ["ismember"] = "(A, B)",
+            // Predicados
+            ["any"] = "(v)", ["all"] = "(v)", ["isempty"] = "(x)",
+            ["isnan"] = "(x)", ["isinf"] = "(x)", ["isfinite"] = "(x)",
+            ["isnumeric"] = "(x)", ["ischar"] = "(x)", ["isstring"] = "(x)",
+            ["isreal"] = "(x)", ["iscomplex"] = "(x)", ["isvector"] = "(x)",
+            ["isscalar"] = "(x)", ["ismatrix"] = "(x)", ["isstruct"] = "(x)",
+            ["isfield"] = "(s, name)", ["iscell"] = "(x)", ["islogical"] = "(x)",
+            ["length"] = "(v)", ["numel"] = "(v)", ["size"] = "(M)", ["ndims"] = "(M)",
+            // Strings
+            ["sprintf"] = "('%g', x)", ["fprintf"] = "('%g\\n', x)", ["disp"] = "(x)",
+            ["num2str"] = "(x)", ["str2num"] = "(s)", ["mat2str"] = "(M)",
+            ["strcat"] = "(s1, s2)", ["strcmp"] = "(a, b)", ["strcmpi"] = "(a, b)",
+            ["strncmp"] = "(a, b, n)", ["strrep"] = "(s, old, new)",
+            ["strsplit"] = "(s, delim)", ["strjoin"] = "(c, delim)", ["strtrim"] = "(s)",
+            ["strfind"] = "(s, pat)", ["strlength"] = "(s)", ["lower"] = "(s)", ["upper"] = "(s)",
+            ["contains"] = "(s, pat)", ["startsWith"] = "(s, pat)", ["endsWith"] = "(s, pat)",
+            ["regexp"] = "(s, pat)", ["regexprep"] = "(s, pat, rep)",
+            // I/O / control
+            ["clc"] = "()", ["clear"] = "()", ["close"] = "all", ["clf"] = "()",
+            ["pause"] = "(s)", ["tic"] = "()", ["toc"] = "()",
+            ["who"] = "()", ["whos"] = "()", ["exist"] = "(name)",
+            ["save"] = "('file.mat')", ["load"] = "('file.mat')",
+            // Plot
+            ["plot"] = "(x, y)", ["plot3"] = "(x, y, z)",
+            ["scatter"] = "(x, y)", ["scatter3"] = "(x, y, z)",
+            ["surf"] = "(X, Y, Z)", ["mesh"] = "(X, Y, Z)",
+            ["contour"] = "(X, Y, Z)", ["contourf"] = "(X, Y, Z)",
+            ["bar"] = "(y)", ["barh"] = "(y)", ["stem"] = "(x, y)",
+            ["histogram"] = "(v)", ["hist"] = "(v)", ["pcolor"] = "(M)",
+            ["quiver"] = "(X, Y, U, V)", ["polar"] = "(theta, r)",
+            ["title"] = "('text')", ["xlabel"] = "('text')", ["ylabel"] = "('text')", ["zlabel"] = "('text')",
+            ["legend"] = "('a', 'b')", ["grid"] = "on", ["hold"] = "on", ["axis"] = "tight",
+            ["figure"] = "()", ["subplot"] = "(m, n, k)",
+            ["colorbar"] = "()", ["colormap"] = "(name)", ["shading"] = "interp",
+            ["view"] = "(az, el)", ["text"] = "(x, y, 'text')",
+            // Numérico / solver
+            ["fzero"] = "(@f, x0)", ["fsolve"] = "(@f, x0)",
+            ["fminbnd"] = "(@f, a, b)", ["fminsearch"] = "(@f, x0)", ["fmincon"] = "(@f, x0)",
+            ["lsqcurvefit"] = "(@f, x0, x, y)", ["lsqnonlin"] = "(@f, x0)",
+            ["linprog"] = "(c, A, b)", ["quadprog"] = "(H, f, A, b)",
+            ["integral"] = "(@f, a, b)", ["integral2"] = "(@f, a, b, c, d)",
+            ["quad"] = "(@f, a, b)", ["quadgk"] = "(@f, a, b)", ["trapz"] = "(x, y)",
+            ["ode45"] = "(@f, tspan, y0)", ["ode23"] = "(@f, tspan, y0)",
+            ["interp1"] = "(x, v, xq)", ["spline"] = "(x, y, xq)", ["pchip"] = "(x, y, xq)",
+            ["polyfit"] = "(x, y, n)", ["polyval"] = "(p, x)", ["roots"] = "(p)",
+            ["gradient"] = "(F)", ["nchoosek"] = "(n, k)", ["factorial"] = "(n)",
+            // Linsolve
+            ["mldivide"] = "(A, b)", ["mrdivide"] = "(A, b)", ["linsolve"] = "(A, b)",
+            ["gauss_seidel"] = "(A, b)", ["pcg"] = "(A, b)", ["gmres"] = "(A, b)", ["bicg"] = "(A, b)",
+            // FFT
+            ["fft"] = "(x)", ["ifft"] = "(X)", ["fft2"] = "(M)", ["ifft2"] = "(M)",
+            ["fftshift"] = "(X)", ["filter"] = "(b, a, x)", ["conv"] = "(a, b)",
+            // Symbolic
+            ["syms"] = "x y z", ["sym"] = "(x)", ["solve"] = "(eqn, x)",
+            ["simplify"] = "(expr)", ["expand"] = "(expr)", ["collect"] = "(expr, x)",
+            ["factor"] = "(expr)", ["coeffs"] = "(expr, x)", ["subs"] = "(expr, x, val)",
+            ["limit"] = "(expr, x, a)", ["int"] = "(expr, x)", ["dsolve"] = "(eqn)",
+            ["taylor"] = "(expr, x)", ["fourier"] = "(expr, x, w)", ["laplace"] = "(expr, t, s)",
+            ["ilaplace"] = "(expr, s, t)", ["ztrans"] = "(expr, n, z)", ["iztrans"] = "(expr, z, n)",
+            ["pretty"] = "(expr)", ["latex"] = "(expr)",
+            // Control
+            ["tf"] = "(num, den)", ["ss"] = "(A, B, C, D)", ["zpk"] = "(z, p, k)",
+            ["step"] = "(sys)", ["impulse"] = "(sys)", ["bode"] = "(sys)", ["nyquist"] = "(sys)",
+            ["lsim"] = "(sys, u, t)", ["feedback"] = "(G, H)", ["series"] = "(G1, G2)",
+            ["parallel"] = "(G1, G2)", ["pole"] = "(sys)", ["damp"] = "(sys)",
+            ["lqr"] = "(A, B, Q, R)", ["lqe"] = "(A, G, C, Q, R)", ["care"] = "(A, B, Q, R)",
+            ["margin"] = "(sys)", ["stepinfo"] = "(sys)", ["dcgain"] = "(sys)",
+            ["c2d"] = "(sys, Ts)", ["d2c"] = "(sysd)", ["tf2ss"] = "(num, den)", ["ss2tf"] = "(A, B, C, D)",
+            // Filtros
+            ["butter"] = "(n, Wn)", ["cheby1"] = "(n, Rp, Wn)", ["cheby2"] = "(n, Rs, Wn)",
+            ["ellip"] = "(n, Rp, Rs, Wn)", ["freqz"] = "(b, a)", ["sinc"] = "(x)",
+            // Estadística / distribuciones
+            ["normpdf"] = "(x, mu, sigma)", ["normcdf"] = "(x, mu, sigma)", ["norminv"] = "(p, mu, sigma)",
+            ["tpdf"] = "(x, n)", ["tcdf"] = "(x, n)", ["chi2pdf"] = "(x, n)", ["chi2cdf"] = "(x, n)",
+            ["fpdf"] = "(x, n1, n2)", ["gampdf"] = "(x, a, b)", ["poisspdf"] = "(x, lambda)",
+            ["binopdf"] = "(x, n, p)", ["erf"] = "(x)", ["erfc"] = "(x)", ["erfinv"] = "(x)",
+            ["gamma"] = "(x)", ["beta"] = "(a, b)",
+            // Otras
+            ["dirac"] = "(x)", ["heaviside"] = "(x)", ["sinc"] = "(x)",
+            ["repmat"] = "(M, m, n)", ["arrayfun"] = "(@f, A)", ["cellfun"] = "(@f, C)",
+            ["structfun"] = "(@f, s)", ["fieldnames"] = "(s)",
+            ["jsondecode"] = "(s)", ["jsonencode"] = "(x)",
+            ["addpath"] = "(dir)", ["rmpath"] = "(dir)", ["mkdir"] = "(dir)",
+            ["feval"] = "(@f, args)",
+            // Logical / comparator (raros como llamada)
+            ["and"] = "(a, b)", ["or"] = "(a, b)", ["not"] = "(a)",
+            ["eq"] = "(a, b)", ["ne"] = "(a, b)", ["lt"] = "(a, b)", ["gt"] = "(a, b)",
+            ["le"] = "(a, b)", ["ge"] = "(a, b)",
+        };
+
+        private static void AddMatlabBuiltins(ItemCollection items)
+        {
+            var existing = ExistingFunctionNames(items);
+            // Lista canónica (412 entradas) extraída de MatlabEvaluator.cs.
+            string[] all =
+            [
+                "abs", "accumarray", "acos", "addpath", "all", "and", "angle", "annotation",
+                "any", "arrayfun", "asin", "assignin", "assume", "assumeAlso", "atan", "atan2",
+                "axis", "bar", "barh", "beta", "bicg", "binopdf", "bode", "bsxfun",
+                "btdb", "butter", "bvp4c", "c2d", "camlight", "care", "cat", "cat3",
+                "ceil", "cellfun", "char", "cheby1", "cheby2", "chi2cdf", "chi2pdf", "chol",
+                "cla", "clc", "clear", "clf", "close", "coeffs", "collect", "colorbar",
+                "colormap", "colspace", "complex", "conj", "contains", "contour", "contourf", "conv",
+                "conv2", "cos", "cosd", "cosh", "cross", "csvread", "csvwrite", "cumprod",
+                "cumsum", "cumtrapz", "d2c", "damp", "dblquad", "dbz", "dcgain", "deg2rad",
+                "delaunay", "density", "det", "diag", "diff", "dirac", "disp", "dlmread",
+                "dlmwrite", "dot", "double", "drawnow", "dsolve", "eig", "eigenvals", "eigenvecs",
+                "ellip", "endsWith", "eq", "erf", "erfc", "erfinv", "evalin", "exist",
+                "exp", "expand", "expm", "eye", "factor", "factorial", "feedback",
+                "feval", "fft", "fft2", "fftshift", "fieldnames", "figure", "fill", "fill3",
+                "filter", "find", "fix", "fliplr", "flipud", "floor", "fminbnd", "fmincon",
+                "fminsearch", "fourier", "fpdf", "fprintf", "freqz", "fsolve", "fspecial", "full",
+                "funm", "fzero", "gamma", "gampdf", "gauss_seidel", "gca", "gcf", "ge",
+                "gmres", "gradient", "grid", "gt", "heatmap", "heaviside", "hilbert", "hist",
+                "histcounts", "histogram", "histogram2", "hold", "horzcat", "ifft", "ifft2", "ilaplace",
+                "imag", "imagesc", "imfilter", "impulse", "imread", "imresize", "imwrite", "int",
+                "integral", "integral2", "integral3", "interp1", "intersect", "inv", "inverse", "ipermute",
+                "iscell", "ischar", "iscomplex", "isempty", "isfield", "isfinite", "isinf", "islogical",
+                "ismember", "isnan", "isnumeric", "isreal", "isscalar", "issparse", "isstring", "isstruct",
+                "isvector", "iztrans", "jsondecode", "jsonencode", "kron", "laplace", "latex", "ldivide",
+                "le", "legend", "length", "light", "lighting", "limit", "line", "linprog",
+                "linsolve", "linspace", "load", "log", "log10", "log2", "logm", "logspace",
+                "lower", "lqe", "lqr", "lsim", "lsqcurvefit", "lsqnonlin", "lt", "lu",
+                "magic", "map", "margin", "mat2str", "material", "max", "mean", "median",
+                "mesh", "meshgrid", "min", "minus", "mkdir", "mldivide", "mod", "mtimes",
+                "nchoosek", "ndims", "ne", "nnz", "nonzeros", "norm", "normcdf", "norminv",
+                "normpdf", "not", "null", "num2str", "numel", "nyquist", "ode23", "ode4",
+                "ode45", "ode_euler", "ones", "ones3", "or", "orth", "parallel", "patch",
+                "pause", "pcg", "pchip", "pcolor", "pdepe", "peaks", "permute", "piecewise",
+                "pinv", "plot", "plot3", "plus", "plus_str", "poisspdf", "polar", "pole",
+                "poly2sym", "polyfit", "polyval", "power", "pretty", "prod", "qr", "quad",
+                "quadgk", "quadl", "quadprog", "quiver", "quiver3", "rad2deg", "rand", "randi",
+                "randn", "randperm", "rank", "rdivide", "real", "rectpuls", "regexp", "regexpi",
+                "regexprep", "rem", "repmat", "reshape", "rgb2gray", "rlocus", "rmpath", "roots",
+                "rot90", "round", "rowspace", "save", "saveas", "scatter", "scatter3", "schur",
+                "series", "setdiff", "sgtitle", "shading", "sign", "simplify", "sin", "sinc",
+                "sind", "sinh", "size", "slice", "solve", "sort", "sparse", "spdiags",
+                "speye", "spline", "spones", "sprintf", "spy", "sqrt", "sqrtm", "squeeze",
+                "ss", "ss2tf", "startsWith", "std", "stem", "step", "stepinfo", "str2num",
+                "strcat", "strcmp", "strcmpi", "streamslice", "strfind", "string", "strjoin", "strlen",
+                "strlength", "strncmp", "strncmpi", "strrep", "strsplit", "strtrim", "struct", "structfun",
+                "subplot", "subs", "sum", "surf", "svd", "sym", "sym2poly", "syms",
+                "symsum", "tabulate", "tan", "tand", "tanh", "taylor", "tcdf", "text",
+                "tf", "tf2ss", "tic", "times", "title", "toc", "tpdf", "trace",
+                "transpose", "trapz", "trigexpand", "trigsimplify", "triplequad", "trisurf", "trunc",
+                "uminus", "union", "unique", "uplus", "upper", "var", "vertcat", "view",
+                "who", "whos", "xcorr", "xcov", "xlabel", "ylabel", "zero", "zeros",
+                "zeros3", "zlabel", "zpk", "ztrans",
+            ];
+            foreach (var name in all)
+            {
+                if (existing.Contains(name)) continue;
+                var sig = MatlabSignatures.TryGetValue(name, out var s) ? s : "(...)";
+                items.Add(new ListBoxItem { Content = name + sig, FontWeight = FontWeights.Bold });
+            }
+        }
+
+        // Constantes MATLAB: pintadas en negro (Types.Const). El highlighter
+        // las reconoce vía HighLighter.Constants.
+        private static void AddMatlabConstants(ItemCollection items)
+        {
+            string[] consts = ["pi", "e", "Inf", "inf", "NaN", "nan", "eps",
+                               "i", "j", "ans", "realmax", "realmin", "intmax", "intmin"];
+            var existing = ExistingFunctionNames(items);
+            foreach (var c in consts)
+            {
+                if (existing.Contains(c)) continue;
+                items.Add(new ListBoxItem { Content = c });
+            }
+        }
+
+        // Keywords adicionales que el primer bloque no cubría.
+        private static void AddMatlabKeywordsExtra(ItemCollection items)
+        {
+            string[] kw = ["classdef", "properties", "methods", "events", "enumeration",
+                           "global", "persistent", "import"];
+            var existing = ExistingFunctionNames(items);
+            foreach (var k in kw)
+            {
+                if (existing.Contains(k)) continue;
+                items.Add(new ListBoxItem { Content = k, Foreground = Brushes.DarkMagenta });
+            }
         }
 
         internal void InitAutoComplete(string input, Paragraph currentParagraph)

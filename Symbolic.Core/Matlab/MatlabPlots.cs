@@ -229,6 +229,7 @@ namespace Calcpad.Core.Matlab
                     sb.Append($", intensity:[{Csv(cdata)}]");
                     sb.Append($", intensitymode:'{(colorMode == "flat" ? "cell" : "vertex")}'");
                     sb.Append($", colorscale:'{ColormapToPlotly(colormap)}'");
+                    sb.Append($", reversescale:{(ColormapReversed(colormap) ? "true" : "false")}");
                     sb.Append(", showscale:true");
                 }
             }
@@ -870,9 +871,14 @@ namespace Calcpad.Core.Matlab
         // ─── Helpers ────────────────────────────────────────────────────────
         private static void ValidateGrid(MValue X, MValue Y, MValue Z)
         {
-            if (X.Rows != Z.Rows || X.Cols != Z.Cols)
+            // MATLAB acepta X/Y como GRID (igual que Z) o como VECTOR de coordenadas
+            // (longitud = Cols para X, = Rows para Y). Solo error si no encaja ninguno.
+            int xn = X.Rows * X.Cols, yn = Y.Rows * Y.Cols;
+            bool xOk = (X.Rows == Z.Rows && X.Cols == Z.Cols) || xn == Z.Cols || xn == Z.Rows;
+            bool yOk = (Y.Rows == Z.Rows && Y.Cols == Z.Cols) || yn == Z.Rows || yn == Z.Cols;
+            if (!xOk)
                 throw new MatlabRuntimeException($"surf/contourf: X {X.Rows}×{X.Cols} ≠ Z {Z.Rows}×{Z.Cols}");
-            if (Y.Rows != Z.Rows || Y.Cols != Z.Cols)
+            if (!yOk)
                 throw new MatlabRuntimeException($"surf/contourf: Y {Y.Rows}×{Y.Cols} ≠ Z {Z.Rows}×{Z.Cols}");
         }
         private static string EmitMatrixJs(MValue m)
@@ -905,24 +911,23 @@ namespace Calcpad.Core.Matlab
         }
         private static string EmitRowJs(MValue m, bool firstRowOnly)
         {
-            // Para contourf el axis x es la primera fila del grid X
+            // Eje x de contourf: primera fila del grid X, o el vector si X es columna.
             var sb = new StringBuilder("[");
-            for (int j = 0; j < m.Cols; j++)
-            {
-                if (j > 0) sb.Append(",");
-                sb.Append(m.At(0, j).ToString("G6", Inv));
-            }
+            if (m.Cols == 1 && m.Rows > 1)
+                for (int i = 0; i < m.Rows; i++) { if (i > 0) sb.Append(","); sb.Append(m.At(i, 0).ToString("G6", Inv)); }
+            else
+                for (int j = 0; j < m.Cols; j++) { if (j > 0) sb.Append(","); sb.Append(m.At(0, j).ToString("G6", Inv)); }
             sb.Append("]");
             return sb.ToString();
         }
         private static string EmitColJs(MValue m)
         {
+            // Eje y de contourf: primera columna, o el vector si Y es fila.
             var sb = new StringBuilder("[");
-            for (int i = 0; i < m.Rows; i++)
-            {
-                if (i > 0) sb.Append(",");
-                sb.Append(m.At(i, 0).ToString("G6", Inv));
-            }
+            if (m.Rows == 1 && m.Cols > 1)
+                for (int j = 0; j < m.Cols; j++) { if (j > 0) sb.Append(","); sb.Append(m.At(0, j).ToString("G6", Inv)); }
+            else
+                for (int i = 0; i < m.Rows; i++) { if (i > 0) sb.Append(","); sb.Append(m.At(i, 0).ToString("G6", Inv)); }
             sb.Append("]");
             return sb.ToString();
         }

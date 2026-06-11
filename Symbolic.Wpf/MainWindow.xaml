@@ -2792,7 +2792,7 @@
                       VerticalContentAlignment="Stretch" Margin="4,1,6,1" 
                       BorderBrush="#AACCCCCC" Background="White" 
                       Header="{x:Static wpf:MainWindowResources.Output}" >
-                <Grid>
+                <Grid Background="White">
                     <Wpf:WebView2 x:Name="WebViewer" Margin="5,5,5,5" KeyUp="WebViewer_KeyUp" PreviewKeyDown="WebViewer_PreviewKeyDown" NavigationCompleted="WebViewer_NavigationCompleted" WebMessageReceived="WebViewer_WebMessageReceived" />
                     <me:MathCanvasControl x:Name="MathCanvasView" Visibility="Collapsed" Margin="5,5,5,5"/>
                 </Grid>

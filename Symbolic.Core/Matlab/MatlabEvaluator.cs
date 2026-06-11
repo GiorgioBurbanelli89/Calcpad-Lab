@@ -115,7 +115,8 @@ namespace Calcpad.Core.Matlab
         /// <summary>Constructor cell array a partir de matriz 2D.</summary>
         public static MValue NewCell(MValue[,] cells)
         {
-            var v = new MValue(0);
+            int r = cells.GetLength(0), c = cells.GetLength(1);
+            var v = new MValue(r, c);   // setear Rows/Cols (readonly) = dims del cell; sin esto todo cell queda 1x1
             v.CellData = cells;
             return v;
         }
@@ -219,6 +220,12 @@ namespace Calcpad.Core.Matlab
         /// <summary>Callback opcional para <c>disp(...)</c>. Si null, se ignoran.</summary>
         private Action<string> _output;
         public Action<string> Output { get => _output; set => _output = value; }
+
+        // ─── I/O de archivos (fopen/fclose/fprintf/fscanf/...) ──────────────
+        // fid 1 = stdout, 2 = stderr; los archivos de usuario empiezan en 3.
+        private readonly Dictionary<int, System.IO.StreamWriter> _fileWriters = new();
+        private readonly Dictionary<int, System.IO.StreamReader> _fileReaders = new();
+        private int _nextFid = 3;
         /// <summary>Callback opcional para HTML inline (plots, etc.). Si null, los plots se descartan.</summary>
         private Action<string> _htmlOut;
         public Action<string> HtmlOut { get => _htmlOut; set => _htmlOut = value; }
@@ -323,6 +330,20 @@ namespace Calcpad.Core.Matlab
                 return s;
             };
 
+            // inputname(k): nombre de la variable pasada como k-ésimo argumento de
+            // la función actual. Devuelve "" si fue una expresión (no variable) o
+            // si se llama fuera de una función. Frame provisto por _inputNameStack.
+            _builtins["inputname"] = a =>
+            {
+                if (a.Length < 1)
+                    throw new MatlabRuntimeException("inputname: requiere el índice del argumento");
+                int k = (int)Math.Round(a[0].Scalar);
+                if (_inputNameStack.Count == 0) return new MValue("");
+                var names = _inputNameStack.Peek();
+                if (k >= 1 && k <= names.Length) return new MValue(names[k - 1] ?? "");
+                return new MValue("");
+            };
+
             // Elementary math (element-wise on matrices)
             _builtins["sin"] = a => MapUnary(a[0], Math.Sin);
             _builtins["cos"] = a => MapUnary(a[0], Math.Cos);
@@ -395,24 +416,32 @@ namespace Calcpad.Core.Matlab
             // Sparse matrices — modelo MVP: convertimos a/desde full; el storage no
             // es realmente sparse pero la API existe para portabilidad de scripts.
             _builtins["sparse"] = a => {
-                // sparse(M) → convertir full a CSR
-                // sparse(i, j, s, m, n) → construir desde tripletes
-                // sparse(m, n) → todo cero (zeros sparse)
+                // NOTA Lab: el motor trata 'sparse' como DENSO. Asi la indexacion
+                // K(i,j)=v y el solve K\b usan los caminos densos (que funcionan) y el
+                // FE corre. Para sistemas enormes conviene MATLAB/Octave (sparse real).
+                // sparse(M) -> M (ya denso) ; sparse(i,j,s,m,n) -> denso acumulado ;
+                // sparse(m,n) -> zeros(m,n) denso.
                 if (a.Length == 1)
                 {
-                    if (a[0].IsSparseReal) return a[0];
-                    return FullToCsr(a[0]);
+                    return a[0].IsSparseReal ? CsrToFull(a[0]) : a[0];
                 }
                 if (a.Length >= 5)
                 {
                     int m = (int)a[3].Scalar, n = (int)a[4].Scalar;
                     var ii = a[0].Data; var jj = a[1].Data; var ss = a[2].Data;
-                    return TripletsToCsr(m, n, ii, jj, ss);
+                    var dM = new MValue(m, n);
+                    for (int t = 0; t < ii.Length; t++)
+                    {
+                        int ri = (int)ii[t] - 1, ci = (int)jj[t] - 1;
+                        double sv = ss.Length == 1 ? ss[0] : ss[t];
+                        dM.Set(ri, ci, dM.At(ri, ci) + sv);   // acumula duplicados (MATLAB)
+                    }
+                    return dM;
                 }
                 if (a.Length >= 2 && a[0].IsScalar && a[1].IsScalar)
                 {
                     int m = (int)a[0].Scalar, n = (int)a[1].Scalar;
-                    return MValue.NewSparseCSR(m, n, new double[0], new int[0], new int[m + 1]);
+                    return new MValue(m, n);                   // zeros(m,n) denso
                 }
                 return a[0];
             };
@@ -421,6 +450,20 @@ namespace Calcpad.Core.Matlab
                 return CsrToFull(a[0]);
             };
             _builtins["issparse"] = a => new MValue(a[0].IsSparseReal ? 1 : 0);
+            // cell(n) -> n x n ; cell(m,n) -> m x n ; celdas vacias = [] (0x0)
+            _builtins["cell"] = a => {
+                int m = a.Length >= 1 ? (int)a[0].Scalar : 0;
+                int n = a.Length >= 2 ? (int)a[1].Scalar : m;
+                var cells = new MValue[m, n];
+                for (int i = 0; i < m; i++)
+                    for (int j = 0; j < n; j++)
+                        cells[i, j] = new MValue(0, 0);
+                return MValue.NewCell(cells);
+            };
+            // hypot(a,b) = sqrt(a^2+b^2) element-wise (sin overflow conceptual; MATLAB-compat)
+            _builtins["hypot"] = a => MapBinary(a[0], a[1], (x, y) => Math.Sqrt(x * x + y * y));
+            // caxis: limites de color de un eje. En Lab/Plotly es no-op (no rompe el script).
+            _builtins["caxis"] = a => new MValue(0);
             _builtins["nnz"] = a => {
                 if (a[0].IsSparseReal) return new MValue(a[0].SparseVals.Length);
                 int count = 0;
@@ -991,8 +1034,17 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["reshape"] = a => {
                 var v = a[0];
-                int rows = (int)a[1].Scalar;
-                int cols = (int)a[2].Scalar;
+                int nElem = v.Data.Length;
+                // MATLAB: una dimension puede ser [] -> se infiere del total. Ej:
+                // reshape(x, 1, []) -> 1 x n ;  reshape(x, [], 1) -> n x 1.
+                bool rEmpty = a[1].Rows * a[1].Cols == 0;
+                bool cEmpty = a.Length > 2 && a[2].Rows * a[2].Cols == 0;
+                int rows, cols;
+                if (rEmpty && cEmpty)
+                    throw new MatlabRuntimeException("reshape: solo una dimension puede ser []");
+                else if (rEmpty) { cols = (int)a[2].Scalar; rows = cols == 0 ? 0 : nElem / cols; }
+                else if (cEmpty) { rows = (int)a[1].Scalar; cols = rows == 0 ? 0 : nElem / rows; }
+                else { rows = (int)a[1].Scalar; cols = (int)a[2].Scalar; }
                 if (rows * cols != v.Data.Length)
                     throw new MatlabRuntimeException($"reshape: size mismatch {v.Data.Length} ≠ {rows}×{cols}");
                 // MATLAB usa orden column-major: la lectura linear del source y la
@@ -1228,7 +1280,31 @@ namespace Calcpad.Core.Matlab
             // Nombres de colormap como funciones (MATLAB): colormap(jet), colormap(jet_r) — `_r` = INVERTIDO.
             foreach (var cm in new[] { "jet", "jet_r", "parula", "viridis", "hot", "cool", "gray", "grey",
                                        "bone", "hsv", "spring", "summer", "autumn", "winter", "copper" })
-                _builtins[cm] = _a => new MValue(cm);
+            {
+                var name = cm;
+                _builtins[name] = _a => {
+                    // MATLAB: jet(n) -> matriz n x 3 RGB (0..1). Sin arg numerico ->
+                    // nombre (string) para colormap('jet'). La placa hace flipud(jet(256)).
+                    if (_a.Length >= 1 && _a[0].IsScalar && !_a[0].IsString)
+                    {
+                        int nn = Math.Max(1, (int)_a[0].Scalar);
+                        bool rev = name.EndsWith("_r");
+                        var M = new MValue(nn, 3);
+                        for (int k = 0; k < nn; k++)
+                        {
+                            double tt = nn == 1 ? 0.5 : (double)k / (nn - 1);
+                            if (rev) tt = 1 - tt;
+                            // formula jet (base; la placa usa jet/jet_r)
+                            double r = Math.Max(0, Math.Min(1, Math.Min(4*tt - 1.5, -4*tt + 4.5)));
+                            double g = Math.Max(0, Math.Min(1, Math.Min(4*tt - 0.5, -4*tt + 3.5)));
+                            double b = Math.Max(0, Math.Min(1, Math.Min(4*tt + 0.5, -4*tt + 2.5)));
+                            M.Set(k, 0, r); M.Set(k, 1, g); M.Set(k, 2, b);
+                        }
+                        return M;
+                    }
+                    return new MValue(name);
+                };
+            }
             _builtins["surf"] = a => {
                 MValue X, Y, Z;
                 if (a.Length >= 3) { X = a[0]; Y = a[1]; Z = a[2]; }
@@ -1787,7 +1863,7 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i < a[0].Data.Length; i++) r.Data[i] = double.IsFinite(a[0].Data[i]) ? 1 : 0;
                 return r;
             };
-            _builtins["iscell"]    = a => new MValue(0);  // cells no soportadas explicitamente
+            _builtins["iscell"]    = a => new MValue(a[0] != null && a[0].IsCell ? 1 : 0);
             _builtins["fieldnames"] = a => {
                 if (!a[0].IsStruct) return new MValue(0, 0);
                 var keys = a[0].Fields.Keys.ToArray();
@@ -1811,12 +1887,130 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["fprintf"] = a => {
                 if (a.Length == 0) return new MValue(0);
-                if (!a[0].IsString) throw new MatlabRuntimeException("fprintf: first arg must be format string");
-                var rest = new MValue[a.Length - 1];
-                Array.Copy(a, 1, rest, 0, rest.Length);
-                _output?.Invoke(MatlabSprintf.Format(a[0].StringValue, rest));
-                return new MValue(0);
+                // Forma fprintf(fid, format, ...): primer arg numérico = file id.
+                int fmtIdx = 0, fid = 1;
+                if (a[0].IsScalar && !a[0].IsString)
+                {
+                    fid = (int)Math.Round(a[0].Scalar);
+                    fmtIdx = 1;
+                }
+                if (fmtIdx >= a.Length || !a[fmtIdx].IsString)
+                    throw new MatlabRuntimeException("fprintf: falta la cadena de formato");
+                var rest = new MValue[a.Length - fmtIdx - 1];
+                Array.Copy(a, fmtIdx + 1, rest, 0, rest.Length);
+                var text = MatlabSprintf.Format(a[fmtIdx].StringValue, rest);
+                if (fid == 1 || fid == 2)            // stdout / stderr → salida visible
+                    _output?.Invoke(text);
+                else if (_fileWriters.TryGetValue(fid, out var w))
+                    w.Write(text);
+                else
+                    throw new MatlabRuntimeException($"fprintf: file id {fid} inválido (no abierto con fopen)");
+                return new MValue(text.Length);   // MATLAB devuelve nº de bytes escritos
             };
+            // NOTA: NO se define `printf` — es Octave-only; MATLAB no lo tiene.
+            // Calcpad-Lab es estrictamente MATLAB-compatible: lo que MATLAB rechaza,
+            // Lab tambien (usar `fprintf`). Ver _ioFuncs en MatlabJit.cs.
+
+            // ─── I/O de archivos ────────────────────────────────────────────
+            // fopen(name [,mode]) → fid (>=3) o -1 si falla.
+            _builtins["fopen"] = a => {
+                if (a.Length < 1 || !a[0].IsString)
+                    throw new MatlabRuntimeException("fopen: primer argumento = nombre de archivo (string)");
+                string path = a[0].StringValue;
+                string mode = (a.Length >= 2 && a[1].IsString) ? a[1].StringValue.Trim() : "r";
+                var enc = new System.Text.UTF8Encoding(false); // UTF-8 sin BOM (para griegas)
+                try
+                {
+                    int fid = _nextFid++;
+                    if (mode.StartsWith("r"))
+                        _fileReaders[fid] = new System.IO.StreamReader(path, enc);
+                    else if (mode.StartsWith("a"))
+                        _fileWriters[fid] = new System.IO.StreamWriter(path, append: true, enc);
+                    else // "w", "w+", etc. → crear/truncar
+                        _fileWriters[fid] = new System.IO.StreamWriter(path, append: false, enc);
+                    return new MValue(fid);
+                }
+                catch { return new MValue(-1); }  // convención MATLAB: -1 en fallo
+            };
+            // fclose(fid) o fclose('all') → 0 ok, -1 fallo.
+            _builtins["fclose"] = a => {
+                if (a.Length >= 1 && a[0].IsString && a[0].StringValue == "all")
+                {
+                    foreach (var w in _fileWriters.Values) { w.Flush(); w.Dispose(); }
+                    foreach (var r in _fileReaders.Values) r.Dispose();
+                    _fileWriters.Clear(); _fileReaders.Clear();
+                    return new MValue(0);
+                }
+                if (a.Length < 1 || !a[0].IsScalar) return new MValue(-1);
+                int fid = (int)Math.Round(a[0].Scalar);
+                if (_fileWriters.TryGetValue(fid, out var ww)) { ww.Flush(); ww.Dispose(); _fileWriters.Remove(fid); return new MValue(0); }
+                if (_fileReaders.TryGetValue(fid, out var rr)) { rr.Dispose(); _fileReaders.Remove(fid); return new MValue(0); }
+                return new MValue(-1);
+            };
+            // fgetl(fid): línea sin salto, o -1 en EOF.
+            _builtins["fgetl"] = a => {
+                int fid = (int)Math.Round(a[0].Scalar);
+                if (!_fileReaders.TryGetValue(fid, out var r)) throw new MatlabRuntimeException($"fgetl: file id {fid} no abierto para lectura");
+                var line = r.ReadLine();
+                return line == null ? new MValue(-1) : new MValue(line);
+            };
+            // fgets(fid): línea CON salto, o -1 en EOF.
+            _builtins["fgets"] = a => {
+                int fid = (int)Math.Round(a[0].Scalar);
+                if (!_fileReaders.TryGetValue(fid, out var r)) throw new MatlabRuntimeException($"fgets: file id {fid} no abierto para lectura");
+                var line = r.ReadLine();
+                return line == null ? new MValue(-1) : new MValue(line + "\n");
+            };
+            // fscanf(fid [,format]): si el formato pide números → vector columna;
+            // si no, devuelve el texto restante completo.
+            _builtins["fscanf"] = a => {
+                int fid = (int)Math.Round(a[0].Scalar);
+                if (!_fileReaders.TryGetValue(fid, out var r)) throw new MatlabRuntimeException($"fscanf: file id {fid} no abierto para lectura");
+                string fmt = (a.Length >= 2 && a[1].IsString) ? a[1].StringValue : "%f";
+                string content = r.ReadToEnd();
+                bool numeric = fmt.Contains("%f") || fmt.Contains("%d") || fmt.Contains("%g") || fmt.Contains("%e") || fmt.Contains("%i");
+                if (!numeric) return new MValue(content);
+                var nums = new System.Collections.Generic.List<double>();
+                foreach (var tok in content.Split(new[] { ' ', '\t', '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    if (double.TryParse(tok, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        nums.Add(d);
+                if (nums.Count == 0) return new MValue(0, 0);
+                var col = new double[nums.Count];
+                for (int i = 0; i < nums.Count; i++) col[i] = nums[i];
+                return new MValue(nums.Count, 1, col);   // vector columna
+            };
+            // feof(fid): 1 si fin de archivo.
+            _builtins["feof"] = a => {
+                int fid = (int)Math.Round(a[0].Scalar);
+                if (_fileReaders.TryGetValue(fid, out var r)) return new MValue(r.EndOfStream ? 1 : 0);
+                return new MValue(1);
+            };
+
+            // evalc(code): ejecuta el código capturando su salida en un string.
+            _builtins["evalc"] = a => {
+                if (a.Length < 1 || !a[0].IsString)
+                    throw new MatlabRuntimeException("evalc: argumento = código MATLAB (string)");
+                var sb = new StringBuilder();
+                var savedOut = _output;
+                _output = s => sb.Append(s);
+                try
+                {
+                    var toks = MatlabTokenizer.Tokenize(a[0].StringValue);
+                    var stmts = new MatlabParser(toks).ParseAllStatements();
+                    foreach (var st in stmts)
+                        if (st is FunctionDef fdE) RegisterFunction(fdE);
+                        else if (st is ClassDef cdE) RegisterClass(cdE);
+                    foreach (var st in stmts)
+                        if (st is not FunctionDef && st is not ClassDef)
+                            ExecuteOne(st, Globals);
+                }
+                finally { _output = savedOut; }
+                return new MValue(sb.ToString());
+            };
+
+            // exit / quit: en una hoja de cálculo no cierran nada → no-op (devuelven 0).
+            _builtins["exit"] = a => new MValue(0);
+            _builtins["quit"] = a => new MValue(0);
             _builtins["num2str"] = a => {
                 if (a[0].IsString) return a[0];
                 if (a[0].IsScalar) return new MValue(a[0].Scalar.ToString("G6", System.Globalization.CultureInfo.InvariantCulture));
@@ -6242,11 +6436,29 @@ namespace Calcpad.Core.Matlab
         // ─── User function dispatch ─────────────────────────────────────────
         private string _currentFunctionName = "__main__";
 
-        private MValue CallUserFunction(FunctionDef def, MValue[] args)
+        // Stack de nombres-de-variable de los argumentos por frame de función.
+        // Lo usa el builtin `inputname(k)`: devuelve el nombre de la variable que
+        // se pasó como k-ésimo argumento de la función actual ("" si fue una
+        // expresión, no una variable simple).
+        private readonly Stack<string[]> _inputNameStack = new();
+
+        /// <summary>Extrae el nombre de variable de cada argumento del sitio de
+        /// llamada. Si el argumento no es un identificador simple, devuelve "".</summary>
+        private static string[] ArgNames(List<MatlabNode> args)
+        {
+            if (args == null) return Array.Empty<string>();
+            var names = new string[args.Count];
+            for (int i = 0; i < args.Count; i++)
+                names[i] = args[i] is IdentRef ir ? ir.Name : "";
+            return names;
+        }
+
+        private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)
         {
             var local = new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
+            _inputNameStack.Push(argNames ?? Array.Empty<string>());
             for (int i = 0; i < def.ParamNames.Count && i < args.Length; i++)
                 local.Set(def.ParamNames[i], args[i]);
             // MATLAB nargin / nargout dentro de la función
@@ -6254,6 +6466,7 @@ namespace Calcpad.Core.Matlab
             local.Set("nargout", new MValue(def.OutputNames.Count));
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { /* early return ok */ }
+            finally { _inputNameStack.Pop(); }
             // Flush persistent vars de vuelta a storage
             foreach (var kv in local.Vars)
                 if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
@@ -6264,11 +6477,12 @@ namespace Calcpad.Core.Matlab
                 return v;
             return new MValue(0);  // procedure void → 0
         }
-        private MValue[] CallUserFunctionMulti(FunctionDef def, MValue[] args)
+        private MValue[] CallUserFunctionMulti(FunctionDef def, MValue[] args, string[] argNames = null)
         {
             var local = new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
+            _inputNameStack.Push(argNames ?? Array.Empty<string>());
             for (int i = 0; i < def.ParamNames.Count && i < args.Length; i++)
                 local.Set(def.ParamNames[i], args[i]);
             // MATLAB nargin / nargout dentro de la función
@@ -6276,6 +6490,7 @@ namespace Calcpad.Core.Matlab
             local.Set("nargout", new MValue(def.OutputNames.Count));
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { }
+            finally { _inputNameStack.Pop(); }
             foreach (var kv in local.Vars)
                 if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
                     _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
@@ -6292,7 +6507,7 @@ namespace Calcpad.Core.Matlab
             {
                 if (asg.Rhs is not CallOrIndex call || call.Target is not IdentRef ident)
                     throw new MatlabRuntimeException("Multi-output requires function call on RHS");
-                MValue[] outs = CallMultiOut(ident.Name, EvalArgs(call.Args, scope));
+                MValue[] outs = CallMultiOut(ident.Name, EvalArgs(call.Args, scope), ArgNames(call.Args));
                 if (outs.Length < asg.Targets.Count)
                     throw new MatlabRuntimeException($"Function '{ident.Name}' returned {outs.Length} outputs, expected {asg.Targets.Count}");
                 for (int k = 0; k < asg.Targets.Count; k++)
@@ -6511,18 +6726,22 @@ namespace Calcpad.Core.Matlab
                     idx = (int)idxV.Scalar;
                 }
                 finally { _endCtx.Pop(); }
-                int endVal = Math.Max(r, c);
-                int newLen = Math.Max(idx, endVal);
-                if (newLen > endVal || cd.Length == 0)
+                // índice lineal: respetar orientación (fila r==1 vs columna c==1).
+                // Antes escribía siempre cd[0,idx-1] -> crash para cell(N,1) (columna) con idx>=2.
+                bool isRow = (r == 1);
+                int curLen = Math.Max(r, c);
+                if (idx > curLen || cd.Length == 0)
                 {
-                    var newData = new MValue[1, newLen];
-                    if (r == 1)
-                        for (int j = 0; j < c; j++) newData[0, j] = cd[0, j];
-                    else if (c == 1)
-                        for (int i = 0; i < r; i++) newData[0, i] = cd[i, 0];
-                    cd = newData;
+                    int newLen = Math.Max(idx, curLen);
+                    var grown = isRow ? new MValue[1, newLen] : new MValue[newLen, 1];
+                    for (int t = 0; t < curLen; t++)
+                    {
+                        var old = isRow ? cd[0, t] : cd[t, 0];
+                        if (isRow) grown[0, t] = old; else grown[t, 0] = old;
+                    }
+                    cd = grown;
                 }
-                cd[0, idx - 1] = val;
+                if (isRow) cd[0, idx - 1] = val; else cd[idx - 1, 0] = val;
                 return MValue.NewCell(cd);
             }
             if (args.Count == 2)
@@ -7304,7 +7523,7 @@ namespace Calcpad.Core.Matlab
                     return ConstructInstance(cls, EvalArgs(c.Args, scope), scope);
                 // 3) User function definida
                 if (_userFunctions.TryGetValue(id.Name, out var def))
-                    return CallUserFunction(def, EvalArgs(c.Args, scope));
+                    return CallUserFunction(def, EvalArgs(c.Args, scope), ArgNames(c.Args));
                 // 4) Builtin función
                 var args = EvalArgs(c.Args, scope);
                 if (_builtins.TryGetValue(id.Name, out var fn))
@@ -7457,10 +7676,10 @@ namespace Calcpad.Core.Matlab
                 return Eval(af.Body, local);
             }, "@(...)" );
         }
-        public MValue[] CallMultiOut(string name, MValue[] args)
+        public MValue[] CallMultiOut(string name, MValue[] args, string[] argNames = null)
         {
             if (_multiOutBuiltins.TryGetValue(name, out var fn2)) return fn2(args);
-            if (_userFunctions.TryGetValue(name, out var def))   return CallUserFunctionMulti(def, args);
+            if (_userFunctions.TryGetValue(name, out var def))   return CallUserFunctionMulti(def, args, argNames);
             if (_builtins.TryGetValue(name, out var fn))         return new[] { fn(args) };
             throw new MatlabRuntimeException($"Undefined: {name}");
         }
@@ -7789,11 +8008,15 @@ namespace Calcpad.Core.Matlab
             foreach (var pieces in allPieces)
             {
                 var combined = hasSym ? HorzConcatSym(pieces) : HorzConcat(pieces);
+                // MATLAB: una fila VACIA ([] o 0xN) se IGNORA en la concatenacion
+                // vertical. Habilita el patron de crecimiento FE: A=[]; A=[A; fila];
+                if (!hasSym && combined.Rows * combined.Cols == 0) continue;
                 if (expectedCols == null) expectedCols = combined.Cols;
                 else if (combined.Cols != expectedCols)
                     throw new MatlabRuntimeException("Inconsistent row lengths in matrix literal");
                 rowMats.Add(combined);
             }
+            if (rowMats.Count == 0) return new MValue(0, 0);  // todas las filas vacias -> []
             // Vert-concat: si algún row es simbólico, todos lo son
             if (hasSym)
             {
@@ -8467,13 +8690,17 @@ namespace Calcpad.Core.Matlab
                     double v = Math.Abs(ext[r * nrhs + col]);
                     if (v > pivVal) { pivVal = v; pivot = r; }
                 }
-                if (pivVal < 1e-15) throw new MatlabRuntimeException("A\\b: matrix is singular");
-                if (pivot != col)
+                // Octave-compat: matriz singular/casi-singular NO tira error; se regulariza el
+                // pivote (la dirección singular = modo de cuerpo rígido con b≈0 → componente ≈0)
+                // y se devuelve un resultado finito, como el \ de Octave/MATLAB (que solo advierte).
+                bool singular = pivVal < 1e-15;
+                if (!singular && pivot != col)
                 {
                     int rA = col * nrhs, rB = pivot * nrhs;
                     for (int j = col; j < nrhs; j++) { var tmp = ext[rA + j]; ext[rA + j] = ext[rB + j]; ext[rB + j] = tmp; }
                 }
                 double pivDiag = ext[col * nrhs + col];
+                if (singular && Math.Abs(pivDiag) < 1e-15) pivDiag = 1e-15;   // piso anti-NaN
                 double invPiv = 1.0 / pivDiag;
                 int rowCol = col * nrhs;
                 for (int r = col + 1; r < n; r++)

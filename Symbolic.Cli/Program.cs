@@ -315,8 +315,14 @@ namespace Calcpad.Cli
             // DEFAULT para .m: SIEMPRE MatlabPipeline puro — sin traduccion a Calcpad.
             bool isSilent = false;
             bool isPureMatlab = true;   // DEFAULT: motor MATLAB puro
+            bool isStreamDebug = false; // --stream-debug: imprime chunks via StatementCompleted
+            bool isTaskRun = false;     // --task-run: ejecuta pipeline en Task.Run (replica WPF)
             while (true)
             {
+                if (outFile.EndsWith(" --task-run", StringComparison.Ordinal))
+                { isTaskRun = true; outFile = outFile[..^11].TrimEnd(); continue; }
+                if (outFile.EndsWith(" --stream-debug", StringComparison.Ordinal))
+                { isStreamDebug = true; outFile = outFile[..^15].TrimEnd(); continue; }
                 if (outFile.EndsWith(" -s", StringComparison.Ordinal))
                 { isSilent = true; outFile = outFile[..^3].TrimEnd(); continue; }
                 if (outFile.EndsWith(" --pure", StringComparison.Ordinal))
@@ -375,7 +381,31 @@ namespace Calcpad.Cli
                     // Tokenizer + Parser + Evaluator + HtmlWriter propios. Sólo se reutiliza
                     // el CSS template de Calcpad (clases matrix/tr/td/var/eq/b).
                     var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
-                    var (html, err, errLine) = pipeline.RunLine(unwrappedCode);
+                    if (isStreamDebug)
+                    {
+                        pipeline.StreamingMode = true;
+                        int chunkNum = 0;
+                        pipeline.StatementCompleted += (line, html) =>
+                        {
+                            chunkNum++;
+                            Console.Error.WriteLine($"[STREAM CHUNK #{chunkNum} line={line}] {html.TrimEnd()}");
+                        };
+                    }
+                    string html; string err; int errLine;
+                    if (isTaskRun)
+                    {
+                        // --task-run: replicar WPF (Task.Run en ThreadPool)
+                        Console.Error.WriteLine("[--task-run] running pipeline inside Task.Run...");
+                        var task = System.Threading.Tasks.Task.Run(() => pipeline.RunLine(unwrappedCode));
+                        var r = task.GetAwaiter().GetResult();
+                        html = r.Html; err = r.Error; errLine = r.ErrorLine;
+                        Console.Error.WriteLine($"[--task-run] returned: htmlLen={html?.Length ?? 0}, err={err}");
+                    }
+                    else
+                    {
+                        var r = pipeline.RunLine(unwrappedCode);
+                        html = r.Html; err = r.Error; errLine = r.ErrorLine;
+                    }
                     if (err != null)
                         htmlResult = $"<p class=\"err\">Error on line {errLine}: {System.Net.WebUtility.HtmlEncode(err)}</p>";
                     else

@@ -1,0 +1,96 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>plate_pinned_uniform_load.m — Calcpad-Lab (MATLAB)</title>
+<style>
+*{box-sizing:border-box} html,body{margin:0;height:100%;font-family:Consolas,"Cascadia Code",monospace}
+.bar{height:34px;background:#222;color:#ddd;display:flex;align-items:center;padding:0 12px;font-size:13px;gap:14px}
+.dia{color:#fff;padding:3px 10px;border-radius:4px;font-size:13px;font-weight:bold;letter-spacing:.3px}
+.ok{color:#7c7} .bad{color:#f77}
+.split{display:flex;height:calc(100% - 34px)}
+.code{width:46%;overflow:auto;background:#1e1e1e}
+.render{width:54%;border-left:2px solid #444}
+.render iframe{width:100%;height:100%;border:0;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.5}
+td.num{color:#666;text-align:right;padding:0 10px;user-select:none;border-right:1px solid #333;white-space:nowrap;vertical-align:top}
+td.src{color:#dcdcdc;white-space:pre-wrap;padding-left:10px;width:100%}
+tr.err td.src{background:#4a1d1d;color:#ffd2d2} tr.err td.num{background:#5a1313;color:#fbb}
+
+</style></head><body>
+<div class="bar"><span class="dia" style="background:#e67e22">Calcpad-Lab (MATLAB)</span><b>plate_pinned_uniform_load.m</b> <span class="ok">&#10003; 0 errores</span>
+<span style="color:#888;margin-left:auto">script izquierda &middot; render derecha</span></div>
+<div class="split"><div class="code"><table><tr><td class="num">1</td><td class="src">% =============================================================================</td></tr>
+<tr><td class="num">2</td><td class="src">%  PLACA CUADRADA EMPOTRADA EN BORDES CON CARGA UNIFORME</td></tr>
+<tr><td class="num">3</td><td class="src">% =============================================================================</td></tr>
+<tr><td class="num">4</td><td class="src">%</td></tr>
+<tr><td class="num">5</td><td class="src">%  Benchmark portado de awatif-v2:</td></tr>
+<tr><td class="num">6</td><td class="src">%     C:\Users\j-b-j\Documents\awatif-v2\awatif-fem\src\deform.test.ts</td></tr>
+<tr><td class="num">7</td><td class="src">%     test(&quot;Plate: Rectangular pin-supported plate with uniform load&quot;)</td></tr>
+<tr><td class="num">8</td><td class="src">%</td></tr>
+<tr><td class="num">9</td><td class="src">%  Este script es MATLAB 100% portable:</td></tr>
+<tr><td class="num">10</td><td class="src">%     - Corre en MATLAB nativo  → muestra figuras con colormap jet (SAP2000-style)</td></tr>
+<tr><td class="num">11</td><td class="src">%     - Corre en Calcpad Lab    → HTML con Three.js rainbow (mismo look)</td></tr>
+<tr><td class="num">12</td><td class="src">%     - Corre en Octave         → figuras con colormap jet</td></tr>
+<tr><td class="num">13</td><td class="src">%</td></tr>
+<tr><td class="num">14</td><td class="src">%  Geometría:    placa cuadrada 10×10 m, espesor 0.15 m</td></tr>
+<tr><td class="num">15</td><td class="src">%  Material:     E=10 GPa, ν=0.25, isotrópica</td></tr>
+<tr><td class="num">16</td><td class="src">%  Carga:        p₀ = -1000 N/m² (uniforme transversal)</td></tr>
+<tr><td class="num">17</td><td class="src">%  Apoyos:       fijos en los 4 bordes</td></tr>
+<tr><td class="num">18</td><td class="src">%  Deflexión:    max ≈ 12.69 mm (FEM awatif)</td></tr>
+<tr><td class="num">19</td><td class="src">%                       13.541 mm (solución analítica Timoshenko exacta)</td></tr>
+<tr><td class="num">20</td><td class="src">% =============================================================================</td></tr>
+<tr><td class="num">21</td><td class="src"> </td></tr>
+<tr><td class="num">22</td><td class="src">%% Parámetros del problema</td></tr>
+<tr><td class="num">23</td><td class="src">a  = 10.0    % longitud en x [m]</td></tr>
+<tr><td class="num">24</td><td class="src">b  = 10.0    % longitud en y [m]</td></tr>
+<tr><td class="num">25</td><td class="src">h  = 0.15    % espesor [m]</td></tr>
+<tr><td class="num">26</td><td class="src">p0 = -1000   % carga distribuida [N/m²]</td></tr>
+<tr><td class="num">27</td><td class="src">E  = 1.0e10  % módulo elástico [Pa]</td></tr>
+<tr><td class="num">28</td><td class="src">nu = 0.25    % coeficiente de Poisson</td></tr>
+<tr><td class="num">29</td><td class="src"> </td></tr>
+<tr><td class="num">30</td><td class="src">%% Generación del mesh — grid regular 10×10 (100 nodos)</td></tr>
+<tr><td class="num">31</td><td class="src">nPts = 100;</td></tr>
+<tr><td class="num">32</td><td class="src">x = zeros(1, nPts);</td></tr>
+<tr><td class="num">33</td><td class="src">y = zeros(1, nPts);</td></tr>
+<tr><td class="num">34</td><td class="src">for k = 1:nPts</td></tr>
+<tr><td class="num">35</td><td class="src">    i = mod(k - 1, 10);</td></tr>
+<tr><td class="num">36</td><td class="src">    j = (k - i - 1) / 10;</td></tr>
+<tr><td class="num">37</td><td class="src">    x(k) = i * a / 9;</td></tr>
+<tr><td class="num">38</td><td class="src">    y(k) = j * b / 9;</td></tr>
+<tr><td class="num">39</td><td class="src">end</td></tr>
+<tr><td class="num">40</td><td class="src"> </td></tr>
+<tr><td class="num">41</td><td class="src">%% Triangulación Delaunay automática (~162 triángulos)</td></tr>
+<tr><td class="num">42</td><td class="src">tri = delaunay(x, y);</td></tr>
+<tr><td class="num">43</td><td class="src"> </td></tr>
+<tr><td class="num">44</td><td class="src">%% Solución analítica de Timoshenko — serie de Fourier completa</td></tr>
+<tr><td class="num">45</td><td class="src">% w(x, y) = (16·p₀ / π⁶·D) · Σ_{m,n impares} sin(mπx/a)·sin(nπy/b) / [m·n·(m²/a² + n²/b²)²]</td></tr>
+<tr><td class="num">46</td><td class="src">%</td></tr>
+<tr><td class="num">47</td><td class="src">% Sumamos m, n ∈ {1, 3, 5, 7} (4×4 = 16 términos) — converge rápido a la</td></tr>
+<tr><td class="num">48</td><td class="src">% solución exacta Timoshenko 13.541 mm.</td></tr>
+<tr><td class="num">49</td><td class="src">D = E * h^3 / (12 * (1 - nu^2))</td></tr>
+<tr><td class="num">50</td><td class="src"> </td></tr>
+<tr><td class="num">51</td><td class="src">w = zeros(1, nPts);</td></tr>
+<tr><td class="num">52</td><td class="src">for k = 1:nPts</td></tr>
+<tr><td class="num">53</td><td class="src">    s = 0;</td></tr>
+<tr><td class="num">54</td><td class="src">    for m = 1:2:7</td></tr>
+<tr><td class="num">55</td><td class="src">        for n = 1:2:7</td></tr>
+<tr><td class="num">56</td><td class="src">            num = sin(m*pi*x(k)/a) * sin(n*pi*y(k)/b);</td></tr>
+<tr><td class="num">57</td><td class="src">            den = m * n * (m^2/a^2 + n^2/b^2)^2;</td></tr>
+<tr><td class="num">58</td><td class="src">            s = s + num / den;</td></tr>
+<tr><td class="num">59</td><td class="src">        end;</td></tr>
+<tr><td class="num">60</td><td class="src">    end;</td></tr>
+<tr><td class="num">61</td><td class="src">    w(k) = 16 * p0 / (pi^6 * D) * s;</td></tr>
+<tr><td class="num">62</td><td class="src">end;</td></tr>
+<tr><td class="num">63</td><td class="src"> </td></tr>
+<tr><td class="num">64</td><td class="src">%% Deflexión máxima en milímetros</td></tr>
+<tr><td class="num">65</td><td class="src">w_max_mm = abs(min(w)) * 1000</td></tr>
+<tr><td class="num">66</td><td class="src"> </td></tr>
+<tr><td class="num">67</td><td class="src">%% Visualización 2D — mesh wireframe</td></tr>
+<tr><td class="num">68</td><td class="src">triplot(tri, x, y);</td></tr>
+<tr><td class="num">69</td><td class="src"> </td></tr>
+<tr><td class="num">70</td><td class="src">%% Visualización 3D — superficie deformada con colormap JET (estilo SAP2000)</td></tr>
+<tr><td class="num">71</td><td class="src">trisurf(tri, x, y, w);</td></tr>
+<tr><td class="num">72</td><td class="src">colormap(&#x27;jet&#x27;);            % azul → cian → verde → amarillo → rojo (SAP2000-style)</td></tr>
+<tr><td class="num">73</td><td class="src">colorbar();                 % barra de color con valores Min/Max</td></tr>
+<tr><td class="num">74</td><td class="src">shading(&#x27;interp&#x27;);          % suavizar gradiente entre triángulos</td></tr>
+<tr><td class="num">75</td><td class="src">view(45, 30);               % vista oblicua orbital</td></tr>
+<tr><td class="num">76</td><td class="src">axis(&#x27;equal&#x27;);              % escalas iguales en X, Y, Z</td></tr></table></div><div class="render"><iframe src="plate_pinned_uniform_load.html"></iframe></div></div>
+</body></html>

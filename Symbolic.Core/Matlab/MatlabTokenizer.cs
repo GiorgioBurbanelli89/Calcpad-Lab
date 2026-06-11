@@ -118,6 +118,10 @@ namespace Calcpad.Core.Matlab
             // se usa para esa distinción.
             bool prevIsOperand = false;
             bool prevWasWhitespace = false;
+            // Pila de brackets para la regla MATLAB del espacio-menos dentro de [ ] y { }:
+            // un +/- con espacio ANTES y sin espacio DESPUES, tras un operando, es un
+            // elemento NUEVO (unario), no resta binaria. Ej: [-g -g] = [-g, -g].
+            var brackets = new System.Collections.Generic.Stack<char>();
 
             while (i < n)
             {
@@ -308,18 +312,37 @@ namespace Calcpad.Core.Matlab
                 int len = 1;
                 switch (c)
                 {
-                    case '+': kind = MatlabTokenKind.Plus; prevIsOperand = false; break;
-                    case '-': kind = MatlabTokenKind.Minus; prevIsOperand = false; break;
+                    case '+':
+                    case '-':
+                        // Regla MATLAB del espacio-menos: dentro de [ ] o { }, si el +/-
+                        // tiene espacio ANTES y NO despues, y hay operando previo,
+                        // separa un nuevo elemento (unario) -> insertamos coma virtual.
+                        if (brackets.Count > 0 && (brackets.Peek() == '[' || brackets.Peek() == '{')
+                            && prevWasWhitespace && prevIsOperand
+                            && i + 1 < n && source[i + 1] != ' ' && source[i + 1] != '\t'
+                            && source[i + 1] != '\n' && source[i + 1] != '\r')
+                        {
+                            tokens.Add(new MatlabToken(MatlabTokenKind.Comma, ",", line, saveCol));
+                        }
+                        kind = (c == '+') ? MatlabTokenKind.Plus : MatlabTokenKind.Minus;
+                        prevIsOperand = false;
+                        break;
                     case '*': kind = MatlabTokenKind.Star; prevIsOperand = false; break;
                     case '/': kind = MatlabTokenKind.Slash; prevIsOperand = false; break;
                     case '\\': kind = MatlabTokenKind.Backslash; prevIsOperand = false; break;
                     case '^': kind = MatlabTokenKind.Caret; prevIsOperand = false; break;
-                    case '(': kind = MatlabTokenKind.LParen; prevIsOperand = false; break;
-                    case ')': kind = MatlabTokenKind.RParen; prevIsOperand = true; break;
-                    case '[': kind = MatlabTokenKind.LBracket; prevIsOperand = false; break;
-                    case ']': kind = MatlabTokenKind.RBracket; prevIsOperand = true; break;
-                    case '{': kind = MatlabTokenKind.LBrace; prevIsOperand = false; break;
-                    case '}': kind = MatlabTokenKind.RBrace; prevIsOperand = true; break;
+                    case '(':
+                        // Dentro de [ ] o { }: 'a (b)' (espacio antes del parentesis,
+                        // tras operando) = DOS elementos [a, (b)], no la llamada a(b).
+                        if (brackets.Count > 0 && (brackets.Peek() == '[' || brackets.Peek() == '{')
+                            && prevWasWhitespace && prevIsOperand)
+                            tokens.Add(new MatlabToken(MatlabTokenKind.Comma, ",", line, saveCol));
+                        brackets.Push('('); kind = MatlabTokenKind.LParen; prevIsOperand = false; break;
+                    case ')': if (brackets.Count > 0) brackets.Pop(); kind = MatlabTokenKind.RParen; prevIsOperand = true; break;
+                    case '[': brackets.Push('['); kind = MatlabTokenKind.LBracket; prevIsOperand = false; break;
+                    case ']': if (brackets.Count > 0) brackets.Pop(); kind = MatlabTokenKind.RBracket; prevIsOperand = true; break;
+                    case '{': brackets.Push('{'); kind = MatlabTokenKind.LBrace; prevIsOperand = false; break;
+                    case '}': if (brackets.Count > 0) brackets.Pop(); kind = MatlabTokenKind.RBrace; prevIsOperand = true; break;
                     case ',': kind = MatlabTokenKind.Comma; prevIsOperand = false; break;
                     case ';': kind = MatlabTokenKind.Semicolon; prevIsOperand = false; break;
                     case ':': kind = MatlabTokenKind.Colon; prevIsOperand = false; break;

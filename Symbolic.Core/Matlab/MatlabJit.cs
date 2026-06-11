@@ -168,6 +168,21 @@ namespace Calcpad.Core.Matlab
             }
             catch (ContinueSignal) { }
             catch (BreakSignal) { }
+            catch (MatlabRuntimeException)
+            {
+                // El JIT clasificó algo como scalar que en runtime resultó
+                // ser matriz (típicamente indexación dinámica de matrices
+                // que el inferidor no pudo predecir). Marcamos el loop como
+                // no-JIT-compatible para futuras llamadas y dejamos que el
+                // intérprete ejecute el loop completo desde cero. Scope queda
+                // intacto en cuanto a scalars (no commiteamos), y las
+                // mutaciones de matriz vía JitCtx.SetMatElem* son idempotentes
+                // para escrituras a índices disjuntos (caso típico de FEM).
+                c.Failed = true;
+                _cache[loop] = c;
+                Skips++;
+                return false;
+            }
 
             for (int k = 0; k < c.ScalarNames.Length; k++)
                 scope.Set(c.ScalarNames[k], new MValue(slots[k]));
@@ -247,11 +262,24 @@ namespace Calcpad.Core.Matlab
             foreach (var s in stmts) if (!ClassifyStmt(s, cc)) return false;
             return true;
         }
+        // Funciones de I/O cuyo efecto es mostrar texto por iteracion. El JIT NO las
+        // compila: hace bail-out al interprete para que el pipeline (InnerStmtOut)
+        // pueda volcar su salida por iteracion (resultado por linea en el render).
+        private static readonly System.Collections.Generic.HashSet<string> _ioFuncs =
+            new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            { "fprintf", "disp", "display", "warning", "error" };
+
+        private static bool IsIoCall(MatlabNode expr) =>
+            expr is CallOrIndex coi && coi.Target is IdentRef ir && _ioFuncs.Contains(ir.Name);
+
         private static bool ClassifyStmt(MatlabNode stmt, CompileCtx cc)
         {
             switch (stmt)
             {
                 case CommentStmt _: return true;
+                // Cualquier llamada de I/O -> bail-out (la renderiza el interprete).
+                case ExprStmt eio when IsIoCall(eio.Expr): return false;
+                case Assignment aio when IsIoCall(aio.Rhs): return false;
                 case Assignment a when a.Targets.Count == 1:
                     var rhsKind = InferKind(a.Rhs, cc);
                     if (rhsKind == null) return false;

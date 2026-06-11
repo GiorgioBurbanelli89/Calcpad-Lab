@@ -524,8 +524,38 @@ namespace Calcpad.Core.Matlab
                 var targets = new List<MatlabNode>();
                 while (true)
                 {
-                    if (Peek().Kind != MatlabTokenKind.Identifier) { _pos = saved; return null; }
-                    targets.Add(new IdentRef { Name = Consume().Text });
+                    // `~` = salida ignorada de MATLAB:  [~, ~, x] = f(...)
+                    if (Peek().Kind == MatlabTokenKind.Not)
+                    {
+                        Consume();
+                        targets.Add(new IdentRef { Name = "~" });
+                    }
+                    else if (Peek().Kind == MatlabTokenKind.Identifier)
+                    {
+                        MatlabNode tnode = new IdentRef { Name = Consume().Text };
+                        // Target indexado en multi-output (MATLAB 2017a):  [~, ~, CG(:,1)] = f()
+                        if (Peek().Kind == MatlabTokenKind.LParen)
+                        {
+                            Consume(); // (
+                            var iargs = new List<MatlabNode>();
+                            bool iok = true;
+                            if (Peek().Kind != MatlabTokenKind.RParen)
+                            {
+                                while (true)
+                                {
+                                    try { iargs.Add(ParseExpressionOrColon()); }
+                                    catch { iok = false; break; }
+                                    if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
+                                    break;
+                                }
+                            }
+                            if (!iok || Peek().Kind != MatlabTokenKind.RParen) { _pos = saved; return null; }
+                            Consume(); // )
+                            tnode = new CallOrIndex { Target = tnode, Args = iargs };
+                        }
+                        targets.Add(tnode);
+                    }
+                    else { _pos = saved; return null; }
                     if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
                     if (Peek().Kind == MatlabTokenKind.RBracket) { Consume(); break; }
                     _pos = saved; return null;

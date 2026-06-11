@@ -277,7 +277,13 @@ EndFragment:0000000004";
         internal async Task NavigateToStringAsync(string html)
         {
             var zoom = _wv2.ZoomFactor;
-            _wv2.CoreWebView2.Navigate(_blankPagePath);
+            // Navegamos a un data: URI con fondo blanco inline ANTES del document.write.
+            // Esto evita el flash negro que aparecia al hacer Navigate(file:///blank.html)
+            // — el fetch del file:// causaba un breve frame con el background default del
+            // control (oscuro) antes de aplicar el <body style="background:#fff">.
+            // data: URI carga sincronicamente, sin compositor flush intermedio.
+            _wv2.CoreWebView2.Navigate(
+                "data:text/html;charset=utf-8,<html style='background:%23fff'><body style='background:%23fff'></body></html>");
             _wv2.ZoomFactor = zoom;
             string encodedHtml = JsonSerializer.Serialize(html);
             string script = $"document.open();document.write({encodedHtml});document.close();";

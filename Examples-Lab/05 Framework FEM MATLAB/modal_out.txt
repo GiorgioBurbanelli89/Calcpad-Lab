@@ -1,0 +1,17 @@
+ 
+To get started, type one of these: helpwin, helpdesk, or demo.
+For product information, visit www.mathworks.com.
+ 
+=== MESA MODAL - frecuencias + PARTICIPACION DE MASA (%) ===
+ Modo    f[Hz]    T[s]     UX      UY      UZ      RX      RY      RZ
+   1    2.8990  0.3449     0.0   100.0     0.0     0.0     0.0     0.0
+   2    2.8990  0.3449    92.9     7.1     0.0     0.0     0.0     0.0
+   3    3.4700  0.2882     0.0     0.0     0.0     0.0     0.0   100.0
+   4   10.5494  0.0948     0.0     0.0    30.2     0.0     0.0     0.0
+   5   21.8582  0.0457     0.0     0.0     0.0     1.0    11.6     0.0
+   6   21.8582  0.0457     0.0     0.0     0.0    11.7     0.9     0.0
+
+ ETABS: f1=f2=2.912 (lat UX/UY), f3=3.478 (torsional RZ)
+ Mesa : f1=2.899 f3=3.470 | dif f1=-0.4% f3=-0.2%
+
+Plot 3D guardado: mesa_modos_3d.png

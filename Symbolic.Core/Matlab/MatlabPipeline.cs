@@ -62,6 +62,11 @@ namespace Calcpad.Core.Matlab
             var htmlBuffer = new StringBuilder();
             _evaluator.Output = msg => dispBuffer.AppendLine(msg);
             _evaluator.HtmlOut = html => htmlBuffer.Append(html);
+            // Marca de streaming: hasta dónde de `sb` ya se emitió en vivo. Declarado
+            // ACÁ (antes de InnerStmtOut) para que el lambda pueda avanzarlo al emitir
+            // chunks por iteración y el flush top-level no los reenvíe (evita duplicados).
+            int pendingChunkStart = 0;
+            int pendingChunkLine = -1;
             // Helper para generar anchor de línea clickeable (formato Calcpad-compatible)
             // El template Calcpad captura <a href="#0">, lee data-text, y dispara LineClicked(N)
             string LineLink(int line) => $"[<a href=\"#0\" data-text=\"{line}\">{line}</a>]";
@@ -75,7 +80,7 @@ namespace Calcpad.Core.Matlab
                 "fprintf", "printf", "disp", "display", "warning", "error",
                 // Plot management
                 "figure", "clf", "close", "hold", "axis", "grid", "legend", "colormap",
-                "title", "xlabel", "ylabel", "zlabel", "colorbar", "sgtitle",
+                "title", "xlabel", "ylabel", "zlabel", "colorbar", "sgtitle", "caxis", "clim",
                 "shading", "view", "light", "lighting", "material", "camlight", "drawnow",
                 // Plot primitives (efecto sobre figura, no return value útil)
                 "plot", "plot3", "scatter", "scatter3", "bar", "barh", "stem", "stairs",
@@ -101,17 +106,41 @@ namespace Calcpad.Core.Matlab
             // <p class="line indent"> con leve indentación visual y data-line para click→nav
             _evaluator.InnerStmtOut = (innerStmt, innerRes) =>
             {
-                if (innerRes.Suppressed) return;
-                // TODOS los comentarios (NO solo `%--`) dentro de loops/branches
-                // se omiten — sino se emiten una vez por iteracion (e.g. for con
-                // n_s=20 iters, un `% w=0 en apoyos` saldria 20 veces, llenando
-                // el output de basura repetida). Los comentarios son documentacion
-                // del codigo, NO resultado de ejecucion.
-                if (innerStmt is CommentStmt) return;
                 int innerLine = innerStmt?.Line ?? 0;
-                htmlBuffer.Append($"<p class=\"line\" id=\"line-{innerLine}\" style=\"margin-left:1.5em;color:#555\">");
-                htmlBuffer.Append(MatlabHtmlWriter.RenderStatement(innerStmt, innerRes));
-                htmlBuffer.Append("</p>\n");
+                // Se construye el chunk de ESTE statement interno y se emite enseguida:
+                //   * StreamingMode (WPF) -> StatementCompleted EN VIVO, por iteracion
+                //     (el usuario ve iter 1, iter 2... a medida que calcula).
+                //   * Sino (CLI/export) -> a htmlBuffer (batch, se vuelca tras el loop).
+                var chunk = new StringBuilder();
+                // (A) Salida de I/O (fprintf/disp) producida por ESTE statement.
+                if (dispBuffer.Length > 0)
+                {
+                    var dispRawI = dispBuffer.ToString().TrimEnd();
+                    var dispProcessedI = RenderDispWithMatrices(dispRawI);
+                    var encodedI = EncodeWithHtmlSegments(dispProcessedI);
+                    var stretchedI = StretchInlineBrackets(encodedI);
+                    chunk.Append($"<p class=\"line\" id=\"line-{innerLine}\" style=\"margin-left:1.5em;color:#555\"><span class=\"eq\"><span style=\"white-space:pre-wrap\">{stretchedI}</span></span></p>\n");
+                    dispBuffer.Clear();
+                }
+                // (B) Echo del statement interno (NO suprimido, NO comentario, NO void).
+                //     Los comentarios dentro de loops se omiten (sino se repiten por iter).
+                if (!innerRes.Suppressed && !(innerStmt is CommentStmt) && !IsVoidStatement(innerStmt))
+                {
+                    chunk.Append($"<p class=\"line\" id=\"line-{innerLine}\" style=\"margin-left:1.5em;color:#555\">");
+                    chunk.Append(MatlabHtmlWriter.RenderStatement(innerStmt, innerRes));
+                    chunk.Append("</p>\n");
+                }
+                if (chunk.Length == 0) return;
+                if (StreamingMode && StatementCompleted != null)
+                {
+                    sb.Append(chunk);                                  // persistir en el doc final
+                    StatementCompleted.Invoke(innerLine, chunk.ToString()); // emitir EN VIVO (por iteración)
+                    pendingChunkStart = sb.Length;                     // ya emitido: el flush top-level no lo repite
+                }
+                else
+                {
+                    htmlBuffer.Append(chunk);                          // batch (CLI/export)
+                }
             };
             // Pre-pass: regla Calcpad-Lab para multi-stmt en una linea fuente.
             // Si `a=1; b=2; c=3` esta todo en una linea, el `;` FINAL (despues de c)
@@ -159,10 +188,10 @@ namespace Calcpad.Core.Matlab
             // Streaming buffering por linea-fuente: acumulamos todos los stmts
             // que comparten line# en un solo chunk para que la logica de merge
             // (inline-comment / multi-stmt) pueda mutar `sb` antes de enviar al
-            // UI. Sin esto, `a=2;b=2;c=3 %comm` se enviaria como 4 chunks
-            // independientes -> 4 <p> visualmente separados.
-            int pendingChunkStart = sb.Length;
-            int pendingChunkLine = -1;
+            // UI. (pendingChunkStart/pendingChunkLine se declararon arriba para que
+            // InnerStmtOut pueda avanzar la marca al emitir chunks por iteración.)
+            pendingChunkStart = sb.Length;
+            pendingChunkLine = -1;
 
             foreach (var stmt in stmts)
             {
