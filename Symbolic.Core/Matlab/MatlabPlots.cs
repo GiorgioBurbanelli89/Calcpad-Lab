@@ -9,6 +9,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using SkiaSharp;
 
 namespace Calcpad.Core.Matlab
 {
@@ -29,6 +30,7 @@ namespace Calcpad.Core.Matlab
             public double[] Xs, Ys, Zs;
             public string FaceColor, EdgeColor, Color, Text;
             public double FaceAlpha = 1, LineWidth = 1, FontSize = 11;
+            public string Align = "left";   // HorizontalAlignment de text(): left|center|right (MATLAB def = left)
             public int[] FaceI, FaceJ, FaceK;
             public bool IsRgb;
             public int Rgb_R, Rgb_G, Rgb_B;
@@ -356,19 +358,21 @@ namespace Calcpad.Core.Matlab
                 FaceColor=fillColor, EdgeColor=edgeColor, FontSize=size, Text=symbol
             });
         }
-        public static void Text2D(double x, double y, string text, string color, double fontSize)
+        public static void Text2D(double x, double y, string text, string color, double fontSize, string align = "left")
         {
+            string xanchor = align == "center" ? "center" : (align == "right" ? "right" : "left");
             var sb = new StringBuilder();
             sb.Append("{");
             sb.Append($"x:{x.ToString(Inv)}, y:{y.ToString(Inv)}, ");
             sb.Append("xref:'x', yref:'y', ");   // posicionar en coords de DATOS, no de papel
             sb.Append($"text:'{EscapeJs(text)}', ");
             sb.Append($"font:{{color:'{color}', size:{fontSize.ToString(Inv)}}}, ");
+            sb.Append($"xanchor:'{xanchor}', ");  // honra HorizontalAlignment de MATLAB
             sb.Append("showarrow:false");
             sb.Append("}");
             AddAnnotation(sb.ToString());
             if (_figPrims != null) _figPrims.Add(new FigPrim{
-                Kind="text2d", Xs=new[]{x}, Ys=new[]{y}, Text=text, Color=color, FontSize=fontSize
+                Kind="text2d", Xs=new[]{x}, Ys=new[]{y}, Text=text, Color=color, FontSize=fontSize, Align=align
             });
         }
 
@@ -478,13 +482,106 @@ namespace Calcpad.Core.Matlab
                 else if (p.Kind == "text2d")
                 {
                     double tx = TX(p.Xs[0]); double ty = TY(p.Ys[0]);
-                    svg.AppendLine($"    <text x='{tx.ToString("F2", Inv)}' y='{ty.ToString("F2", Inv)}' fill='{p.Color}' font-family='sans-serif' font-size='{p.FontSize.ToString(Inv)}' text-anchor='middle' dominant-baseline='central'>{EscapeXml(p.Text)}</text>");
+                    string anchor = p.Align == "center" ? "middle" : (p.Align == "right" ? "end" : "start");
+                    svg.AppendLine($"    <text x='{tx.ToString("F2", Inv)}' y='{ty.ToString("F2", Inv)}' fill='{p.Color}' font-family='sans-serif' font-size='{p.FontSize.ToString(Inv)}' text-anchor='{anchor}' dominant-baseline='central'>{EscapeXml(p.Text)}</text>");
                 }
             }
             svg.AppendLine($"  </g>");
             svg.AppendLine("</svg>");
             return svg.ToString();
         }
+
+        /// <summary>Rasteriza la figura 2D actual (primitives line/patch/marker/text)
+        /// a RGB row-major (byte[h*w*3]) vía SkiaSharp. Para getframe → GIF.</summary>
+        public static byte[] RasterizeFigure(int width, int height)
+        {
+            if (_figPrims == null || _figPrims.Count == 0) return null;
+            double xmin = double.MaxValue, xmax = double.MinValue, ymin = double.MaxValue, ymax = double.MinValue;
+            foreach (var p in _figPrims)
+            {
+                if (p.Xs == null) continue;
+                foreach (var x in p.Xs) { if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
+                foreach (var y in p.Ys) { if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
+            }
+            if (xmax - xmin < 1e-9) xmax = xmin + 1;
+            if (ymax - ymin < 1e-9) ymax = ymin + 1;
+            double padf = 0.06, ddx = xmax - xmin, ddy = ymax - ymin;
+            xmin -= ddx * padf; xmax += ddx * padf; ymin -= ddy * padf; ymax += ddy * padf;
+            ddx = xmax - xmin; ddy = ymax - ymin;
+            int mL = 50, mR = 20, mT = 40, mB = 30;
+            double sx = (width - mL - mR) / ddx, sy = (height - mT - mB) / ddy;
+            float TX(double x) => (float)(mL + (x - xmin) * sx);
+            float TY(double y) => (float)(height - mB - (y - ymin) * sy);
+
+            using var bmp = new SKBitmap(width, height);
+            using (var canvas = new SKCanvas(bmp))
+            {
+                canvas.Clear(SKColors.White);
+                using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+                using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
+                using var font = new SKFont(SKTypeface.Default, 13);
+                using var txt = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black };
+                if (!string.IsNullOrEmpty(_figTitle))
+                    canvas.DrawText(_figTitle, width / 2f, 22, SKTextAlign.Center, new SKFont(SKTypeface.Default, 14), txt);
+                foreach (var p in _figPrims)
+                {
+                    if ((p.Kind == "patch2d" || p.Kind == "line2d") && p.Xs != null && p.Xs.Length >= 2)
+                    {
+                        var path = new SKPath();
+                        path.MoveTo(TX(p.Xs[0]), TY(p.Ys[0]));
+                        for (int i = 1; i < p.Xs.Length; i++) path.LineTo(TX(p.Xs[i]), TY(p.Ys[i]));
+                        if (p.Kind == "patch2d")
+                        {
+                            path.Close();
+                            var fc = ParseColor(p.FaceColor);
+                            if (fc.Alpha > 0) { fill.Color = fc.WithAlpha((byte)(255 * p.FaceAlpha)); canvas.DrawPath(path, fill); }
+                            stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke);
+                        }
+                        else { stroke.Color = ParseColor(p.Color); stroke.StrokeWidth = (float)Math.Max(0.8, p.LineWidth); canvas.DrawPath(path, stroke); }
+                        path.Dispose();
+                    }
+                    else if (p.Kind == "markers2d" && p.Xs != null)
+                    {
+                        fill.Color = ParseColor(p.FaceColor);
+                        float r = (float)Math.Max(2.0, p.FontSize / 2.0);
+                        for (int i = 0; i < p.Xs.Length; i++) canvas.DrawCircle(TX(p.Xs[i]), TY(p.Ys[i]), r, fill);
+                    }
+                    else if (p.Kind == "text2d" && p.Xs != null && p.Xs.Length > 0)
+                    {
+                        txt.Color = ParseColor(p.Color);
+                        var al = p.Align == "center" ? SKTextAlign.Center : (p.Align == "right" ? SKTextAlign.Right : SKTextAlign.Left);
+                        canvas.DrawText(p.Text ?? "", TX(p.Xs[0]), TY(p.Ys[0]), al, font, txt);
+                    }
+                }
+            }
+            var px = bmp.Pixels;   // SKColor[]
+            var rgb = new byte[width * height * 3];
+            for (int i = 0; i < px.Length; i++) { rgb[i * 3] = px[i].Red; rgb[i * 3 + 1] = px[i].Green; rgb[i * 3 + 2] = px[i].Blue; }
+            return rgb;
+        }
+
+        private static SKColor ParseColor(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s == "none") return SKColors.Transparent;
+            if (s[0] == '#' && s.Length >= 7)
+            {
+                try { return new SKColor(Convert.ToByte(s.Substring(1, 2), 16), Convert.ToByte(s.Substring(3, 2), 16), Convert.ToByte(s.Substring(5, 2), 16)); }
+                catch { return SKColors.Black; }
+            }
+            switch (s.ToLowerInvariant())
+            {
+                case "r": case "red": return SKColors.Red;
+                case "g": case "green": return new SKColor(0, 128, 0);
+                case "b": case "blue": return SKColors.Blue;
+                case "k": case "black": return SKColors.Black;
+                case "w": case "white": return SKColors.White;
+                case "y": case "yellow": return SKColors.Gold;
+                case "m": case "magenta": return SKColors.Magenta;
+                case "c": case "cyan": return SKColors.DarkCyan;
+                default: return SKColors.Black;
+            }
+        }
+
         private static string EscapeXml(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";

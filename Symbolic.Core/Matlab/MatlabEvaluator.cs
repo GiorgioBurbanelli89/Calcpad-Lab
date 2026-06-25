@@ -62,8 +62,11 @@ namespace Calcpad.Core.Matlab
         /// <summary>Si no-null: matriz simbólica — cada celda es un SymNode (row-major en SymCells[r,c]).</summary>
         public SymNode[,] SymCells;
         public bool IsSymMatrix => SymCells != null;
+        /// <summary>Si no-null, este MValue es un containers.Map (clave canonica string -> valor).</summary>
+        public Dictionary<string, MValue> MapData;
+        public bool IsMap => MapData != null;
 
-        public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null;
+        public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null && MapData == null;
         public bool IsCallable => Callable != null;
         public bool IsComplex => Imag != null;
         public static MValue NewSymbolic(SymNode s)
@@ -102,6 +105,13 @@ namespace Calcpad.Core.Matlab
         {
             var v = new MValue(0);
             v.Fields = new Dictionary<string, MValue>(StringComparer.Ordinal);
+            return v;
+        }
+        /// <summary>Constructor containers.Map vacío.</summary>
+        public static MValue NewMap()
+        {
+            var v = new MValue(0);
+            v.MapData = new Dictionary<string, MValue>(StringComparer.Ordinal);
             return v;
         }
         /// <summary>Constructor instancia de clase OOP. Las propiedades inicializadas se ponen en Fields.</summary>
@@ -742,8 +752,8 @@ namespace Calcpad.Core.Matlab
             _builtins["mod"] = a => MapBinary(a[0], a[1], (x, y) => y == 0 ? x : x - y * Math.Floor(x / y));
             _builtins["rem"] = a => MapBinary(a[0], a[1], (x, y) => y == 0 ? x : x - y * Math.Truncate(x / y));
             _builtins["power"] = a => MapBinary(a[0], a[1], Math.Pow);
-            _builtins["max"] = a => Reduce(a[0], double.NegativeInfinity, Math.Max);
-            _builtins["min"] = a => Reduce(a[0], double.PositiveInfinity, Math.Min);
+            _builtins["max"] = a => MinMaxBuiltin(a, true);
+            _builtins["min"] = a => MinMaxBuiltin(a, false);
             _builtins["sum"] = a => Reduce(a[0], 0.0, (acc, x) => acc + x);
             _builtins["prod"] = a => Reduce(a[0], 1.0, (acc, x) => acc * x);
             _builtins["mean"] = a => {
@@ -1680,6 +1690,7 @@ namespace Calcpad.Core.Matlab
                 int start = zForm ? 4 : 3;
                 string color = "black";
                 double fontSize = 11;
+                string align = "left";   // MATLAB: HorizontalAlignment def = 'left'
                 for (int i = start; i + 1 < a.Length; i += 2)
                 {
                     if (!a[i].IsString) break;
@@ -1687,6 +1698,7 @@ namespace Calcpad.Core.Matlab
                     {
                         case "color": color = ColorArg(a[i + 1]); break;
                         case "fontsize": fontSize = a[i + 1].Scalar; break;
+                        case "horizontalalignment": align = a[i + 1].StringValue.ToLowerInvariant(); break;
                     }
                 }
                 MValue X = a[0], Y = a[1];
@@ -1706,10 +1718,12 @@ namespace Calcpad.Core.Matlab
                         str = (v == Math.Floor(v)) ? ((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)
                                                    : v.ToString("G4", System.Globalization.CultureInfo.InvariantCulture);
                     }
-                    MatlabPlots.Text2D(xi, yi, str, color, fontSize);
+                    MatlabPlots.Text2D(xi, yi, str, color, fontSize, align);
                 }
                 return new MValue(0);
             };
+            _builtins["box"] = a => new MValue(0);   // box on/off: no-op (el SVG ya trae marco)
+            _builtins["warning"] = a => new MValue(0);   // warning(...)/ws=warning('off',id): no-op; devuelve dummy
             _builtins["clf"] = a => new MValue(0);
             _builtins["subplot"] = a => {
                 // subplot(m, n, p) abre un sub-axes en la cuadrícula m×n posición p (1-based)
@@ -1875,6 +1889,30 @@ namespace Calcpad.Core.Matlab
             _builtins["isfield"] = a => {
                 if (!a[0].IsStruct || !a[1].IsString) return new MValue(0);
                 return new MValue(a[0].Fields.ContainsKey(a[1].StringValue) ? 1 : 0);
+            };
+            // ─── containers.Map ───
+            _builtins["isKey"] = a => {
+                if (a.Length < 2 || !a[0].IsMap) throw new MatlabRuntimeException("isKey(map, key)");
+                return new MValue(a[0].MapData.ContainsKey(MapKey(a[1])) ? 1.0 : 0.0);
+            };
+            _builtins["keys"] = a => {
+                if (a.Length < 1 || !a[0].IsMap) throw new MatlabRuntimeException("keys(map)");
+                var ks = a[0].MapData.Keys.ToArray();
+                var cell = new MValue[1, ks.Length];
+                for (int i = 0; i < ks.Length; i++) cell[0, i] = new MValue(ks[i]);
+                return MValue.NewCell(cell);
+            };
+            _builtins["values"] = a => {
+                if (a.Length < 1 || !a[0].IsMap) throw new MatlabRuntimeException("values(map)");
+                var vs = a[0].MapData.Values.ToArray();
+                var cell = new MValue[1, vs.Length];
+                for (int i = 0; i < vs.Length; i++) cell[0, i] = vs[i];
+                return MValue.NewCell(cell);
+            };
+            _builtins["remove"] = a => {
+                if (a.Length < 2 || !a[0].IsMap) throw new MatlabRuntimeException("remove(map, key)");
+                a[0].MapData.Remove(MapKey(a[1]));
+                return a[0];
             };
 
             // String formatting (MATLAB sprintf-like)
@@ -2951,11 +2989,60 @@ namespace Calcpad.Core.Matlab
                 }
                 throw new MatlabRuntimeException($"imread: format not supported: {System.IO.Path.GetExtension(path)} (use .pgm)");
             };
+            // getframe([gcf]) — captura la figura 2D actual como struct con .cdata (HxWx3 uint8).
+            _builtins["getframe"] = a => {
+                int gw = 640, gh = 520;
+                var rgb = MatlabPlots.RasterizeFigure(gw, gh);
+                if (rgb == null) throw new MatlabRuntimeException("getframe: no hay figura abierta");
+                var R = new MValue(gh, gw); var G = new MValue(gh, gw); var B = new MValue(gh, gw);
+                for (int r = 0; r < gh; r++)
+                    for (int c = 0; c < gw; c++)
+                    {
+                        int idx = (r * gw + c) * 3;
+                        R.Set(r, c, rgb[idx]); G.Set(r, c, rgb[idx + 1]); B.Set(r, c, rgb[idx + 2]);
+                    }
+                var st = MValue.NewStruct();
+                st.Fields["cdata"] = MValue.New3D(new[] { R, G, B });
+                st.Fields["colormap"] = new MValue(0, 0);
+                return st;
+            };
             _builtins["imwrite"] = a => {
-                if (a.Length < 2 || !a[1].IsString) throw new MatlabRuntimeException("imwrite(img, filename)");
-                var img = a[0]; var path = a[1].StringValue;
+                if (a.Length < 2) throw new MatlabRuntimeException("imwrite(img, filename, ...)");
+                // localizar el filename (primer string que parece ruta)
+                var img = a[0]; string path = null; int pathArg = -1;
+                for (int i = 1; i < a.Length; i++)
+                    if (a[i].IsString && (a[i].StringValue.Contains('.') || a[i].StringValue.Contains('/') || a[i].StringValue.Contains('\\')))
+                    { path = a[i].StringValue; pathArg = i; break; }
+                if (path == null) throw new MatlabRuntimeException("imwrite: falta nombre de archivo");
+
+                // ---- GIF animado (RGB HxWx3) ----
+                if (path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!img.Is3D || img.Pages.Length < 3)
+                        throw new MatlabRuntimeException("imwrite GIF: se espera imagen RGB (HxWx3)");
+                    var Rp = img.Pages[0]; var Gp = img.Pages[1]; var Bp = img.Pages[2];
+                    int gh = Rp.Rows, gw = Rp.Cols;
+                    var rgb = new byte[gh * gw * 3];
+                    for (int r = 0; r < gh; r++)
+                        for (int c = 0; c < gw; c++)
+                        { int k = (r * gw + c) * 3; rgb[k] = (byte)Math.Clamp((int)Rp.At(r, c), 0, 255); rgb[k + 1] = (byte)Math.Clamp((int)Gp.At(r, c), 0, 255); rgb[k + 2] = (byte)Math.Clamp((int)Bp.At(r, c), 0, 255); }
+                    // opciones Name/Value
+                    bool append = false; double delay = 0.5; bool loop = true;
+                    for (int i = pathArg + 1; i + 1 < a.Length; i++)
+                    {
+                        if (!a[i].IsString) continue;
+                        string nm = a[i].StringValue.ToLowerInvariant();
+                        if (nm == "writemode") append = a[i + 1].IsString && a[i + 1].StringValue.Equals("append", StringComparison.OrdinalIgnoreCase);
+                        else if (nm == "delaytime") delay = a[i + 1].Scalar;
+                        else if (nm == "loopcount") loop = !(a[i + 1].IsScalar && a[i + 1].Scalar == 0);
+                    }
+                    if (!append) MatlabGif.Reset(path);
+                    MatlabGif.AppendAndWrite(path, rgb, gw, gh, (int)Math.Round(delay * 100), loop);
+                    return new MValue(0);
+                }
+
                 if (!path.EndsWith(".pgm", StringComparison.OrdinalIgnoreCase))
-                    throw new MatlabRuntimeException("imwrite: only PGM supported in MVP");
+                    throw new MatlabRuntimeException("imwrite: solo PGM y GIF soportados");
                 int w = img.Cols, h = img.Rows;
                 double maxV = 0;
                 foreach (var v in img.Data) if (v > maxV) maxV = v;
@@ -4767,7 +4854,9 @@ namespace Calcpad.Core.Matlab
                     elapsed = _ticStopwatch.Elapsed.TotalSeconds;
                 }
                 else elapsed = 0;
-                if (a.Length == 0) _output?.Invoke($"Elapsed time is {elapsed:F6} seconds.");
+                // MATLAB exacto: "Elapsed time is …" se muestra SÓLO cuando toc se usa
+                // como comando (nargout 0). Eso se decide a nivel de statement en
+                // ExecuteOne (ExprStmt). Si se asigna (`t = toc`) o va anidado, no imprime.
                 return new MValue(elapsed);
             };
             // ─── Statistics distributions ───────────────────────────────────
@@ -5709,6 +5798,31 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < v.Data.Length; i++) acc = f(acc, v.Data[i]);
             return new MValue(acc);
         }
+
+        /// <summary>min/max de MATLAB con sus formas: min(X) reduce; min(X,Y) elementwise
+        /// (con broadcast escalar); min(X,[],dim) reduce (dim simplificado a forma 1).</summary>
+        private static MValue MinMaxBuiltin(MValue[] a, bool isMax)
+        {
+            double init = isMax ? double.NegativeInfinity : double.PositiveInfinity;
+            Func<double, double, double> op = isMax ? Math.Max : Math.Min;
+            if (a.Length == 1) return Reduce(a[0], init, op);
+            // min(X, [], dim) → reducción (segundo argumento vacío)
+            if (a[1] != null && !a[1].IsString && a[1].Rows * a[1].Cols == 0)
+                return Reduce(a[0], init, op);
+            // min(X, Y) elementwise con broadcast escalar
+            var X = a[0]; var Y = a[1];
+            if (X.IsScalar && Y.IsScalar) return new MValue(op(X.Scalar, Y.Scalar));
+            int r = Math.Max(X.Rows, Y.Rows), c = Math.Max(X.Cols, Y.Cols);
+            var res = new MValue(r, c);
+            for (int i = 0; i < r; i++)
+                for (int j = 0; j < c; j++)
+                {
+                    double xv = X.IsScalar ? X.Scalar : X.At(i % X.Rows, j % X.Cols);
+                    double yv = Y.IsScalar ? Y.Scalar : Y.At(i % Y.Rows, j % Y.Cols);
+                    res.Set(i, j, op(xv, yv));
+                }
+            return res;
+        }
         private static MValue MakeFill(MValue[] a, double fill)
         {
             int rows = 1, cols = 1;
@@ -6210,6 +6324,15 @@ namespace Calcpad.Core.Matlab
                 results.Add(ExecuteOne(s, scope));
             return results;
         }
+        /// <summary>True si la expresión es el comando <c>toc</c> o <c>toc(handle)</c>
+        /// usado como statement (no como sub-expresión). Permite el display MATLAB-exacto.</summary>
+        private static bool IsTocCommand(MatlabNode expr) => expr switch
+        {
+            IdentRef ir => ir.Name == "toc",
+            CallOrIndex ci => ci.Target is IdentRef cir && cir.Name == "toc",
+            _ => false,
+        };
+
         public StatementResult ExecuteOne(MatlabNode stmt, MatlabScope scope = null)
         {
             scope ??= Globals;
@@ -6222,9 +6345,17 @@ namespace Calcpad.Core.Matlab
                     return ExecuteAssignment(asg, scope);
                 case ExprStmt es:
                     var v = Eval(es.Expr, scope);
+                    // MATLAB exacto: `toc` (o `toc(id)`) usado como COMANDO — sin asignar y
+                    // no anidado — tiene nargout 0 y muestra "Elapsed time is …". Si se
+                    // asigna (`t = toc`) o va dentro de otra expresión, nargout ≥ 1 → silencioso.
+                    // (Se omite si el usuario sombreó `toc` con una variable propia.)
+                    bool tocCmd = IsTocCommand(es.Expr) && !scope.TryGet("toc", out _) && v != null && v.IsScalar;
+                    if (tocCmd)
+                        _output?.Invoke($"Elapsed time is {v.Scalar:F6} seconds.");
                     // MATLAB convención: expresión sin asignar → variable `ans`
                     scope.Set("ans", v);
-                    return new StatementResult("ans", v, es.Suppressed);
+                    // El comando toc ya mostró su línea; MATLAB no renderiza además "toc = valor".
+                    return new StatementResult("ans", v, es.Suppressed || tocCmd);
                 case ForLoop fl:
                     ExecuteFor(fl, scope);
                     return new StatementResult(null, null, true);
@@ -6347,10 +6478,10 @@ namespace Calcpad.Core.Matlab
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
         {
-            // JIT fast path DESHABILITADO en WPF — el codegen IL corrompia heap
-            // bajo WebView2 host (FEM scripts crashean en indexado post-solve).
-            // El interprete es ~3x mas lento pero estable. Para usar JIT, setear
-            // MatlabJit.Enabled = true (CLI lo hace).
+            // JIT fast path para `for` escalares (codegen IL). ACTIVO en CLI y WPF
+            // (MainWindow lo enciende). ~3.3x vs interprete en bucles escalares.
+            // Cae al interprete si el cuerpo no es compilable (TryExecute=false).
+            // Para desactivar: env CALCPAD_LAB_JIT=0.
             if (MatlabJit.Enabled && MatlabJit.TryExecute(f, scope, this)) return;
 
             var iter = Eval(f.Iter, scope);
@@ -6588,6 +6719,15 @@ namespace Calcpad.Core.Matlab
                 // Indexed assignment: A(i, j) = val
                 if (!scope.TryGet(targetId.Name, out var existing))
                     existing = new MValue(0);
+                // containers.Map: m(key) = val
+                if (existing.IsMap)
+                {
+                    var ka = EvalArgs(idx.Args, scope);
+                    if (ka.Length != 1) throw new MatlabRuntimeException("Map: se requiere exactamente 1 clave en m(key)=val");
+                    existing.MapData[MapKey(ka[0])] = val;
+                    scope.Set(targetId.Name, existing);
+                    return new StatementResult(targetId.Name, val, asg.Suppressed);
+                }
                 var updated = IndexedAssign(existing, idx.Args, val, scope);
                 scope.Set(targetId.Name, updated);
                 return new StatementResult(targetId.Name, updated, asg.Suppressed);
@@ -6642,6 +6782,34 @@ namespace Calcpad.Core.Matlab
                 default:
                     throw new MatlabRuntimeException("Unsupported multi-output target");
             }
+        }
+
+        /// <summary>Clave canónica para containers.Map: string directo, o el número en texto invariante.</summary>
+        private static string MapKey(MValue k) =>
+            k.IsString ? k.StringValue : k.Scalar.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+        /// <summary>Construye un containers.Map. Vacío para la forma de hints
+        /// ('KeyType','char',...); poblado para containers.Map(keysCell, valuesCell).</summary>
+        private static MValue BuildMap(MValue[] args)
+        {
+            var m = MValue.NewMap();
+            bool hints = args.Length >= 2 && args[0].IsString;   // 'KeyType'/'ValueType'/...
+            if (!hints && args.Length == 2)
+            {
+                var kf = FlattenCell(args[0]);
+                var vf = FlattenCell(args[1]);
+                for (int i = 0; i < kf.Count && i < vf.Count; i++)
+                    m.MapData[MapKey(kf[i])] = vf[i];
+            }
+            return m;
+        }
+
+        private static System.Collections.Generic.List<MValue> FlattenCell(MValue c)
+        {
+            var list = new System.Collections.Generic.List<MValue>();
+            if (c.IsCell) { foreach (var e in c.CellData) list.Add(e); }
+            else list.Add(c);
+            return list;
         }
 
         /// <summary>Matriz MValue → array row-major double[r*c] (para LAPACK).</summary>
@@ -6980,6 +7148,22 @@ namespace Calcpad.Core.Matlab
             {
                 var rows = indices[0];
                 var cols = indices[1];
+                // LHS vacío con `:` → adoptar la forma del RHS (MATLAB: x=[]; x(end+1,:)=fila).
+                // Un `:` sobre una matriz 0×0 da 0 índices; en una asignación que crea la
+                // matriz, ese `:` debe abarcar el tamaño del RHS en esa dimensión.
+                if (m.Rows * m.Cols == 0)
+                {
+                    if (cols.Length == 0 && v.Cols > 0)
+                    {
+                        cols = new int[v.Cols];
+                        for (int c = 0; c < v.Cols; c++) cols[c] = c;
+                    }
+                    if (rows.Length == 0 && v.Rows > 0)
+                    {
+                        rows = new int[v.Rows];
+                        for (int r = 0; r < v.Rows; r++) rows[r] = r;
+                    }
+                }
                 // Auto-grow 2D como MATLAB: M(r,c)=v agranda M con ceros si r/c
                 // exceden el tamaño actual (clave para ensamblar K(i,j) en loops FEM).
                 int needRows = m.Rows, needCols = m.Cols;
@@ -7459,6 +7643,10 @@ namespace Calcpad.Core.Matlab
             // OOP: method call obj.method(args) o Class.staticMethod(args)
             if (c.Target is FieldAccess fa)
             {
+                // containers.Map(...) — constructor de mapa (clave->valor)
+                if (fa.Target is IdentRef cmRef && cmRef.Name == "containers" && fa.FieldName == "Map"
+                    && !scope.TryGet("containers", out _))
+                    return BuildMap(EvalArgs(c.Args, scope));
                 // Caso static: ClassName.staticMethod(args) — sin instancia
                 if (fa.Target is IdentRef classRef
                     && !scope.TryGet(classRef.Name, out _)
@@ -7497,6 +7685,16 @@ namespace Calcpad.Core.Matlab
                 if (scope.TryGet(id.Name, out var v))
                 {
                     if (v.IsCallable) return v.Callable(EvalArgs(c.Args, scope));
+                    // containers.Map: m(key) -> valor
+                    if (v.IsMap)
+                    {
+                        var ka = EvalArgs(c.Args, scope);
+                        if (ka.Length != 1) throw new MatlabRuntimeException("Map: se requiere exactamente 1 clave en m(key)");
+                        var mk = MapKey(ka[0]);
+                        if (!v.MapData.TryGetValue(mk, out var mv))
+                            throw new MatlabRuntimeException($"The key '{mk}' is not present in the container.");
+                        return mv;
+                    }
                     // SYMFUN: `f(arg1, arg2, ...)` donde f esta registrado como
                     // symfun via `f(x) = expr`. Sustituye cada param formal por
                     // el argumento correspondiente.

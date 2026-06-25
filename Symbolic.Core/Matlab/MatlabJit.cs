@@ -124,6 +124,7 @@ namespace Calcpad.Core.Matlab
         private struct Compiled
         {
             public Action<JitCtx> Body;
+            public Action<double[], int, int> WholeLoop;  // fast path puro-escalar (slots, start, end)
             public string[] ScalarNames;
             public int IterIdx;
             public bool Failed;
@@ -154,10 +155,21 @@ namespace Calcpad.Core.Matlab
                 if (scope.TryGet(c.ScalarNames[k], out var v) && v.IsScalar)
                     slots[k] = v.Scalar;
             }
-            var ctx = new JitCtx { Slots = slots, Scope = scope, Evaluator = ev };
-
             int iStart = (int)startVal;
             int iEnd   = (int)endVal;
+
+            // Fast path: loop COMPLETO compilado con locals IL (puro escalar) — sin
+            // overhead de invocación por iteración ni indexado de slots[].
+            if (c.WholeLoop != null)
+            {
+                c.WholeLoop(slots, iStart, iEnd);
+                for (int k = 0; k < c.ScalarNames.Length; k++)
+                    scope.Set(c.ScalarNames[k], new MValue(slots[k]));
+                Hits++;
+                return true;
+            }
+
+            var ctx = new JitCtx { Slots = slots, Scope = scope, Evaluator = ev };
             try
             {
                 for (int i = iStart; i <= iEnd; i++)
@@ -202,6 +214,17 @@ namespace Calcpad.Core.Matlab
             public Dictionary<string, TKind> VarKind = new(StringComparer.Ordinal);
             public ParameterExpression CtxParam;
             public MemberExpression SlotsExpr;
+            // Fast path "loop completo": variables escalares como locals IL en vez de slots[].
+            public bool UseLocals;
+            public Dictionary<string, ParameterExpression> Locals = new(StringComparer.Ordinal);
+        }
+
+        /// <summary>Acceso (lectura/escritura) a una variable escalar: local IL si
+        /// UseLocals (loop completo compilado), si no el slot del array (path por-iter).</summary>
+        private static Expression ScalarAccess(CompileCtx cc, string name)
+        {
+            if (cc.UseLocals) return cc.Locals[name];
+            return Expression.ArrayAccess(cc.SlotsExpr, Expression.Constant(cc.SlotIdx[name]));
         }
 
         private static Compiled TryCompile(ForLoop loop, MatlabEvaluator ev)
@@ -242,9 +265,57 @@ namespace Calcpad.Core.Matlab
                 var names = new string[cc.SlotIdx.Count];
                 foreach (var kv in cc.SlotIdx) names[kv.Value] = kv.Key;
 
+                // Fast path: si el loop es PURAMENTE escalar (sin variables/ops matriz),
+                // compilar el LOOP COMPLETO con variables locales IL (10-50x vs slots[]).
+                Action<double[], int, int> wholeLoop = null;
+                bool pureScalar = true;
+                foreach (var v in cc.VarKind.Values) if (v != TKind.Scalar) { pureScalar = false; break; }
+                if (pureScalar)
+                {
+                    try
+                    {
+                        var cc2 = new CompileCtx { Evaluator = ev, UseLocals = true, SlotIdx = cc.SlotIdx, VarKind = cc.VarKind };
+                        foreach (var kv in cc.SlotIdx) cc2.Locals[kv.Key] = Expression.Variable(typeof(double), kv.Key);
+                        var slotsP = Expression.Parameter(typeof(double[]), "slots");
+                        var startP = Expression.Parameter(typeof(int), "start");
+                        var endP = Expression.Parameter(typeof(int), "end");
+                        var iVar = Expression.Variable(typeof(int), "i");
+                        var pre = new List<Expression>();
+                        foreach (var kv in cc.SlotIdx)
+                            pre.Add(Expression.Assign(cc2.Locals[kv.Key], Expression.ArrayIndex(slotsP, Expression.Constant(kv.Value))));
+                        pre.Add(Expression.Assign(iVar, startP));
+                        var brk = Expression.Label("brk");
+                        var bl = new List<Expression>
+                        {
+                            Expression.IfThen(Expression.GreaterThan(iVar, endP), Expression.Break(brk)),
+                            Expression.Assign(cc2.Locals[loop.VarName], Expression.Convert(iVar, typeof(double)))
+                        };
+                        bool ok = true;
+                        foreach (var stmt in loop.Body)
+                        {
+                            if (stmt is CommentStmt) continue;
+                            var e = ConvertStmt(stmt, cc2);
+                            if (e == null) { ok = false; break; }
+                            bl.Add(e);
+                        }
+                        if (ok)
+                        {
+                            bl.Add(Expression.PostIncrementAssign(iVar));
+                            pre.Add(Expression.Loop(Expression.Block(bl), brk));
+                            foreach (var kv in cc.SlotIdx)
+                                pre.Add(Expression.Assign(Expression.ArrayAccess(slotsP, Expression.Constant(kv.Value)), cc2.Locals[kv.Key]));
+                            var allLocals = new List<ParameterExpression>(cc2.Locals.Values) { iVar };
+                            wholeLoop = Expression.Lambda<Action<double[], int, int>>(
+                                Expression.Block(allLocals, pre), slotsP, startP, endP).Compile();
+                        }
+                    }
+                    catch { wholeLoop = null; }
+                }
+
                 return new Compiled
                 {
                     Body = compiled,
+                    WholeLoop = wholeLoop,
                     ScalarNames = names,
                     IterIdx = cc.SlotIdx[loop.VarName],
                     Failed = false,
@@ -384,9 +455,8 @@ namespace Calcpad.Core.Matlab
                         if (rhs == null) return null;
                         if (rhsKind == TKind.Scalar)
                         {
-                            if (!cc.SlotIdx.TryGetValue(ir.Name, out var idx)) return null;
-                            var slot = Expression.ArrayAccess(cc.SlotsExpr, Expression.Constant(idx));
-                            return Expression.Assign(slot, rhs);
+                            if (!cc.SlotIdx.ContainsKey(ir.Name)) return null;
+                            return Expression.Assign(ScalarAccess(cc, ir.Name), rhs);
                         }
                         else
                         {
@@ -449,8 +519,8 @@ namespace Calcpad.Core.Matlab
                         var k = cc.VarKind[ir.Name];
                         if (k == TKind.Scalar)
                         {
-                            if (!cc.SlotIdx.TryGetValue(ir.Name, out var idx)) return null;
-                            return Expression.ArrayAccess(cc.SlotsExpr, Expression.Constant(idx));
+                            if (!cc.SlotIdx.ContainsKey(ir.Name)) return null;
+                            return ScalarAccess(cc, ir.Name);
                         }
                         return Expression.Call(cc.CtxParam, JitCtx.MGetMatVar,
                             Expression.Constant(ir.Name));
