@@ -21,6 +21,7 @@
 // =============================================================================
 using System;
 using System.IO;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -56,9 +57,15 @@ namespace Calcpad.Core
         public static delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int> Dpbsv;
         // LAPACKE_dsygv(layout, itype, jobz, uplo, n, A, lda, B, ldb, w) -> info  (LAPACKE gestiona el workspace)
         public static delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int> Dsygv;
+        // MKL PARDISO (sparse directo, el solver de OpenSees). Solo existe en mkl_rt.
+        // pardiso(pt, maxfct, mnum, mtype, phase, n, a, ia, ja, perm, nrhs, iparm, msglvl, b, x, error)
+        public static delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void> Pardiso;
+        // pardisoinit(pt, mtype, iparm)
+        public static delegate* unmanaged[Cdecl]<void*, int*, int*, void> Pardisoinit;
 
         public static bool HasBlas => Dgemm != null && Dgemv != null && Daxpy != null && Ddot != null;
         public static bool HasLapack => Dgesv != null && Dpbsv != null && Dsygv != null;
+        public static bool HasPardiso => Pardiso != null && Pardisoinit != null;
 
         static NativeBlas()
         {
@@ -125,6 +132,9 @@ namespace Calcpad.Core
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgesv", out p)) Dgesv = (delegate* unmanaged[Cdecl]<int, int, int, double*, int, int*, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpbsv", out p)) Dpbsv = (delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dsygv", out p)) Dsygv = (delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int>)p;
+            // PARDISO (solo MKL; OpenBLAS no lo exporta → quedan null)
+            if (NativeLibrary.TryGetExport(h, "pardiso", out p)) Pardiso = (delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void>)p;
+            if (NativeLibrary.TryGetExport(h, "pardisoinit", out p)) Pardisoinit = (delegate* unmanaged[Cdecl]<void*, int*, int*, void>)p;
             return true;
         }
     }
@@ -156,6 +166,38 @@ namespace Calcpad.Core
                 Available = Math.Abs(c[0] - 6.0) < 1e-9 && Math.Abs(c[N * N - 1] - 6.0) < 1e-9;
             }
             catch { Available = false; }
+        }
+
+        /// <summary>True si PARDISO (sparse directo de MKL, el solver de OpenSees) está disponible.</summary>
+        public static bool PardisoAvailable => NativeBlas.HasPardiso;
+
+        /// <summary>Resuelve A·x=b con A sparse CSR 0-based (matriz completa, real no-simétrica)
+        /// vía MKL PARDISO. rowPtr[n+1], colIdx[nnz], vals[nnz]. Requiere Intel MKL.</summary>
+        public static double[] SolveSparsePardiso(int n, int[] rowPtr, int[] colIdx, double[] vals, double[] b)
+        {
+            if (!NativeBlas.HasPardiso)
+                throw new InvalidOperationException("PARDISO no disponible (requiere Intel MKL real, no OpenBLAS).");
+            var pt = new long[64];
+            var iparm = new int[64];
+            var perm = new int[n];
+            var x = new double[n];
+            int error = 0;
+            fixed (long* ppt = pt)
+            fixed (int* pip = iparm, pia = rowPtr, pja = colIdx, ppe = perm)
+            fixed (double* pa = vals, pb = b, px = x)
+            {
+                int mt = 11;   // real, no-simétrica (matriz completa)
+                NativeBlas.Pardisoinit((void*)ppt, &mt, pip);
+                iparm[34] = 1; // indexado 0-based (C) → usar el CSR del Lab directo
+                int mf = 1, mn = 1, ml = 0, nr = 1, N = n;
+                int phase = 13;                 // análisis + factorización + solve
+                NativeBlas.Pardiso((void*)ppt, &mf, &mn, &mt, &phase, &N, pa, pia, pja, ppe, &nr, pip, &ml, pb, px, &error);
+                int err1 = error;
+                int rel = -1, e2 = 0;           // liberar memoria interna
+                NativeBlas.Pardiso((void*)ppt, &mf, &mn, &mt, &rel, &N, pa, pia, pja, ppe, &nr, pip, &ml, pb, px, &e2);
+                if (err1 != 0) throw new InvalidOperationException($"PARDISO error {err1}");
+            }
+            return x;
         }
 
         /// <summary>y[m] = A[m×n] * x[n] via cblas_dgemv (row-major).</summary>
@@ -222,18 +264,30 @@ namespace Calcpad.Core
                                  m, n, k, 1.0, pA, k, pB, n, 0.0, pC, n);
         }
 
+        // Fallback SIN BLAS: ikj vectorizado con System.Numerics.Vector<double>.
+        // El JIT lo compila a SIMD (AVX2 = 4 doubles, AVX-512 = 8) → el "9× mas lento
+        // sin MKL" se reduce a ~2-3×, sin ninguna libreria nativa. Orden ikj = la fila
+        // de B se recorre lineal (cache-friendly) y cada paso es un AXPY: C_i += a_ip · B_p.
         private static void MatMulNaive(int m, int k, int n, double[] A, double[] B, double[] C)
         {
             Array.Clear(C, 0, m * n);
+            int W = Vector<double>.Count, nv = n - (n % W);
             for (int i = 0; i < m; i++)
             {
-                int rowA = i * k;
-                int rowC = i * n;
+                int rowA = i * k, rowC = i * n;
                 for (int p = 0; p < k; p++)
                 {
                     double aip = A[rowA + p];
-                    int rowB = p * n;
-                    for (int j = 0; j < n; j++)
+                    if (aip == 0.0) continue;          // salta ceros (matrices ralas)
+                    int rowB = p * n, j = 0;
+                    var va = new Vector<double>(aip);
+                    for (; j < nv; j += W)             // tramo SIMD
+                    {
+                        var vb = new Vector<double>(B, rowB + j);
+                        var vc = new Vector<double>(C, rowC + j);
+                        (vc + va * vb).CopyTo(C, rowC + j);
+                    }
+                    for (; j < n; j++)                 // cola escalar
                         C[rowC + j] += aip * B[rowB + j];
                 }
             }

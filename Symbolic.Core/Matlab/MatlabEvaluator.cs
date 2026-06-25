@@ -460,6 +460,39 @@ namespace Calcpad.Core.Matlab
                 return CsrToFull(a[0]);
             };
             _builtins["issparse"] = a => new MValue(a[0].IsSparseReal ? 1 : 0);
+            // spsolve(A, b): A·x=b via MKL PARDISO (solver de OpenSees). Acepta A
+            // sparse (CSR) o densa (construye CSR de los no-ceros). Para FEM grande.
+            _builtins["spsolve"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("spsolve(A, b)");
+                var A = a[0]; var b = a[1];
+                if (A.Rows != A.Cols) throw new MatlabRuntimeException("spsolve: A debe ser cuadrada");
+                int n = A.Rows;
+                if (b.Rows * b.Cols != n) throw new MatlabRuntimeException("spsolve: dim(b) != n");
+                int[] rowPtr, colIdx; double[] vals;
+                if (A.IsSparseReal) { rowPtr = A.SparseRowPtr; colIdx = A.SparseCols; vals = A.SparseVals; }
+                else
+                {
+                    // CSR 0-based a partir de la densa (omitir ceros exactos)
+                    var rp = new int[n + 1]; var ci = new System.Collections.Generic.List<int>(); var vv = new System.Collections.Generic.List<double>();
+                    for (int i = 0; i < n; i++)
+                    {
+                        rp[i] = ci.Count;
+                        for (int jcol = 0; jcol < n; jcol++)
+                        {
+                            double e = A.At(i, jcol);
+                            if (e != 0.0) { ci.Add(jcol); vv.Add(e); }
+                        }
+                    }
+                    rp[n] = ci.Count; rowPtr = rp; colIdx = ci.ToArray(); vals = vv.ToArray();
+                }
+                var bv = new double[n];
+                for (int i = 0; i < n; i++) bv[i] = b.Rows == n ? b.At(i, 0) : b.At(0, i);
+                var x = Calcpad.Core.BlasInterop.SolveSparsePardiso(n, rowPtr, colIdx, vals, bv);
+                var r = new MValue(n, 1);
+                for (int i = 0; i < n; i++) r.Set(i, 0, x[i]);
+                return r;
+            };
+            _builtins["haspardiso"] = a => new MValue(Calcpad.Core.BlasInterop.PardisoAvailable ? 1 : 0);
             // cell(n) -> n x n ; cell(m,n) -> m x n ; celdas vacias = [] (0x0)
             _builtins["cell"] = a => {
                 int m = a.Length >= 1 ? (int)a[0].Scalar : 0;
