@@ -41,7 +41,7 @@ namespace Calcpad.Core.Matlab
             // global/persistent SON keywords, NO command-form — tienen handlers en el switch de ParseStatement
             "syms", "clear", "close", "hold", "format",
             "load", "save", "disp", "warning", "error", "echo", "pkg",
-            "grid", "axis", "legend"   // plotting on/off commands
+            "grid", "axis", "legend", "box"   // plotting on/off commands
         };
 
         public MatlabNode ParseStatement()

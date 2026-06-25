@@ -809,7 +809,7 @@ namespace Calcpad.Core.Matlab
             or "stem" or "stairs" or "polar" or "compass" or "loglog" or "semilogx" or "semilogy"
             or "errorbar" or "quiver" or "peaks" or "colormap" or "colorbar" or "title"
             or "xlabel" or "ylabel" or "zlabel" or "legend" or "shading" or "axis" or "view"
-            or "grid" or "hold" or "figure" or "clf" or "subplot"
+            or "grid" or "hold" or "box" or "figure" or "clf" or "subplot"
             // Linear algebra
             or "det" or "inv" or "inverse" or "norm" or "dot" or "cross" or "trace" or "find"
             // String / IO

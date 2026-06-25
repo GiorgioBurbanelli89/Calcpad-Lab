@@ -1,0 +1,266 @@
+"El formato .e2k de ETABS — modelo en texto plano e interoperabilidad Hekatan
+'<p>El <b>.e2k</b> es el modelo de ETABS exportado a <b>texto plano</b>:
+'el mismo edificio que vive en el .EDB binario, pero escrito en lineas
+'legibles que cualquiera puede abrir, leer y editar con un bloc de notas.
+'Este documento explica <b>desde primeros principios</b> que contiene un
+'.e2k, como esta organizado por bloques, y como Hekatan lo <b>lee</b>,
+'lo <b>escribe</b> y lo <b>remalla</b> para cruzar resultados con ETABS.</p>
+
+'<p>Todos los ejemplos salen de un archivo REAL:
+'<code>hekatan-csi-debug/v19scratch/mesa_t19.e2k</code> — la "mesa a
+'torsion" (4 columnas + 4 vigas + 1 losa) que usamos como benchmark.</p>
+'<hr/>
+
+"Cap 0 — .EDB binario vs .e2k texto: por que existe el .e2k
+'<p>ETABS guarda el modelo en <b>.EDB</b>, un binario propietario
+'(DEFLATE + .NET BinaryFormatter) que solo ETABS entiende. Para
+'<b>intercambiar</b> el modelo, ETABS ofrece exportar a <b>.e2k</b>
+'(File &gt; Export &gt; ETABS .e2k Text File). Ventajas del texto:</p>
+'<p>• <b>Legible</b>: se entiende sin ingenieria inversa del binario.</p>
+'<p>• <b>Diffeable</b>: dos modelos se comparan linea a linea (git).</p>
+'<p>• <b>Generable</b>: un programa puede ESCRIBIR un .e2k y ETABS lo
+'importa como modelo nativo.</p>
+'<p>• <b>Legal</b>: es la via de interop oficial de CSI; no toca el
+'binario ni el motor. Por eso en Hekatan el .e2k es la <b>capa de
+'interoperabilidad segura</b> (texto), a diferencia del .EDB/.DWG
+'(binarios, solo uso personal).</p>
+'<hr/>
+
+"Cap 1 — Anatomia: el archivo es una lista de BLOQUES con encabezado $
+'<p>Un .e2k es una secuencia de <b>bloques</b>. Cada bloque empieza con
+'una linea <b>$ NOMBRE DEL BLOQUE</b> y debajo lleva sus registros.
+'El orden es fijo: primero definiciones (materiales, secciones), luego
+'geometria (puntos, lineas, areas), luego asignaciones, cargas y
+'opciones de analisis. Estructura tipica:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ PROGRAM INFORMATION      &lt;- version de ETABS
+'$ CONTROLS                 &lt;- unidades, tolerancia de fusion
+'$ STORIES                  &lt;- niveles (alturas)
+'$ GRIDS                    &lt;- ejes (A, B, 1, 2 ...)
+'$ MATERIAL PROPERTIES      &lt;- E, nu, peso especifico, fc, fy
+'$ FRAME SECTIONS           &lt;- perfiles (W14x..., C40x40, V30x50)
+'$ SLAB / WALL PROPERTIES   &lt;- shells: espesor + modeling type
+'$ POINT COORDINATES        &lt;- nodos (geometria pura)
+'$ LINE CONNECTIVITIES      &lt;- vigas/columnas (que nodos conecta)
+'$ AREA CONNECTIVITIES      &lt;- losas/muros (que nodos conecta)
+'$ POINT / LINE / AREA ASSIGNS  &lt;- que propiedad y apoyos a cada objeto
+'$ LOAD PATTERNS / CASES / COMBOS  &lt;- cargas y como combinarlas
+'$ ANALYSIS OPTIONS         &lt;- DOFs activos, mallado, P-Delta
+'$ END OF MODEL FILE
+'</pre>
+'<p>Regla de oro: <b>definicion antes de uso</b>. Una seccion "C40x40"
+'se DEFINE en FRAME SECTIONS y luego se USA por nombre en LINE ASSIGNS.
+'El .e2k es relacional por <b>nombre de string</b>, no por indice.</p>
+'<hr/>
+
+"Cap 2 — Geometria: POINT, LINE y AREA (el corazon del modelo)
+'<p>La geometria de la mesa a torsion son solo 4 puntos. Las
+'coordenadas van en las unidades declaradas en CONTROLS (aqui metros):</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ POINT COORDINATES
+'  POINT "1"  0 6
+'  POINT "2"  0 0
+'  POINT "3"  6 0
+'  POINT "4"  6 6
+'</pre>
+'<p>Las <b>lineas</b> (vigas y columnas) se definen por los DOS puntos
+'que conectan. El ultimo numero indica si sube de nivel (columna=1):</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ LINE CONNECTIVITIES
+'  LINE  "C1"  COLUMN  "2"  "2"  1     &lt;- columna en el punto 2 (sube 1 piso)
+'  LINE  "B1"  BEAM    "2"  "3"  0     &lt;- viga del punto 2 al 3
+'</pre>
+'<p>El <b>area</b> (la losa) se define por sus 4 nodos de esquina:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ AREA CONNECTIVITIES
+'  AREA "F1"  FLOOR  4  "2"  "3"  "4"  "1"  0  0  0  0
+'</pre>
+'<p>Contamos los objetos del modelo "fisico" (lo que dibuja el ingeniero,
+'antes de mallar):</p>
+
+n_puntos = 4
+n_columnas = 4
+n_vigas = 4
+n_lineas = n_columnas + n_vigas
+n_areas = 1
+
+'<p>Es decir: el .e2k guarda el modelo en <b>objetos grandes</b>
+'(1 losa, 8 lineas), NO los elementos finitos. La malla la genera ETABS
+'al analizar (ver Cap 4).</p>
+'<hr/>
+
+"Cap 3 — Propiedades y asignaciones: como un objeto sabe que ES
+'<p>Un objeto geometrico es "tonto" hasta que se le ASIGNA una propiedad.
+'La losa "F1" se vuelve una losa de 10 cm ShellThin via dos bloques:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ SLAB PROPERTIES
+'  SHELLPROP "Slab1"  PROPTYPE "Slab"  MATERIAL "4000Psi"
+'           MODELINGTYPE "ShellThin"  SLABTYPE "Slab"  SLABTHICKNESS 0.1
+'
+'$ AREA ASSIGNS
+'  AREAASSIGN "F1"  "Story1"  SECTION "Slab1"  CARDINALPOINT "TOP"
+'           TRANSFORMSTIFFNESSFOROFFSETS "No"
+'</pre>
+'<p>Aqui esta TODA la fisica que el solver necesita del shell:</p>
+'<p>• <b>MODELINGTYPE "ShellThin"</b> = Kirchhoff (sin deformacion por
+'corte transversal en la rigidez).</p>
+'<p>• <b>SLABTHICKNESS 0.1</b> = espesor t = 0.10 m.</p>
+'<p>• <b>CARDINALPOINT "TOP"</b> = la losa se ubica por su cara superior
+'(offset respecto al eje de las vigas).</p>
+'<p>• <b>TRANSFORMSTIFFNESSFOROFFSETS "No"</b> = el offset es solo
+'geometrico, NO transforma la rigidez K (evita axial espuria en vigas).</p>
+
+t_losa = 0.1
+'<p>De aqui sale la rigidez de placa por unidad de ancho (concreto
+'E y nu del bloque MATERIAL "4000Psi"):</p>
+E_c = 2534564
+nu_c = 0.2
+D_placa = E_c*t_losa^3/(12*(1 - nu_c^2))
+'<p>D_placa es el coeficiente que multiplica las curvaturas para dar
+'momentos por unidad de ancho en la formulacion de placa delgada.</p>
+'<p>Los apoyos viven en POINT ASSIGNS: los 4 nodos de base empotrados en
+'traslacion (las columnas arrancan ahi):</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ POINT ASSIGNS
+'  POINTASSIGN "2"  "Base"  RESTRAINT "UX UY UZ"
+'</pre>
+'<hr/>
+
+"Cap 4 — De objetos a elementos finitos: AUTOMESH (la pieza clave)
+'<p>El .e2k NO contiene la malla de elementos finitos: contiene la orden
+'de COMO mallar. En LINE ASSIGNS y ANALYSIS OPTIONS:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'  LINEASSIGN "B1" "Story1" SECTION "V30x50" ... AUTOMESH "YES"
+'                          MESHATINTERSECTIONS "YES"  FLOORMESH "Yes"
+'  AUTOMESHOPTIONS  MESHTYPE "RECTANGULAR"  FLOORMESHMAXSIZE 1.25
+'</pre>
+'<p>Con FLOORMESHMAXSIZE = 1.25 m, la losa de 6x6 m se subdivide en una
+'cuadricula de elementos shell. Estimacion del numero de elementos:</p>
+n_lado = 6/1.25
+'<p>n_lado = 4.8 -> ETABS redondea a 5 divisiones por lado (paso 1.2 m),
+'es decir una malla aproximada de:</p>
+n_div = 5
+n_shells_aprox = n_div^2
+'<p>~25 a 100 shells segun la regla interna; en este modelo la losa se
+'malla a ~100 shells (228 GDL en el analisis). Cada esquina de losa
+'comparte nodo con la columna gracias a MESHATINTERSECTIONS "YES".</p>
+'<p><b>Por que importa para Hekatan:</b> si Hekatan importa el .e2k y NO
+'remalla, ve 1 sola losa (1 shell gigante) y los momentos salen mal. Por
+'eso existe <code>e2kAutoMesh.ts</code> -> <b>autoMeshShells(model, ...)</b>:
+'subdivide las losas Q4 grandes y parte las vigas perimetrales igual que
+'el MESHATINTERSECTIONS de ETABS. Asi Hekatan reproduce la misma malla y
+'puede validar Mxy contra ETABS.</p>
+'<hr/>
+
+"Cap 5 — Interoperabilidad Hekatan: leer, escribir y validar
+'<p>En <code>hekatan-struct/examples/src/shared/</code> hay tres piezas:</p>
+'<p>• <b>e2kParser.ts</b> — LEE un .e2k de ETABS y lo convierte a modelo
+'Hekatan. Importa SLAB PROPERTIES, AREA ASSIGNS, los SHELL UNIFORM LOAD
+'SETS y el AREALOAD UNIFLOADSET (las cargas distribuidas de losa).</p>
+'<p>• <b>e2kExporter.ts</b> — ESCRIBE un .e2k desde un modelo Hekatan,
+'para abrirlo en ETABS y cruzar resultados.</p>
+'<p>• <b>e2kAutoMesh.ts</b> — remalla las losas como ETABS (Cap 4).</p>
+'<p>El flujo de validacion (round-trip) es:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'  modelo Hekatan --e2kExporter--&gt; archivo .e2k --import--&gt; ETABS
+'                                                              |
+'                                                          RunAnalysis
+'                                                              |
+'  comparar Mxx, Myy, Mxy, w  &lt;----- resultados ETABS &lt;---------+
+'</pre>
+'<p>Y al reves: un .e2k que da el cliente (o el de la mesa) entra por
+'e2kParser, se remalla con e2kAutoMesh, y Hekatan resuelve con su propio
+'motor. Asi se compara solver-vs-solver sobre el MISMO modelo.</p>
+
+'<p>Las cargas tambien viajan en el .e2k. La mesa lleva una carga de
+'losa definida por set:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'$ SHELL UNIFORM LOAD SETS
+'  SHELLUNIFORMLOADSET "ULoadSet1"  LOADPAT "SCP"   VALUE 1
+'  SHELLUNIFORMLOADSET "ULoadSet1"  LOADPAT "Live"  VALUE 0.5
+'$ SHELL OBJECT LOADS
+'  AREALOAD "F1" "Story1" TYPE "UNIFLOADSET" "ULoadSet1"
+'</pre>
+'<p>Carga total sobre la losa (suma del set, en tonf/m^2 segun CONTROLS
+'UNITS "TONF" "M"):</p>
+q_scp = 1
+q_live = 0.5
+q_total = q_scp + q_live
+area_losa = 6*6
+P_total = q_total*area_losa
+'<p>P_total = carga vertical total que baja por la losa a las 4 columnas.
+'Este es el dato que Hekatan debe reproducir tras importar el .e2k.</p>
+'<hr/>
+
+"Cap 6 — Caso real: losa DKE + frames y el offset en K
+'<p>En la mesa, la losa ShellThin NO se resuelve con un shell generico:
+'ETABS la discretiza con el elemento <b>DKE</b> (Discrete Kirchhoff),
+'y las vigas/columnas son elementos <b>frame</b> (V30x50 y C40x40).
+'Aqui se ve el efecto PRACTICO del flag del Cap 3 sobre numeros reales.</p>
+
+'<p>Tres ejes estructurales quedan apilados verticalmente en la union
+'losa-viga-columna:</p>
+'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:8px;font-size:90%">
+'  ---o--- nudo de analisis        (nivel de piso, CARDINALPOINT TOP)
+'      |    t/2 = 0.05 m
+'  ====+==== superficie media del shell DKE (la losa trabaja aqui)
+'      |
+'      |    centroide del frame viga V30x50 (peralte 0.5 m)
+'  ----+----
+'</pre>
+
+'<p>Datos reales: la viga V30x50 tiene peralte h_v, y el brazo de offset
+'que importa entre el nudo y la cara de la columna result ser el peralte
+'COMPLETO de la viga (no la mitad):</p>
+
+h_v = 0.5
+ioff = 0.5
+
+'<p>Ahora el punto fino: <b>donde se LEE el momento de la columna</b>.
+'En la validacion de la mesa, el momento M2 de la columna salio:</p>
+
+M2_nudo = 4.0
+M2_cara = 3.5
+ratio_nudo_cara = M2_nudo/M2_cara
+
+'<p>ratio_nudo_cara = 1.143 -> un <b>+14 % aparente</b>. Pero ese +14/15 %
+'<b>NO era un error de rigidez</b>: era PURO el sitio de lectura. M2_nudo
+'es el momento en el centro del nudo; M2_cara es en la cara de la columna,
+'a un brazo ioff = 0.5 m (el peralte de la viga). El momento baja del
+'nudo a la cara porque el cortante actua sobre ese brazo rigido.</p>
+
+'<p>Con la combinacion correcta — elemento <b>DKE</b> + reportar en la
+'<b>cara</b> + <b>sin transformar K por el offset</b>
+'(TRANSFORMSTIFFNESSFOROFFSETS "No") — el error contra ETABS cae a:</p>
+
+err_DKE_cara = 0.011
+
+'<p>err_DKE_cara = 1.1 %. Es decir: la formulacion (DKE) y la rigidez
+'(K sin offset) estaban BIEN; el "+15 %" era leer en el nudo en vez de
+'la cara.</p>
+
+'<p><b>Que pasa si en cambio ponemos "Yes" (transformar K):</b></p>
+'<p>• El brazo entre la superficie media del DKE y el centroide del frame
+'se vuelve un enlace rigido en K -> acopla flexion con axial.</p>
+'<p>• La viga frame muestra una <b>fuerza axial espuria</b> (tipo viga-T
+'compuesta) que en realidad no existe (no hay conectores de corte
+'modelados).</p>
+'<p>• El conjunto se <b>sobre-rigidiza</b>, ensuciando la distribucion de
+'momentos a las columnas.</p>
+
+'<p>Por eso la receta validada de la mesa es: <b>DKE para la losa</b>,
+'<b>frames para vigas/columnas</b>, <b>TRANSFORMSTIFFNESSFOROFFSETS
+'"No"</b> (offset solo geometrico), y <b>reportar el momento de columna
+'en la cara</b>. Resultado: 1.1 % vs ETABS, sin axial inventada.</p>
+'<hr/>
+
+"Cap 7 — Resumen
+'<p>• El .e2k es el modelo ETABS en texto plano, organizado en bloques $.</p>
+'<p>• Guarda OBJETOS (puntos, lineas, areas), no la malla EF; la malla la
+'genera AUTOMESH al analizar.</p>
+'<p>• Es relacional por nombre: secciones/materiales se definen y luego se
+'referencian por string.</p>
+'<p>• Es la capa de interop LEGAL de Hekatan: e2kParser (leer),
+'e2kExporter (escribir), e2kAutoMesh (remallar como ETABS).</p>
+'<p>• El round-trip Hekatan &lt;-&gt; ETABS via .e2k permite validar el
+'motor propio contra SAPFire sobre el mismo modelo.</p>

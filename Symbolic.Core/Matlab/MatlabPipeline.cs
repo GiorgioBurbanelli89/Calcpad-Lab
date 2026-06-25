@@ -60,8 +60,11 @@ namespace Calcpad.Core.Matlab
             // Re-route stdout (disp) y HTML inline (plots) al output
             var dispBuffer = new StringBuilder();
             var htmlBuffer = new StringBuilder();
-            _evaluator.Output = msg => dispBuffer.AppendLine(msg);
-            _evaluator.HtmlOut = html => htmlBuffer.Append(html);
+            // Bloque  % #hide … % #show  (estilo Calcpad): ejecuta TODO pero no renderiza nada
+            // en Lab (oculta fprintf/disp/resultados). En MATLAB el codigo corre igual.
+            bool hidden = false;
+            _evaluator.Output = msg => { if (!hidden) dispBuffer.AppendLine(msg); };
+            _evaluator.HtmlOut = html => { if (!hidden) htmlBuffer.Append(html); };
             // Marca de streaming: hasta dónde de `sb` ya se emitió en vivo. Declarado
             // ACÁ (antes de InnerStmtOut) para que el lambda pueda avanzarlo al emitir
             // chunks por iteración y el flush top-level no los reenvíe (evita duplicados).
@@ -79,7 +82,7 @@ namespace Calcpad.Core.Matlab
                 // I/O
                 "fprintf", "printf", "disp", "display", "warning", "error",
                 // Plot management
-                "figure", "clf", "close", "hold", "axis", "grid", "legend", "colormap",
+                "figure", "clf", "close", "hold", "axis", "grid", "legend", "box", "colormap",
                 "title", "xlabel", "ylabel", "zlabel", "colorbar", "sgtitle", "caxis", "clim",
                 "shading", "view", "light", "lighting", "material", "camlight", "drawnow",
                 // Plot primitives (efecto sobre figura, no return value útil)
@@ -197,6 +200,16 @@ namespace Calcpad.Core.Matlab
             {
                 int stmtLine = stmt?.Line ?? 0;
 
+                // Directiva de bloque  % #hide … % #show  (estilo Calcpad puro):
+                // oculta el RENDER de todo lo que sigue (resultados, fprintf, disp, plots)
+                // pero lo sigue EJECUTANDO. La directiva misma no se muestra.
+                if (stmt is CommentStmt cdir0 && !cdir0.IsHeading)
+                {
+                    var dt0 = cdir0.Text.Trim();
+                    if (dt0 == "#hide") { hidden = true; continue; }
+                    if (dt0 == "#show") { hidden = false; continue; }
+                }
+
                 // Decision temprana sobre inline-comment: necesita conocer el
                 // stmt previo no-comment.
                 bool isInlineComment = stmt is CommentStmt csInline
@@ -259,7 +272,7 @@ namespace Calcpad.Core.Matlab
                 bool isHiddenComment = stmt is CommentStmt csHide
                                        && !csHide.IsHeading
                                        && csHide.Text.StartsWith("--");
-                if (!result.Suppressed && !IsVoidStatement(stmt) && !isHiddenComment)
+                if (!result.Suppressed && !IsVoidStatement(stmt) && !isHiddenComment && !hidden)
                 {
                     try
                     {
