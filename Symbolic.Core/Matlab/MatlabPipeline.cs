@@ -26,6 +26,14 @@ namespace Calcpad.Core.Matlab
         /// comments y multi-stmts se renderean como `<p>` standalone.</summary>
         public bool StreamingMode { get; set; }
 
+        /// <summary>Modo Octave: habilita las extensiones de sintaxis Octave sobre el motor
+        /// MATLAB (comentarios <c>#</c>, <c>+= ++ --</c>, <c>endfor/endif/...</c>, <c>!</c>,
+        /// <c>do…until</c>, <c>printf</c>, continuación con <c>\</c>). Calcpad-Octave lo pone
+        /// en true; Calcpad-Lab lo deja en false (MATLAB estricto). Por defecto se toma de
+        /// la variable de entorno <c>CALCPAD_OCTAVE=1</c> (gancho de pruebas).</summary>
+        public bool OctaveMode { get; set; }
+            = Environment.GetEnvironmentVariable("CALCPAD_OCTAVE") == "1";
+
         /// <summary>Fires antes de ejecutar cada statement top-level (line, sourceText).
         /// La UI lo usa para mostrar "Calculando línea N..." progresivamente.</summary>
         public event Action<int> StatementStarting;
@@ -44,6 +52,8 @@ namespace Calcpad.Core.Matlab
         /// </summary>
         public string Run(string source)
         {
+            MatlabTokenizer.OctaveMode = OctaveMode;
+            _evaluator.OctaveMode = OctaveMode;
             var tokens = MatlabTokenizer.Tokenize(source);
             var parser = new MatlabParser(tokens);
             var stmts = parser.ParseAllStatements();
@@ -81,6 +91,7 @@ namespace Calcpad.Core.Matlab
             {
                 // I/O
                 "fprintf", "printf", "disp", "display", "warning", "error",
+                "puts", "fputs", "fdisp", "fflush",   // Octave
                 // Plot management
                 "figure", "clf", "close", "hold", "axis", "grid", "legend", "box", "colormap",
                 "title", "xlabel", "ylabel", "zlabel", "colorbar", "sgtitle", "caxis", "clim",

@@ -44,6 +44,13 @@ namespace Calcpad.Core.Matlab
         DotCaret,         // .^
         // Asignación / comparación
         Assign,           // =
+        // Compuestas de Octave (solo en modo Octave)
+        PlusAssign,       // +=
+        MinusAssign,      // -=
+        StarAssign,       // *=
+        SlashAssign,      // /=
+        Increment,        // ++
+        Decrement,        // --
         Equal,            // ==
         NotEqual,         // ~=
         Less,             // <
@@ -99,8 +106,42 @@ namespace Calcpad.Core.Matlab
     /// </summary>
     public static class MatlabTokenizer
     {
+        /// <summary>Modo Octave (thread-local): habilita las extensiones de sintaxis que
+        /// Octave añade sobre MATLAB (comentarios <c>#</c>, <c>+= ++ --</c>,
+        /// <c>endfor/endif/...</c>, <c>!</c> como <c>~</c>, continuación con <c>\</c>).
+        /// Off = MATLAB estricto (Calcpad-Lab). Lo fija <see cref="MatlabPipeline"/>.</summary>
+        [ThreadStatic] public static bool OctaveMode;
+
+        /// <summary>Cerradores de bloque de Octave que en modo Octave se normalizan a
+        /// <c>end</c>, de modo que el parser MATLAB existente los acepta sin cambios.</summary>
+        private static readonly HashSet<string> _octaveBlockEnders = new(StringComparer.Ordinal)
+        {
+            "endfor", "endif", "endwhile", "endfunction", "endswitch",
+            "end_try_catch", "endparfor", "end_unwind_protect",
+            "endproperties", "endmethods", "endenumeration", "endevents"
+        };
+
         public static List<MatlabToken> Tokenize(string source)
         {
+            bool octave = OctaveMode;
+            int srcLen = source?.Length ?? 0;
+            // ¿desde idx hasta el fin de línea sólo hay espacios/tabs? (para bloques %{ %})
+            bool RestBlank(int idx)
+            {
+                for (int p = idx; p < srcLen && source[p] != '\n'; p++)
+                    if (source[p] != ' ' && source[p] != '\t' && source[p] != '\r') return false;
+                return true;
+            }
+            // ¿idx es la primera posición no-blanca de su línea?
+            bool AtLineStart(int idx)
+            {
+                for (int b = idx - 1; b >= 0; b--)
+                {
+                    if (source[b] == '\n') break;
+                    if (source[b] != ' ' && source[b] != '\t') return false;
+                }
+                return true;
+            }
             var tokens = new List<MatlabToken>();
             if (string.IsNullOrEmpty(source))
             {
@@ -142,11 +183,37 @@ namespace Calcpad.Core.Matlab
                     prevWasWhitespace = true;
                     continue;
                 }
+                // Bloque de comentario %{ ... %}  (y #{ ... #} en Octave). Reglas MATLAB/Octave:
+                // el abridor `%{` y el cerrador `%}` van SOLOS en su línea; los bloques anidan.
+                if ((c == '%' || (octave && c == '#')) && i + 1 < n && source[i + 1] == '{'
+                    && AtLineStart(i) && RestBlank(i + 2))
+                {
+                    int depth = 1;
+                    // saltar el resto de la línea del abridor
+                    while (i < n && source[i] != '\n') i++;
+                    if (i < n) { i++; line++; col = 1; }
+                    while (i < n && depth > 0)
+                    {
+                        int p = i;
+                        while (p < n && (source[p] == ' ' || source[p] == '\t')) p++;
+                        if (p + 1 < n && (source[p] == '%' || (octave && source[p] == '#')) && RestBlank(p + 2))
+                        {
+                            if (source[p + 1] == '{') depth++;
+                            else if (source[p + 1] == '}') depth--;
+                        }
+                        while (i < n && source[i] != '\n') i++;
+                        if (i < n) { i++; line++; col = 1; }
+                    }
+                    prevIsOperand = false;
+                    prevWasWhitespace = true;
+                    continue;
+                }
                 // Comentarios %... hasta fin de línea. %% es heading (markdown-like).
-                if (c == '%')
+                // En modo Octave, `#` también inicia comentario y `##` es heading.
+                if (c == '%' || (octave && c == '#'))
                 {
                     int startCol = col;
-                    bool isHeading = i + 1 < n && source[i + 1] == '%';
+                    bool isHeading = i + 1 < n && source[i + 1] == c;
                     int start = i + (isHeading ? 2 : 1);
                     while (start < n && source[start] == ' ') start++;
                     int end = start;
@@ -169,6 +236,20 @@ namespace Calcpad.Core.Matlab
                     if (i < n && source[i] == '\n') { i++; line++; col = 1; }
                     continue;
                 }
+                // Octave: continuación de línea con `\` al final de línea (solo si tras el
+                // `\` no queda nada salvo espacios/comentario). Si hay operando después
+                // (p.ej. `A\b`) cae al switch como Backslash (división por la izquierda).
+                if (octave && c == '\\')
+                {
+                    int k = i + 1;
+                    while (k < n && (source[k] == ' ' || source[k] == '\t')) k++;
+                    if (k >= n || source[k] == '\n' || source[k] == '\r')
+                    {
+                        while (i < n && source[i] != '\n') { i++; col++; }
+                        if (i < n && source[i] == '\n') { i++; line++; col = 1; }
+                        continue;
+                    }
+                }
                 // Strings — distinción entre `'` (texto vs transpose) y `"` (siempre string)
                 if (c == '"')
                 {
@@ -187,6 +268,23 @@ namespace Calcpad.Core.Matlab
                                 continue;
                             }
                             break; // fin de string
+                        }
+                        // Octave: en strings con comillas dobles, `\` procesa escapes (\n, \t, \", ...).
+                        // MATLAB los deja literales (off = comportamiento original).
+                        if (octave && source[j] == '\\' && j + 1 < n)
+                        {
+                            char e = source[j + 1];
+                            sb.Append(e switch
+                            {
+                                'n' => '\n', 't' => '\t', 'r' => '\r', 'a' => '\a',
+                                'b' => '\b', 'f' => '\f', 'v' => '\v', '0' => '\0',
+                                '\\' => '\\', '"' => '"', _ => '\0'
+                            });
+                            // escape desconocido: conservar `\` + carácter tal cual
+                            if (e is not ('n' or 't' or 'r' or 'a' or 'b' or 'f' or 'v' or '0' or '\\' or '"'))
+                            { sb.Length--; sb.Append('\\'); sb.Append(e); }
+                            j += 2;
+                            continue;
                         }
                         if (source[j] == '\n') throw new MatlabParseException("Unterminated string", line, col);
                         sb.Append(source[j]);
@@ -299,6 +397,10 @@ namespace Calcpad.Core.Matlab
                     int j = i;
                     while (j < n && (char.IsLetterOrDigit(source[j]) || source[j] == '_')) j++;
                     var name = source[i..j];
+                    // En modo Octave, endfor/endif/endwhile/... se normalizan a `end`
+                    // para que el parser MATLAB existente los reconozca sin cambios.
+                    if (octave && _octaveBlockEnders.Contains(name))
+                        name = "end";
                     tokens.Add(new MatlabToken(MatlabTokenKind.Identifier, name, line, startCol));
                     col += j - i;
                     i = j;
@@ -310,10 +412,16 @@ namespace Calcpad.Core.Matlab
                 int saveCol = col;
                 MatlabTokenKind kind;
                 int len = 1;
+                string forcedText = null;   // texto canónico (p.ej. Octave `!=` → `~=`)
                 switch (c)
                 {
                     case '+':
                     case '-':
+                        // Octave: asignación compuesta (+=, -=) e incremento/decremento (++, --)
+                        if (octave && i + 1 < n && source[i + 1] == '=')
+                        { kind = (c == '+') ? MatlabTokenKind.PlusAssign : MatlabTokenKind.MinusAssign; len = 2; prevIsOperand = false; break; }
+                        if (octave && i + 1 < n && source[i + 1] == c)
+                        { kind = (c == '+') ? MatlabTokenKind.Increment : MatlabTokenKind.Decrement; len = 2; prevIsOperand = false; break; }
                         // Regla MATLAB del espacio-menos: dentro de [ ] o { }, si el +/-
                         // tiene espacio ANTES y NO despues, y hay operando previo,
                         // separa un nuevo elemento (unario) -> insertamos coma virtual.
@@ -327,8 +435,14 @@ namespace Calcpad.Core.Matlab
                         kind = (c == '+') ? MatlabTokenKind.Plus : MatlabTokenKind.Minus;
                         prevIsOperand = false;
                         break;
-                    case '*': kind = MatlabTokenKind.Star; prevIsOperand = false; break;
-                    case '/': kind = MatlabTokenKind.Slash; prevIsOperand = false; break;
+                    case '*':
+                        if (octave && i + 1 < n && source[i + 1] == '=')
+                        { kind = MatlabTokenKind.StarAssign; len = 2; prevIsOperand = false; break; }
+                        kind = MatlabTokenKind.Star; prevIsOperand = false; break;
+                    case '/':
+                        if (octave && i + 1 < n && source[i + 1] == '=')
+                        { kind = MatlabTokenKind.SlashAssign; len = 2; prevIsOperand = false; break; }
+                        kind = MatlabTokenKind.Slash; prevIsOperand = false; break;
                     case '\\': kind = MatlabTokenKind.Backslash; prevIsOperand = false; break;
                     case '^': kind = MatlabTokenKind.Caret; prevIsOperand = false; break;
                     case '(':
@@ -382,10 +496,20 @@ namespace Calcpad.Core.Matlab
                         if (i + 1 < n && source[i + 1] == '|')
                         { kind = MatlabTokenKind.OrShort; len = 2; prevIsOperand = false; break; }
                         kind = MatlabTokenKind.OrBit; prevIsOperand = false; break;
+                    case '!':
+                        // Octave: `!` = negación lógica (alias de ~), `!=` = distinto (alias de ~=).
+                        // Se canoniza el texto a `~`/`~=` para que el resto del motor lo trate igual.
+                        if (octave)
+                        {
+                            if (i + 1 < n && source[i + 1] == '=')
+                            { kind = MatlabTokenKind.NotEqual; len = 2; forcedText = "~="; prevIsOperand = false; break; }
+                            kind = MatlabTokenKind.Not; forcedText = "~"; prevIsOperand = false; break;
+                        }
+                        goto default;
                     default:
                         throw new MatlabParseException($"Unexpected character '{c}'", line, col);
                 }
-                tokens.Add(new MatlabToken(kind, source.Substring(i, len), line, saveCol));
+                tokens.Add(new MatlabToken(kind, forcedText ?? source.Substring(i, len), line, saveCol));
                 i += len;
                 col += len;
                 prevWasWhitespace = false;

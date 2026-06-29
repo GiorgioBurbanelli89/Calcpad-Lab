@@ -7293,6 +7293,64 @@ namespace Calcpad.Core.Matlab
                     throw new MatlabRuntimeException($"Cannot eval: {node?.GetType().Name}");
             }
         }
+        private bool _octaveMode;
+        /// <summary>Modo Octave: registra builtins que MATLAB no tiene (p.ej. <c>printf</c>).
+        /// Lo fija <see cref="MatlabPipeline"/> antes de ejecutar. Off = MATLAB estricto.</summary>
+        public bool OctaveMode
+        {
+            get => _octaveMode;
+            set
+            {
+                _octaveMode = value;
+                if (value && !_builtins.ContainsKey("printf"))
+                {
+                    // printf(fmt, ...) = fprintf(1, fmt, ...) → stdout. Octave-only.
+                    _builtins["printf"] = a =>
+                    {
+                        if (a.Length == 0 || !a[0].IsString)
+                            throw new MatlabRuntimeException("printf: falta la cadena de formato");
+                        var rest = new MValue[a.Length - 1];
+                        Array.Copy(a, 1, rest, 0, rest.Length);
+                        var text = MatlabSprintf.Format(a[0].StringValue, rest);
+                        _output?.Invoke(text);
+                        return new MValue(text.Length);
+                    };
+                    // puts(str) / fputs(fid, str): escribe la cadena tal cual (sin formato). Octave.
+                    _builtins["puts"] = a =>
+                    {
+                        if (a.Length < 1 || !a[0].IsString)
+                            throw new MatlabRuntimeException("puts: se esperaba una cadena");
+                        _output?.Invoke(a[0].StringValue);
+                        return new MValue(a[0].StringValue.Length);
+                    };
+                    _builtins["fputs"] = a =>
+                    {
+                        if (a.Length < 2 || !a[1].IsString)
+                            throw new MatlabRuntimeException("fputs: uso fputs(fid, cadena)");
+                        int fid = (int)Math.Round(a[0].Scalar);
+                        var s = a[1].StringValue;
+                        if (fid == 1 || fid == 2) _output?.Invoke(s);
+                        else if (_fileWriters.TryGetValue(fid, out var w)) w.Write(s);
+                        else throw new MatlabRuntimeException($"fputs: file id {fid} inválido");
+                        return new MValue(s.Length);
+                    };
+                    // fdisp(fid, x): como disp pero a un fid. Para stdout reutiliza disp.
+                    _builtins["fdisp"] = a =>
+                    {
+                        if (a.Length < 2) throw new MatlabRuntimeException("fdisp: uso fdisp(fid, x)");
+                        int fid = (int)Math.Round(a[0].Scalar);
+                        if (fid == 1 || fid == 2) return _builtins["disp"](new[] { a[1] });
+                        throw new MatlabRuntimeException("fdisp: solo se soporta stdout/stderr (fid 1 o 2)");
+                    };
+                    // fflush(fid): no-op (la salida no se bufferiza). Octave.
+                    _builtins["fflush"] = a => new MValue(0);
+                    // columns(x) / rows(x): dimensiones (Octave). = size(x,2) / size(x,1).
+                    _builtins["columns"] = a => new MValue(a[0].Cols);
+                    _builtins["rows"] = a => new MValue(a[0].Rows);
+                }
+            }
+        }
+
         private MValue EvalUnary(UnaryOp u, MatlabScope scope)
         {
             var x = Eval(u.Operand, scope);
@@ -7315,6 +7373,7 @@ namespace Calcpad.Core.Matlab
                 "-" => MapUnary(x, v => -v),
                 "+" => x,
                 "~" => MapUnary(x, v => v == 0 ? 1 : 0),
+                "!" => MapUnary(x, v => v == 0 ? 1 : 0),   // Octave: alias de ~
                 "'" => Transpose(x),
                 ".'" => Transpose(x),
                 _ => throw new MatlabRuntimeException($"Unsupported unary op: {u.Op}")
@@ -7815,6 +7874,7 @@ namespace Calcpad.Core.Matlab
             "-" => "uminus",
             "+" => "uplus",
             "~" => "not",
+            "!" => "not",
             "'" => "ctranspose",
             ".'" => "transpose",
             _ => null

@@ -13,8 +13,13 @@ namespace Calcpad.Core.Matlab
     {
         private readonly List<MatlabToken> _tokens;
         private int _pos;
+        private readonly bool _octave;
 
-        public MatlabParser(List<MatlabToken> tokens) { _tokens = tokens; _pos = 0; }
+        public MatlabParser(List<MatlabToken> tokens)
+        {
+            _tokens = tokens; _pos = 0;
+            _octave = MatlabTokenizer.OctaveMode;
+        }
 
         // ─── Statement-level ────────────────────────────────────────────────
         public List<MatlabNode> ParseAllStatements()
@@ -46,6 +51,20 @@ namespace Calcpad.Core.Matlab
 
         public MatlabNode ParseStatement()
         {
+            // Octave: incremento/decremento en prefijo  ++x / --x  →  x = x ± 1
+            if (_octave && (Peek().Kind == MatlabTokenKind.Increment || Peek().Kind == MatlabTokenKind.Decrement))
+            {
+                var opTok = Consume();
+                var tgt = TryParseAssignmentLhs();
+                if (tgt == null || tgt.Count != 1)
+                    throw new MatlabParseException("Se esperaba una variable tras '++'/'--'", opTok.Line, opTok.Column);
+                bool supprInc = ConsumeStatementTerminator();
+                string opInc = opTok.Kind == MatlabTokenKind.Increment ? "+" : "-";
+                var combinedInc = new BinaryOp { Op = opInc, Left = tgt[0], Right = new NumberLit { Value = 1 },
+                                                 Line = opTok.Line, Column = opTok.Column };
+                return new Assignment { Targets = tgt, Rhs = combinedInc, Suppressed = supprInc,
+                                        Line = opTok.Line, Column = opTok.Column };
+            }
             // Command-form: `syms x y z` → `syms('x', 'y', 'z')` antes de comentarios/keywords
             if (Peek().Kind == MatlabTokenKind.Identifier &&
                 _commandFormFuncs.Contains(Peek().Text) &&
@@ -87,6 +106,7 @@ namespace Calcpad.Core.Matlab
                 switch (name)
                 {
                     case "for":      return ParseForLoop();
+                    case "do":       if (_octave) return ParseDoUntil(); break;
                     case "while":    return ParseWhileLoop();
                     case "if":       return ParseIfBlock();
                     case "switch":   return ParseSwitchBlock();
@@ -113,6 +133,38 @@ namespace Calcpad.Core.Matlab
                 bool suppr = ConsumeStatementTerminator();
                 return new Assignment { Targets = lhs, Rhs = rhs, Suppressed = suppr,
                                         Line = rhs?.Line ?? 0, Column = rhs?.Column ?? 0 };
+            }
+            // Octave: asignación compuesta  a += b   y postfijo  a++ / a--  →  a = a ± 1
+            if (_octave && lhs != null && lhs.Count == 1)
+            {
+                string cop = Peek().Kind switch
+                {
+                    MatlabTokenKind.PlusAssign  => "+",
+                    MatlabTokenKind.MinusAssign => "-",
+                    MatlabTokenKind.StarAssign  => "*",
+                    MatlabTokenKind.SlashAssign => "/",
+                    _ => null
+                };
+                if (cop != null)
+                {
+                    var opTok = Consume();
+                    var crhs = ParseExpression();
+                    bool csuppr = ConsumeStatementTerminator();
+                    var combined = new BinaryOp { Op = cop, Left = lhs[0], Right = crhs,
+                                                  Line = opTok.Line, Column = opTok.Column };
+                    return new Assignment { Targets = lhs, Rhs = combined, Suppressed = csuppr,
+                                            Line = opTok.Line, Column = opTok.Column };
+                }
+                if (Peek().Kind == MatlabTokenKind.Increment || Peek().Kind == MatlabTokenKind.Decrement)
+                {
+                    var opTok = Consume();
+                    bool psuppr = ConsumeStatementTerminator();
+                    string pop = opTok.Kind == MatlabTokenKind.Increment ? "+" : "-";
+                    var combined = new BinaryOp { Op = pop, Left = lhs[0], Right = new NumberLit { Value = 1 },
+                                                  Line = opTok.Line, Column = opTok.Column };
+                    return new Assignment { Targets = lhs, Rhs = combined, Suppressed = psuppr,
+                                            Line = opTok.Line, Column = opTok.Column };
+                }
             }
             // No es asignación → expresión simple
             _pos = saved;
@@ -150,6 +202,26 @@ namespace Calcpad.Core.Matlab
             ConsumeStatementTerminator();
             return new WhileLoop { Cond = cond, Body = body,
                                    Line = hdr.Line, Column = hdr.Column };
+        }
+        // Octave:  do BODY until COND   →   while true; BODY; if COND, break; end; end
+        // (el cuerpo se ejecuta al menos una vez). Reutiliza WhileLoop + IfBlock + Break.
+        private WhileLoop ParseDoUntil()
+        {
+            var hdr = Consume(); // "do"
+            ConsumeStatementTerminator();
+            var body = ParseBlockUntil("until");
+            ExpectKeyword("until");
+            var cond = ParseExpression();
+            ConsumeStatementTerminator();
+            var loopBody = new List<MatlabNode>(body);
+            var brk = new IfBlock { Line = hdr.Line, Column = hdr.Column };
+            brk.Branches.Add((cond, new List<MatlabNode> { new BreakStmt { Line = hdr.Line, Column = hdr.Column } }));
+            loopBody.Add(brk);
+            return new WhileLoop
+            {
+                Cond = new NumberLit { Value = 1, Line = hdr.Line, Column = hdr.Column },
+                Body = loopBody, Line = hdr.Line, Column = hdr.Column
+            };
         }
         private IfBlock ParseIfBlock()
         {
@@ -619,11 +691,20 @@ namespace Calcpad.Core.Matlab
                     Consume(); // }
                     target = new CellIndex { Target = target, Args = args };
                 }
-                if (Peek().Kind != MatlabTokenKind.Assign) { _pos = saved; return null; }
+                // En modo Octave, un target simple también es válido si va seguido de una
+                // asignación compuesta (+= …) o de ++/-- (postfijo). Lo resuelve ParseStatement.
+                if (Peek().Kind != MatlabTokenKind.Assign &&
+                    !(_octave && IsCompoundOrIncrement(Peek().Kind)))
+                { _pos = saved; return null; }
                 return new List<MatlabNode> { target };
             }
             return null;
         }
+
+        private static bool IsCompoundOrIncrement(MatlabTokenKind k)
+            => k == MatlabTokenKind.PlusAssign  || k == MatlabTokenKind.MinusAssign
+            || k == MatlabTokenKind.StarAssign  || k == MatlabTokenKind.SlashAssign
+            || k == MatlabTokenKind.Increment   || k == MatlabTokenKind.Decrement;
 
         private bool ConsumeStatementTerminator()
         {

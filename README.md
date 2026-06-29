@@ -8,9 +8,25 @@ of `.cpd`. Native MATLAB engine in C#, **no MATLAB installation required**.
 > Same renderized HTML/PDF/DOCX output as Calcpad, same auto-run-on-save,
 > same template — only the input syntax is MATLAB.
 
-📥 **Download v1.0.5:** [Calcpad-Lab-Setup-1.0.19.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.19/Calcpad-Lab-Setup-1.0.19.exe) (68 MB, self-contained, no .NET required)
+📥 **Download v1.0.50:** [Calcpad-Lab-Setup-1.0.50.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/latest) (self-contained, no .NET required)
 🎬 **Video demo:** https://youtu.be/-Xcyc2SsG7s
 📁 **107 ejemplos `.m`** en 18 categorías bundleadas con el installer.
+
+---
+
+## Novedades — v1.0.50: compatibilidad Octave (2026-06-29)
+
+Modo Octave opt-in en el motor MATLAB nativo: cuando un script usa sintaxis de Octave, se aceptan
+construcciones que MATLAB estricto no tiene, sin dejar de correr el `.m` estándar:
+
+- **Builtins de Octave:** `printf` (= `fprintf(1, …)` a stdout), `puts`/`fputs`, `fdisp`, `fflush`
+  (no-op), y `columns(x)`/`rows(x)` (= `size(x,2)`/`size(x,1)`).
+- **Operadores de Octave:** `!` como alias de `~` (negación), incremento/decremento `++x`/`--x`
+  (prefijo) y `x++`/`x--` (postfijo), y asignación compuesta `a += b`, `-=`, `*=`, `/=`.
+- **Bucle `do … until COND`** (ejecuta el cuerpo al menos una vez).
+
+Cambios en `Symbolic.Core/Matlab/` (`MatlabTokenizer.cs`, `MatlabParser.cs`, `MatlabEvaluator.cs`,
+`MatlabPipeline.cs`).
 
 ---
 
@@ -65,7 +81,7 @@ And you get the same beautifully-rendered HTML/PDF as Calcpad.
 
 ## Quick start (Windows installer)
 
-1. Descargar **[Calcpad-Lab-Setup-1.0.19.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/download/v1.0.19/Calcpad-Lab-Setup-1.0.19.exe)** desde
+1. Descargar **[Calcpad-Lab-Setup-1.0.50.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/latest)** desde
    [Releases](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases).
 2. Doble-click → aceptar UAC → seguir el wizard (acepta asociación `.m` para abrir scripts con doble-click).
 3. Al primer arranque, los **107 ejemplos** se copian a `Documents\Calcpad-Lab\Examples\`.
