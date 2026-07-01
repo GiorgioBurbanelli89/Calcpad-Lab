@@ -1345,8 +1345,24 @@ namespace Calcpad.Core.Matlab
 
             // ─── Plot builtins (emiten HTML via _htmlOut) ────────────────────
             _builtins["colormap"] = a => {
-                a = DropAxes(a);   // tolerar colormap(ax, jet)
-                if (a.Length > 0 && a[0] != null) _activeColormap = a[0].IsString ? a[0].StringValue : "custom";
+                a = DropAxes(a);   // tolerar colormap(ax, jet) — ax = gca handle
+                if (a.Length > 0 && a[0] != null)
+                {
+                    if (a[0].IsString) _activeColormap = a[0].StringValue;
+                    else if (!a[0].IsStruct && a[0].Cols == 3 && a[0].Rows >= 2)
+                    {
+                        // matriz Nx3 (colormap(gca, jet(256)) / coolw(256)) -> colormap custom real
+                        var rows = new double[a[0].Rows][];
+                        for (int i = 0; i < a[0].Rows; i++)
+                            rows[i] = new[] { a[0].At(i, 0), a[0].At(i, 1), a[0].At(i, 2) };
+                        MatlabPlots.SetCustomColormap(rows);
+                        _activeColormap = "custom";
+                    }
+                    else _activeColormap = "custom";
+                    // MATLAB: colormap tras el plot lo re-colorea -> re-estilizar el ultimo plot.
+                    var restyle = MatlabPlots.RestyleLastColormap(_activeColormap);
+                    if (restyle != null) _htmlOut?.Invoke(restyle);
+                }
                 return a.Length > 0 ? a[0] : new MValue(0);
             };
             // Nombres de colormap como funciones (MATLAB): colormap(jet), colormap(jet_r) — `_r` = INVERTIDO.
@@ -1911,8 +1927,8 @@ namespace Calcpad.Core.Matlab
                 }
                 return new MValue(0);
             };
-            _builtins["gcf"] = a => new MValue(0);   // placeholder current-figure
-            _builtins["gca"] = a => new MValue(0);   // placeholder current-axes
+            _builtins["gcf"] = a => MkGfxHandle(System.Array.Empty<MValue>());   // figura actual (handle)
+            _builtins["gca"] = a => MkGfxHandle(System.Array.Empty<MValue>());   // ejes actuales (handle)
             // --- Handles de ejes / GUI (Lab usa un eje implicito; props en Fields) ---
             _builtins["axes"] = a => MkGfxHandle(a);
             _builtins["uicontrol"] = a => MkGfxHandle(a);

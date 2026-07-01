@@ -45,6 +45,239 @@ namespace Calcpad.Core.Matlab
         private static double? _figXMin, _figXMax, _figYMin, _figYMax;
         public static bool HasOpenFigure => _figTraces != null;
 
+        // ============ Renderer CANVAS/WebGL (alternativa RÁPIDA a Plotly, sin CDN) ============
+        // Se captura la MISMA geometría 3D que las trazas Plotly y, en FinishFigure, se emite un
+        // <canvas> con un mini-motor WebGL embebido (órbita con mouse). Instantáneo (no carga CDN).
+        // Plotly sigue disponible con CALCPAD_LAB_PLOTLY=1.
+        public static bool Use3DCanvas =
+            System.Environment.GetEnvironmentVariable("CALCPAD_LAB_PLOTLY") != "1";
+        private static System.Collections.Generic.List<float> _cvOpaque, _cvAlpha, _cvLines;
+        private static double _cvXmin, _cvXmax, _cvYmin, _cvYmax, _cvZmin, _cvZmax;
+        private static bool _cvAny;
+        private static double? _caxisMin, _caxisMax;
+        public static void SetCAxis(double lo, double hi) { _caxisMin = lo; _caxisMax = hi; }
+        private static void CvReset()
+        {
+            _cvOpaque = new(); _cvAlpha = new(); _cvLines = new(); _cvAny = false;
+            _cvXmin = _cvYmin = _cvZmin = double.MaxValue;
+            _cvXmax = _cvYmax = _cvZmax = double.MinValue;
+            // Escala de color por defecto [0,1] (dato FEM normalizado, como caxis([0 1]) de MATLAB).
+            // Como caxis suele llamarse DESPUÉS de dibujar, el canvas colorea con este default.
+            _caxisMin = 0; _caxisMax = 1;
+        }
+        private static void CvBound(double x, double y, double z)
+        {
+            if (x < _cvXmin) _cvXmin = x; if (x > _cvXmax) _cvXmax = x;
+            if (y < _cvYmin) _cvYmin = y; if (y > _cvYmax) _cvYmax = y;
+            if (z < _cvZmin) _cvZmin = z; if (z > _cvZmax) _cvZmax = z; _cvAny = true;
+        }
+        private static void CvV(System.Collections.Generic.List<float> L, double x, double y, double z, float[] c, float? a)
+        {
+            L.Add((float)x); L.Add((float)y); L.Add((float)z); L.Add(c[0]); L.Add(c[1]); L.Add(c[2]);
+            if (a.HasValue) L.Add(a.Value); CvBound(x, y, z);
+        }
+        // Triángulo: opaco si alpha≈1 (stride 6), si no a _cvAlpha (stride 7).
+        private static void CvTri(double x0, double y0, double z0, float[] c0,
+                                  double x1, double y1, double z1, float[] c1,
+                                  double x2, double y2, double z2, float[] c2, double alpha)
+        {
+            if (_cvOpaque == null) return;
+            if (alpha >= 0.995)
+            { CvV(_cvOpaque, x0, y0, z0, c0, null); CvV(_cvOpaque, x1, y1, z1, c1, null); CvV(_cvOpaque, x2, y2, z2, c2, null); }
+            else
+            { float a = (float)alpha; CvV(_cvAlpha, x0, y0, z0, c0, a); CvV(_cvAlpha, x1, y1, z1, c1, a); CvV(_cvAlpha, x2, y2, z2, c2, a); }
+        }
+        private static void CvLine(double x0, double y0, double z0, double x1, double y1, double z1, float[] c)
+        { if (_cvLines == null) return; CvV(_cvLines, x0, y0, z0, c, null); CvV(_cvLines, x1, y1, z1, c, null); }
+        private static float[] JetF(double t)
+        { var c = JetRgb(Math.Max(0, Math.Min(1, t))); return new[] { c.Item1 / 255f, c.Item2 / 255f, c.Item3 / 255f }; }
+        // Colormap CUSTOM: cuando el script hace colormap(gca, M) con M una matriz Nx3,
+        // se guarda aqui (JSON Plotly compacto + filas RGB para el canvas). null = sin custom.
+        private static string _customColorscaleJson;
+        private static float[][] _customCmapRgb;
+        private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
+
+        /// <summary>Registra un colormap a partir de una matriz Nx3 (filas RGB 0..1), como
+        /// <c>colormap(gca, jet(256))</c>. Construye el colorscale de Plotly (compacto) y las
+        /// filas para el renderer canvas.</summary>
+        public static void SetCustomColormap(double[][] rows)
+        {
+            if (rows == null || rows.Length < 2) return;
+            int n = rows.Length;
+            _customCmapRgb = new float[n][];
+            for (int i = 0; i < n; i++)
+                _customCmapRgb[i] = new[] { (float)Clamp01(rows[i][0]), (float)Clamp01(rows[i][1]), (float)Clamp01(rows[i][2]) };
+            // Colorscale Plotly: muestrear <=17 paradas para no inflar el HTML.
+            int m = Math.Min(n, 17);
+            var sb = new StringBuilder("[");
+            for (int k = 0; k < m; k++)
+            {
+                int i = (int)Math.Round((double)k / (m - 1) * (n - 1));
+                double t = (double)k / (m - 1);
+                if (k > 0) sb.Append(',');
+                sb.Append('[').Append(t.ToString("0.####", Inv)).Append(",\"rgb(")
+                  .Append((int)Math.Round(Clamp01(rows[i][0]) * 255)).Append(',')
+                  .Append((int)Math.Round(Clamp01(rows[i][1]) * 255)).Append(',')
+                  .Append((int)Math.Round(Clamp01(rows[i][2]) * 255)).Append(")\"]");
+            }
+            sb.Append(']');
+            _customColorscaleJson = sb.ToString();
+        }
+
+        /// <summary>Valor de <c>colorscale:</c> para Plotly: nombre entre comillas ('Jet') o,
+        /// si el colormap activo es "custom", el array de paradas (sin comillas).</summary>
+        private static string ColorscaleJs(string colormap)
+        {
+            if (string.Equals(colormap, "custom", StringComparison.OrdinalIgnoreCase) && _customColorscaleJson != null)
+                return _customColorscaleJson;
+            return "'" + ColormapToPlotly(colormap) + "'";
+        }
+
+        /// <summary>MATLAB permite <c>contourf(...); colormap(gca, cm);</c> — el colormap se
+        /// aplica al plot YA dibujado. Como Lab emite cada plot de inmediato, este script
+        /// re-estiliza el ULTIMO plot Plotly con el colormap dado (Plotly.restyle). Devuelve
+        /// null si aun no hay ningun plot.</summary>
+        public static string RestyleLastColormap(string colormap)
+        {
+            if (_plotCounter <= 0) return null;
+            string rev = ColormapReversed(colormap) ? "true" : "false";
+            return $"<script>setTimeout(function(){{try{{Plotly.restyle('matlab_plot_{_plotCounter}'," +
+                   $"{{colorscale:[{ColorscaleJs(colormap)}],reversescale:[{rev}]}});}}catch(e){{}}}},60);</script>\n";
+        }
+
+        private static float[] SampleCustom(double t)
+        {
+            var mm = _customCmapRgb; int n = mm.Length;
+            double f = Math.Max(0, Math.Min(1, t)) * (n - 1);
+            int i0 = (int)Math.Floor(f);
+            if (i0 >= n - 1) return mm[n - 1];
+            double a = f - i0;
+            return new[] { (float)(mm[i0][0]*(1-a)+mm[i0+1][0]*a),
+                           (float)(mm[i0][1]*(1-a)+mm[i0+1][1]*a),
+                           (float)(mm[i0][2]*(1-a)+mm[i0+1][2]*a) };
+        }
+
+        private static float[] CmapF(string name, double t)
+        {
+            t = Math.Max(0, Math.Min(1, t));
+            var nm = (name ?? "jet").ToLowerInvariant();
+            if (nm == "custom" && _customCmapRgb != null) return SampleCustom(t);
+            if (nm.EndsWith("_r")) { nm = nm.Substring(0, nm.Length - 2); t = 1 - t; }   // jet_r etc.
+            switch (nm)
+            {
+                case "jet": { var c = JetRgb(t); return new[] { c.Item1 / 255f, c.Item2 / 255f, c.Item3 / 255f }; }
+                default: { var c = ViridisRgb(t); return new[] { c.Item1 / 255f, c.Item2 / 255f, c.Item3 / 255f }; }
+            }
+        }
+        // Convierte "rgb(r,g,b)" | "#rrggbb" | nombre → floats 0..1.
+        private static float[] CssToRgbF(string css)
+        {
+            if (string.IsNullOrEmpty(css)) return new[] { 0.6f, 0.6f, 0.65f };
+            css = css.Trim();
+            if (css.StartsWith("rgb", System.StringComparison.OrdinalIgnoreCase))
+            {
+                int p = css.IndexOf('('), q = css.IndexOf(')');
+                if (p >= 0 && q > p)
+                {
+                    var parts = css.Substring(p + 1, q - p - 1).Split(',');
+                    if (parts.Length >= 3 &&
+                        int.TryParse(parts[0].Trim(), out int r) &&
+                        int.TryParse(parts[1].Trim(), out int g) &&
+                        int.TryParse(parts[2].Trim(), out int b))
+                        return new[] { r / 255f, g / 255f, b / 255f };
+                }
+            }
+            if (css.StartsWith("#") && css.Length >= 7)
+            {
+                try
+                {
+                    int r = System.Convert.ToInt32(css.Substring(1, 2), 16);
+                    int g = System.Convert.ToInt32(css.Substring(3, 2), 16);
+                    int b = System.Convert.ToInt32(css.Substring(5, 2), 16);
+                    return new[] { r / 255f, g / 255f, b / 255f };
+                }
+                catch { }
+            }
+            switch (css.ToLowerInvariant())
+            {
+                case "red": return new[] { 0.85f, 0.15f, 0.15f };
+                case "green": return new[] { 0.15f, 0.6f, 0.15f };
+                case "blue": return new[] { 0.15f, 0.2f, 0.85f };
+                case "black": case "k": return new[] { 0.1f, 0.1f, 0.1f };
+                case "white": return new[] { 0.95f, 0.95f, 0.95f };
+                case "gray": case "grey": return new[] { 0.5f, 0.5f, 0.5f };
+                default: return new[] { 0.6f, 0.6f, 0.65f };
+            }
+        }
+
+        private static string FloatCsv(System.Collections.Generic.List<float> L)
+        {
+            var sb = new StringBuilder(L.Count * 5);
+            for (int i = 0; i < L.Count; i++) { if (i > 0) sb.Append(','); sb.Append(L[i].ToString("0.####", Inv)); }
+            return sb.ToString();
+        }
+        private static string FinishFigureCanvas()
+        {
+            int id = _figId;
+            double x0 = _cvXmin, x1 = _cvXmax, y0 = _cvYmin, y1 = _cvYmax, z0 = _cvZmin, z1 = _cvZmax;
+            if (x1 - x0 < 1e-9) { x0 -= 0.5; x1 += 0.5; }
+            if (y1 - y0 < 1e-9) { y0 -= 0.5; y1 += 0.5; }
+            if (z1 - z0 < 1e-9) { z0 -= 0.5; z1 += 0.5; }
+            var sb = new StringBuilder();
+            sb.Append(Lab3dRenderer);
+            sb.Append($"<div class=\"matlab-plot\" style=\"width:720px;height:560px\"><canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:720px;height:560px;border:1px solid #333;background:#15171c;cursor:grab\"></canvas></div>\n");
+            sb.Append("<script>(function(){LAB3D.make(document.getElementById('lab3d_").Append(id).Append("'),[");
+            sb.Append(FloatCsv(_cvOpaque)).Append("],[").Append(FloatCsv(_cvAlpha)).Append("],[").Append(FloatCsv(_cvLines)).Append("],[");
+            sb.Append(x0.ToString(Inv)).Append(',').Append(x1.ToString(Inv)).Append(',')
+              .Append(y0.ToString(Inv)).Append(',').Append(y1.ToString(Inv)).Append(',')
+              .Append(z0.ToString(Inv)).Append(',').Append(z1.ToString(Inv)).Append("]);})();</script>\n");
+            return sb.ToString();
+        }
+        // Mini-motor WebGL embebido (una sola vez por página, guard window.LAB3D). Órbita con mouse.
+        private const string Lab3dRenderer = @"<script>window.LAB3D=window.LAB3D||(function(){
+function mul(a,b){var r=new Float32Array(16),i,j,k;for(i=0;i<4;i++)for(j=0;j<4;j++){var s=0;for(k=0;k<4;k++)s+=a[k*4+i]*b[j*4+k];r[j*4+i]=s;}return r;}
+function persp(fy,as,n,f){var t=1/Math.tan(fy/2);return new Float32Array([t/as,0,0,0,0,t,0,0,0,0,(f+n)/(n-f),-1,0,0,2*f*n/(n-f),0]);}
+function tr(x,y,z){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1]);}
+function rx(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,0,c,s,0,0,-s,c,0,0,0,0,1]);}
+function rz(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,s,0,0,-s,c,0,0,0,0,1,0,0,0,0,1]);}
+function sh(gl,t,src){var o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o;}
+function make(cv,op,al,ln,bb){
+var gl=cv.getContext('webgl',{antialias:true});if(!gl){cv.parentNode.innerHTML='<div style=color:#a00>WebGL no disponible</div>';return;}
+gl.getExtension('OES_standard_derivatives');
+var vs='attribute vec3 p;attribute vec4 c;uniform mat4 m;varying vec4 v;varying vec3 w;void main(){gl_Position=m*vec4(p,1.0);v=c;w=p;}';
+var fs='#extension GL_OES_standard_derivatives:enable\nprecision mediump float;varying vec4 v;varying vec3 w;uniform float lit;void main(){vec3 col=v.rgb;if(lit>0.5){vec3 N=normalize(cross(dFdx(w),dFdy(w)));float d=0.5+0.5*abs(dot(N,normalize(vec3(0.4,0.5,0.85))));col=col*d;}gl_FragColor=vec4(col,v.a);}';
+var pr=gl.createProgram();gl.attachShader(pr,sh(gl,gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl,gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
+var lp=gl.getAttribLocation(pr,'p'),lc=gl.getAttribLocation(pr,'c'),lm=gl.getUniformLocation(pr,'m'),ll=gl.getUniformLocation(pr,'lit');
+function B(a){var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(a),gl.STATIC_DRAW);return b;}
+var ob=B(op),ab=B(al),lb=B(ln),nO=op.length/6,nA=al.length/7,nL=ln.length/6;
+var box=[],e=[[0,0,0,1,0,0],[1,0,0,1,1,0],[1,1,0,0,1,0],[0,1,0,0,0,0],[0,0,1,1,0,1],[1,0,1,1,1,1],[1,1,1,0,1,1],[0,1,1,0,0,1],[0,0,0,0,0,1],[1,0,0,1,0,1],[1,1,0,1,1,1],[0,1,0,0,1,1]];
+for(var q=0;q<e.length;q++){var s=e[q];box.push(bb[0]+s[0]*(bb[1]-bb[0]),bb[2]+s[1]*(bb[3]-bb[2]),bb[4]+s[2]*(bb[5]-bb[4]),0.30,0.32,0.36,bb[0]+s[3]*(bb[1]-bb[0]),bb[2]+s[4]*(bb[3]-bb[2]),bb[4]+s[5]*(bb[5]-bb[4]),0.30,0.32,0.36);}
+var bxb=B(box),nB=box.length/6;
+var cx=(bb[0]+bb[1])/2,cy=(bb[2]+bb[3])/2,cz=(bb[4]+bb[5])/2,dx=bb[1]-bb[0],dy=bb[3]-bb[2],dz=bb[5]-bb[4];
+var st={az:-0.7,el:0.35,dist:1.7*Math.sqrt(dx*dx+dy*dy+dz*dz)||3};
+gl.enable(gl.DEPTH_TEST);
+function bind(buf,stride,csz){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,csz,gl.FLOAT,false,stride,12);}
+function draw(){
+gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0.08,0.09,0.11,1.0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul(mul(rx(st.el-1.5708),rz(st.az)),tr(-cx,-cy,-cz))));
+gl.uniformMatrix4fv(lm,false,M);
+gl.uniform1f(ll,0.0);
+if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}
+gl.uniform1f(ll,1.0);gl.disable(gl.BLEND);gl.depthMask(true);
+if(nO>0){bind(ob,24,3);gl.drawArrays(gl.TRIANGLES,0,nO);}
+if(nA>0){bind(ab,28,4);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,nA);gl.depthMask(true);gl.disable(gl.BLEND);}
+}
+draw();
+var dr=false,mx=0,my=0;
+cv.addEventListener('mousedown',function(ev){dr=true;mx=ev.clientX;my=ev.clientY;cv.style.cursor='grabbing';});
+window.addEventListener('mouseup',function(){dr=false;cv.style.cursor='grab';});
+window.addEventListener('mousemove',function(ev){if(!dr)return;st.az+=(ev.clientX-mx)*0.01;st.el+=(ev.clientY-my)*0.01;if(st.el>1.55)st.el=1.55;if(st.el<-1.55)st.el=-1.55;mx=ev.clientX;my=ev.clientY;draw();});
+cv.addEventListener('wheel',function(ev){st.dist*=ev.deltaY>0?1.1:0.9;draw();ev.preventDefault();});
+}
+return {make:make};
+})();</script>
+";
+
         /// <summary>Comienza nueva figura. Devuelve el HTML del anterior figura (si la había) para emitirlo.</summary>
         public static string BeginFigure()
         {
@@ -54,6 +287,7 @@ namespace Calcpad.Core.Matlab
             _figPrims = new System.Collections.Generic.List<FigPrim>();
             _figId = ++_plotCounter;
             _figIs3D = false;
+            CvReset();
             _figTitle = "";
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
@@ -75,6 +309,13 @@ namespace Calcpad.Core.Matlab
                 string svgInner = ExportSvg(760, 580);
                 _figTraces = null; _figAnnotations = null; _figPrims = null;
                 return svgInner == null ? "" : $"<div class=\"matlab-plot matlab-svg\">{svgInner}</div>\n";
+            }
+            // RENDER 3D vía CANVAS/WebGL (rápido, sin CDN) si está habilitado y hay geometría.
+            if (_figIs3D && Use3DCanvas && _cvAny)
+            {
+                string canvasHtml = FinishFigureCanvas();
+                _figTraces = null; _figAnnotations = null; _figPrims = null;
+                return canvasHtml;
             }
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{_figId}\" class=\"matlab-plot\" style=\"width:720px;height:560px\"></div>\n");
@@ -169,7 +410,7 @@ namespace Calcpad.Core.Matlab
         /// <param name="colorMode">"interp" (nodal), "flat" (por elemento), o "uniform" (color sólido).</param>
         public static void PatchMesh(MValue faces, MValue verts, MValue cdata, string colorMode,
                                       string faceColor, string edgeColor, double faceAlpha, double lineWidth,
-                                      string colormap)
+                                      string colormap, bool quadSplit = false)
         {
             int nF = faces.Rows;
             int nV = verts.Rows;
@@ -230,7 +471,7 @@ namespace Calcpad.Core.Matlab
                 {
                     sb.Append($", intensity:[{Csv(cdata)}]");
                     sb.Append($", intensitymode:'{(colorMode == "flat" ? "cell" : "vertex")}'");
-                    sb.Append($", colorscale:'{ColormapToPlotly(colormap)}'");
+                    sb.Append($", colorscale:{ColorscaleJs(colormap)}");
                     sb.Append($", reversescale:{(ColormapReversed(colormap) ? "true" : "false")}");
                     sb.Append(", showscale:true");
                 }
@@ -244,11 +485,57 @@ namespace Calcpad.Core.Matlab
             sb.Append(", lightposition:{x:200, y:200, z:200}");
             sb.Append("}");
             AddTrace(sb.ToString());
+            // --- geometría CANVAS: un triángulo por cara, coloreado como en Plotly ---
+            if (is3D)
+            {
+                float[] solid = CssToRgbF(faceColor);
+                bool useC = cdata != null && (colorMode == "interp" || colorMode == "flat");
+                double cmin = 0, cmax = 1, rng = 1;
+                if (useC)
+                {
+                    cmin = double.MaxValue; cmax = double.MinValue;
+                    for (int t = 0; t < cdata.Data.Length; t++) { if (cdata.Data[t] < cmin) cmin = cdata.Data[t]; if (cdata.Data[t] > cmax) cmax = cdata.Data[t]; }
+                    rng = (cmax - cmin) > 1e-12 ? cmax - cmin : 1;
+                }
+                float[] VC(int vi, int fi)
+                {
+                    if (!useC) return solid;
+                    if (colorMode == "flat" && cdata.Data.Length == nF) return CmapF(colormap, (cdata.Data[fi] - cmin) / rng);
+                    if (vi < cdata.Data.Length) return CmapF(colormap, (cdata.Data[vi] - cmin) / rng);
+                    return solid;
+                }
+                for (int f = 0; f < nF; f++)
+                {
+                    int a = iArr[f], b = jArr[f], c = kArr[f];
+                    CvTri(xArr[a], yArr[a], zArr[a], VC(a, f), xArr[b], yArr[b], zArr[b], VC(b, f), xArr[c], yArr[c], zArr[c], VC(c, f), faceAlpha);
+                }
+            }
             // Edges (wireframe) si edgeColor distinto a 'none'
             if (edgeColor != "none" && lineWidth > 0)
             {
                 // Emitir como scatter3d/scatter de aristas
                 EmitMeshEdges(xArr, yArr, zArr, iArr, jArr, kArr, edgeColor, lineWidth, is3D);
+                // --- geometría CANVAS: aristas de la malla ---
+                if (is3D)
+                {
+                    float[] ec = CssToRgbF(edgeColor);
+                    for (int f = 0; f < nF; f++)
+                    {
+                        int a = iArr[f], b = jArr[f], c = kArr[f];
+                        // Q4 dividido en 2 T3 → pares (v1,v2,v3),(v1,v3,v4): omitir la diagonal
+                        // compartida (v1,v3) para que el pedestal muestre rectángulos, no X.
+                        if (quadSplit && (f % 2) == 0)
+                        { CvLine(xArr[a], yArr[a], zArr[a], xArr[b], yArr[b], zArr[b], ec); CvLine(xArr[b], yArr[b], zArr[b], xArr[c], yArr[c], zArr[c], ec); }
+                        else if (quadSplit)
+                        { CvLine(xArr[b], yArr[b], zArr[b], xArr[c], yArr[c], zArr[c], ec); CvLine(xArr[c], yArr[c], zArr[c], xArr[a], yArr[a], zArr[a], ec); }
+                        else
+                        {
+                            CvLine(xArr[a], yArr[a], zArr[a], xArr[b], yArr[b], zArr[b], ec);
+                            CvLine(xArr[b], yArr[b], zArr[b], xArr[c], yArr[c], zArr[c], ec);
+                            CvLine(xArr[c], yArr[c], zArr[c], xArr[a], yArr[a], zArr[a], ec);
+                        }
+                    }
+                }
             }
             if (is3D) _figIs3D = true;
         }
@@ -597,7 +884,7 @@ namespace Calcpad.Core.Matlab
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'surface', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")},\n");
+            sb.Append($"    type: 'surface', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")},\n");
             sb.Append($"    x: {EmitMatrixJs(X)},\n");
             sb.Append($"    y: {EmitMatrixJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
@@ -605,6 +892,113 @@ namespace Calcpad.Core.Matlab
             sb.Append($"  var layout = {{ title: '{title}', margin: {{l:40,r:40,t:40,b:40}}, scene: {{xaxis:{{title:'X'}}, yaxis:{{title:'Y'}}, zaxis:{{title:'Z'}}}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
+            return sb.ToString();
+        }
+
+        /// <summary>surf() COMPUESTO: agrega un trace 'surface' a la figura abierta (misma escena 3D
+        /// que los patch/mesh3d), para que un script con hold on componga columna+placa+pernos+... en
+        /// UNA escena (como MATLAB). Soporta color por C (FaceColor interp), color sólido (FaceColor rgb),
+        /// transparencia (FaceAlpha) y sin aristas (EdgeColor none). Si no hay figura, abre una.</summary>
+        public static void AddSurf3D(MValue X, MValue Y, MValue Z, MValue C, string colormap,
+            string faceColorMode, string faceColorCss, double faceAlpha, string edgeColor)
+        {
+            if (_figTraces == null) BeginFigure();
+            ValidateGrid(X, Y, Z);
+            var sb = new StringBuilder();
+            sb.Append("{type:'surface'");
+            sb.Append($", x:{EmitMatrixJs(X)}, y:{EmitMatrixJs(Y)}, z:{EmitMatrixJs(Z)}");
+            sb.Append($", opacity:{faceAlpha.ToString(Inv)}");
+            sb.Append(", showscale:false");
+            if (faceColorMode == "uniform" && faceColorCss != null)
+            {
+                // Color SÓLIDO (FaceColor [r g b]): surfacecolor constante + colorscale de un color.
+                sb.Append($", surfacecolor:{ConstMatrixJs(Z.Rows, Z.Cols)}");
+                sb.Append($", cmin:0, cmax:1, colorscale:[[0,'{faceColorCss}'],[1,'{faceColorCss}']]");
+            }
+            else if (C != null)
+            {
+                // Color por C (FaceColor 'interp' con datos, p.ej. von Mises de la columna).
+                sb.Append($", surfacecolor:{EmitMatrixJs(C)}");
+                sb.Append($", colorscale:{ColorscaleJs(colormap)}, reversescale:{(ColormapReversed(colormap) ? "true" : "false")}");
+            }
+            else
+            {
+                // Color por Z (default).
+                sb.Append($", colorscale:{ColorscaleJs(colormap)}, reversescale:{(ColormapReversed(colormap) ? "true" : "false")}");
+            }
+            // EdgeColor none → sin retícula de contorno sobre la superficie.
+            if (edgeColor == "none")
+                sb.Append(", contours:{x:{highlight:false},y:{highlight:false},z:{highlight:false}}");
+            sb.Append(", lighting:{ambient:0.6, diffuse:0.8, specular:0.2, roughness:0.5}");
+            sb.Append(", lightposition:{x:200, y:200, z:200}");
+            sb.Append("}");
+            AddTrace(sb.ToString());
+            _figIs3D = true;
+            // --- geometría para el renderer CANVAS (mismos quads, coloreados en C#) ---
+            int R = Z.Rows, Cc = Z.Cols;
+            if (R > 1 && Cc > 1 && X.Rows == R && X.Cols == Cc && Y.Rows == R && Y.Cols == Cc)
+            {
+                float[] solid = (faceColorMode == "uniform" && faceColorCss != null) ? CssToRgbF(faceColorCss) : null;
+                MValue col = C ?? Z;
+                double cmin, cmax;
+                if (solid == null && _caxisMin.HasValue) { cmin = _caxisMin.Value; cmax = _caxisMax.Value; }
+                else { cmin = double.MaxValue; cmax = double.MinValue; for (int t = 0; t < col.Data.Length; t++) { if (col.Data[t] < cmin) cmin = col.Data[t]; if (col.Data[t] > cmax) cmax = col.Data[t]; } }
+                double rng = (cmax - cmin) > 1e-12 ? cmax - cmin : 1;
+                float[] Col(int i, int j) => solid ?? CmapF(colormap, (col.At(i, j) - cmin) / rng);
+                for (int i = 0; i < R - 1; i++)
+                    for (int j = 0; j < Cc - 1; j++)
+                    {
+                        float[] ca = Col(i, j), cb = Col(i, j + 1), cc = Col(i + 1, j + 1), cd = Col(i + 1, j);
+                        CvTri(X.At(i, j), Y.At(i, j), Z.At(i, j), ca,
+                              X.At(i, j + 1), Y.At(i, j + 1), Z.At(i, j + 1), cb,
+                              X.At(i + 1, j + 1), Y.At(i + 1, j + 1), Z.At(i + 1, j + 1), cc, faceAlpha);
+                        CvTri(X.At(i, j), Y.At(i, j), Z.At(i, j), ca,
+                              X.At(i + 1, j + 1), Y.At(i + 1, j + 1), Z.At(i + 1, j + 1), cc,
+                              X.At(i + 1, j), Y.At(i + 1, j), Z.At(i + 1, j), cd, faceAlpha);
+                    }
+            }
+        }
+
+        /// <summary>Polígono 3D plano (patch con XData/YData/ZData) compuesto en la escena — arandelas,
+        /// tuercas y discos de los pernos. Triangula en abanico desde el vértice 0.</summary>
+        public static void Patch3DPolygon(double[] x, double[] y, double[] z, string faceColor, string edgeColor, double alpha)
+        {
+            if (_figTraces == null) BeginFigure();
+            int n = x.Length;
+            if (n < 3) return;
+            // Broadcast de ZData escalar (p.ej. 'ZData', zTop) a la longitud del polígono.
+            if (z.Length == 1 && n > 1) { var zb = new double[n]; for (int t = 0; t < n; t++) zb[t] = z[0]; z = zb; }
+            if (z.Length < n) return;
+            var iArr = new int[n - 2]; var jArr = new int[n - 2]; var kArr = new int[n - 2];
+            for (int f = 0; f < n - 2; f++) { iArr[f] = 0; jArr[f] = f + 1; kArr[f] = f + 2; }
+            var sb = new StringBuilder();
+            sb.Append("{type:'mesh3d'");
+            sb.Append($", x:[{Csv(x)}], y:[{Csv(y)}], z:[{Csv(z)}]");
+            sb.Append($", i:[{IntCsv(iArr)}], j:[{IntCsv(jArr)}], k:[{IntCsv(kArr)}]");
+            sb.Append($", opacity:{alpha.ToString(Inv)}");
+            sb.Append($", color:'{faceColor}'");
+            sb.Append(", lighting:{ambient:0.6, diffuse:0.8, specular:0.2, roughness:0.5}");
+            sb.Append("}");
+            AddTrace(sb.ToString());
+            _figIs3D = true;
+            // --- geometría CANVAS: abanico de triángulos de color sólido ---
+            float[] fc = CssToRgbF(faceColor);
+            for (int f = 0; f < n - 2; f++)
+                CvTri(x[0], y[0], z[0], fc, x[f + 1], y[f + 1], z[f + 1], fc, x[f + 2], y[f + 2], z[f + 2], fc, alpha);
+        }
+
+        /// <summary>Matriz JS rows×cols de ceros (para surfacecolor de color sólido).</summary>
+        private static string ConstMatrixJs(int rows, int cols)
+        {
+            var sb = new StringBuilder("[");
+            for (int i = 0; i < rows; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append('[');
+                for (int j = 0; j < cols; j++) { if (j > 0) sb.Append(','); sb.Append('0'); }
+                sb.Append(']');
+            }
+            sb.Append(']');
             return sb.ToString();
         }
 
@@ -617,7 +1011,7 @@ namespace Calcpad.Core.Matlab
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'contour', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, ncontours: {nLevels}, contours: {{coloring: 'fill'}},\n");
+            sb.Append($"    type: 'contour', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, ncontours: {nLevels}, contours: {{coloring: 'fill'}},\n");
             sb.Append($"    x: {EmitRowJs(X, true)},\n");
             sb.Append($"    y: {EmitColJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
@@ -634,7 +1028,7 @@ namespace Calcpad.Core.Matlab
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
-            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
+            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'imagesc', margin:{{l:40,r:40,t:40,b:40}}, yaxis: {{autorange:'reversed'}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
@@ -790,7 +1184,7 @@ namespace Calcpad.Core.Matlab
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
-            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: '{ColormapToPlotly(colormap)}', reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
+            sb.Append($"  var data = [{{ type: 'heatmap', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'heatmap', margin:{{l:50,r:30,t:40,b:50}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
