@@ -65,6 +65,9 @@ namespace Calcpad.Core.Matlab
         /// <summary>Si no-null, este MValue es un containers.Map (clave canonica string -> valor).</summary>
         public Dictionary<string, MValue> MapData;
         public bool IsMap => MapData != null;
+        /// <summary>True si es un handle de gráficos (axes/figure/uicontrol). Lab usa un eje implícito;
+        /// las propiedades del handle (Value, Min, Max…) se guardan en Fields.</summary>
+        public bool IsGfxHandle;
 
         public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null && MapData == null;
         public bool IsCallable => Callable != null;
@@ -505,8 +508,15 @@ namespace Calcpad.Core.Matlab
             };
             // hypot(a,b) = sqrt(a^2+b^2) element-wise (sin overflow conceptual; MATLAB-compat)
             _builtins["hypot"] = a => MapBinary(a[0], a[1], (x, y) => Math.Sqrt(x * x + y * y));
-            // caxis: limites de color de un eje. En Lab/Plotly es no-op (no rompe el script).
-            _builtins["caxis"] = a => new MValue(0);
+            // caxis/clim: límites de color del eje. Se usan para normalizar el colormap del
+            // renderer CANVAS igual que MATLAB (caxis([0 1]) → todo el rango jet en [0,1]).
+            _builtins["caxis"] = a => {
+                a = DropAxes(a);
+                if (a.Length >= 1 && a[0].Rows * a[0].Cols >= 2) MatlabPlots.SetCAxis(a[0].Data[0], a[0].Data[1]);
+                else if (a.Length >= 2) MatlabPlots.SetCAxis(a[0].Scalar, a[1].Scalar);
+                return new MValue(0);
+            };
+            _builtins["clim"] = _builtins["caxis"];
             _builtins["nnz"] = a => {
                 if (a[0].IsSparseReal) return new MValue(a[0].SparseVals.Length);
                 int count = 0;
@@ -796,6 +806,24 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["length"] = a => new MValue(Math.Max(a[0].Rows, a[0].Cols));
             _builtins["numel"] = a => new MValue(a[0].Rows * a[0].Cols);
+            // isequal(A,B,...): 1 si TODOS los argumentos tienen igual tamaño y elementos.
+            _builtins["isequal"] = a => {
+                if (a.Length < 2) return new MValue(1);
+                for (int q = 1; q < a.Length; q++)
+                {
+                    var A0 = a[0]; var Bq = a[q];
+                    if (A0.IsString || Bq.IsString)
+                    {
+                        if (!(A0.IsString && Bq.IsString) || A0.StringValue != Bq.StringValue) return new MValue(0);
+                        continue;
+                    }
+                    if (A0.Rows != Bq.Rows || A0.Cols != Bq.Cols) return new MValue(0);
+                    if (A0.Data.Length != Bq.Data.Length) return new MValue(0);
+                    for (int t = 0; t < A0.Data.Length; t++)
+                        if (A0.Data[t] != Bq.Data[t]) return new MValue(0);
+                }
+                return new MValue(1);
+            };
             _builtins["zeros"] = a => MakeFill(a, 0);
             _builtins["ones"] = a => MakeFill(a, 1);
             // ─── FEM pattern fusion kernels (Calcpad-Lab specific) ────────
@@ -1317,6 +1345,7 @@ namespace Calcpad.Core.Matlab
 
             // ─── Plot builtins (emiten HTML via _htmlOut) ────────────────────
             _builtins["colormap"] = a => {
+                a = DropAxes(a);   // tolerar colormap(ax, jet)
                 if (a.Length > 0 && a[0] != null) _activeColormap = a[0].IsString ? a[0].StringValue : "custom";
                 return a.Length > 0 ? a[0] : new MValue(0);
             };
@@ -1349,15 +1378,42 @@ namespace Calcpad.Core.Matlab
                 };
             }
             _builtins["surf"] = a => {
-                MValue X, Y, Z;
-                if (a.Length >= 3) { X = a[0]; Y = a[1]; Z = a[2]; }
-                else if (a.Length == 1) {
+                a = DropAxes(a);   // tolerar surf(ax, …)
+                MValue X, Y, Z, C = null;
+                if (a.Length >= 3 && !a[0].IsString && !a[1].IsString && !a[2].IsString) { X = a[0]; Y = a[1]; Z = a[2]; }
+                else if (a.Length >= 1 && !a[0].IsString) {
                     Z = a[0];
                     X = new MValue(Z.Rows, Z.Cols); Y = new MValue(Z.Rows, Z.Cols);
                     for (int i = 0; i < Z.Rows; i++) for (int j = 0; j < Z.Cols; j++) { X.Set(i, j, j+1); Y.Set(i, j, i+1); }
                 }
                 else throw new MatlabRuntimeException("surf requires 1 or 3 args");
-                _htmlOut?.Invoke(MatlabPlots.Surf(X, Y, Z, _activeColormap, "surf"));
+                // 4º positional = C (datos de color) si es matriz (no string de opción)
+                int opt = (a.Length >= 3 && !a[0].IsString) ? 3 : 1;
+                if (opt < a.Length && !a[opt].IsString) { C = a[opt]; opt++; }
+                // Opciones name-value: FaceColor / EdgeColor / FaceAlpha
+                string faceColorMode = "colormap"; string faceColorCss = null; double faceAlpha = 1; string edgeColor = "";
+                for (int i = opt; i + 1 < a.Length; i += 2)
+                {
+                    if (!a[i].IsString) continue;
+                    string key = a[i].StringValue.ToLowerInvariant(); var val = a[i + 1];
+                    switch (key)
+                    {
+                        case "facecolor":
+                            if (val.IsString) { var sv = val.StringValue.ToLowerInvariant(); if (sv == "interp" || sv == "flat") faceColorMode = "interp"; else { faceColorCss = MatlabColorToJs(val.StringValue); faceColorMode = "uniform"; } }
+                            else if (val.Rows == 1 && val.Cols == 3) { faceColorCss = RgbVecToCss(val); faceColorMode = "uniform"; }
+                            break;
+                        case "edgecolor":
+                            edgeColor = val.IsString ? MatlabColorToJs(val.StringValue) : (val.Rows == 1 && val.Cols == 3 ? RgbVecToCss(val) : edgeColor);
+                            break;
+                        case "facealpha": faceAlpha = val.Scalar; break;
+                    }
+                }
+                // Con figura abierta (hold on) → COMPONER en la misma escena 3D (como MATLAB).
+                // Sin figura → surf standalone (comportamiento previo).
+                if (MatlabPlots.HasOpenFigure)
+                    MatlabPlots.AddSurf3D(X, Y, Z, C, _activeColormap, faceColorMode, faceColorCss, faceAlpha, edgeColor);
+                else
+                    _htmlOut?.Invoke(MatlabPlots.Surf(X, Y, Z, _activeColormap, "surf"));
                 return new MValue(0);
             };
             _builtins["mesh"] = _builtins["surf"];  // wireframe = surf MVP
@@ -1378,6 +1434,7 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["plot"] = a => {
+                a = DropAxes(a);   // tolerar plot(ax, …)
                 // plot(Y) | plot(X,Y) | plot(X,Y,'spec') | + name-value (Color, LineWidth,
                 // MarkerFaceColor, MarkerEdgeColor, MarkerSize). Respeta el linespec ('o','^','-',...)
                 // y, si hay figura abierta, COMPONE en los mismos ejes que patch/line/text.
@@ -1541,6 +1598,7 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["streamslice"] = _builtins["quiver"];  // approximation
             _builtins["title"] = a => {
+                a = DropAxes(a);   // tolerar title(ax, …)
                 if (a.Length > 0 && a[0].IsString) {
                     if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigTitle(a[0].StringValue);
                     else RelayoutLastPlot("title", JsonEscape(a[0].StringValue));
@@ -1548,6 +1606,7 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["xlabel"] = a => {
+                a = DropAxes(a);
                 if (a.Length > 0 && a[0].IsString) {
                     if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigXLabel(a[0].StringValue);
                     else RelayoutLastPlot("xaxis.title", JsonEscape(a[0].StringValue));
@@ -1555,6 +1614,7 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["ylabel"] = a => {
+                a = DropAxes(a);
                 if (a.Length > 0 && a[0].IsString) {
                     if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigYLabel(a[0].StringValue);
                     else RelayoutLastPlot("yaxis.title", JsonEscape(a[0].StringValue));
@@ -1853,10 +1913,56 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["gcf"] = a => new MValue(0);   // placeholder current-figure
             _builtins["gca"] = a => new MValue(0);   // placeholder current-axes
+            // --- Handles de ejes / GUI (Lab usa un eje implicito; props en Fields) ---
+            _builtins["axes"] = a => MkGfxHandle(a);
+            _builtins["uicontrol"] = a => MkGfxHandle(a);
+            _builtins["uipanel"] = a => MkGfxHandle(a);
+            _builtins["addlistener"] = a => MkGfxHandle(System.Array.Empty<MValue>());
+            _builtins["xlim"] = a => new MValue(0);   // Lab auto-escala los ejes
+            _builtins["ylim"] = a => new MValue(0);
+            _builtins["zlim"] = a => new MValue(0);
+            _builtins["movegui"] = a => new MValue(0);
+            _builtins["drawnow"] = a => new MValue(0);
+            _builtins["get"] = a => {
+                if (a.Length >= 2 && a[0].Fields != null && a[1].IsString
+                    && a[0].Fields.TryGetValue(a[1].StringValue.ToLowerInvariant(), out var v)) return v;
+                return new MValue(0);
+            };
+            _builtins["set"] = a => {
+                if (a.Length >= 3 && a[0].Fields != null)
+                    for (int i = 1; i + 1 < a.Length; i += 2)
+                        if (a[i].IsString) a[0].Fields[a[i].StringValue.ToLowerInvariant()] = a[i + 1];
+                return new MValue(0);
+            };
             _builtins["light"] = a => new MValue(0);
             _builtins["lighting"] = a => new MValue(0);
             _builtins["material"] = a => new MValue(0);
             _builtins["camlight"] = a => new MValue(0);
+            _builtins["camproj"] = a => new MValue(0);   // proyección de cámara (Plotly gestiona la suya)
+            _builtins["camva"] = a => new MValue(0);      // ángulo de visión de cámara (zoom)
+            _builtins["camtarget"] = a => new MValue(0);
+            _builtins["campos"] = a => new MValue(0);
+            _builtins["camup"] = a => new MValue(0);
+            _builtins["camzoom"] = a => new MValue(0);
+            _builtins["camroll"] = a => new MValue(0);
+            _builtins["camorbit"] = a => new MValue(0);
+            _builtins["rotate3d"] = a => new MValue(0);
+            // print/exportgraphics: en Lab la figura se rende INLINE (no PNG a disco). No-op:
+            // la figura compuesta se emite al cerrar/terminar el script (FinishFigure).
+            _builtins["print"] = a => new MValue(0);
+            _builtins["exportgraphics"] = a => new MValue(0);
+            // mfilename / fileparts / fullfile: usados típicamente para armar rutas de guardado.
+            // En Lab (render inline) la ruta es irrelevante, pero los implementamos para no romper.
+            _builtins["mfilename"] = a => new MValue("");
+            _builtins["fileparts"] = a => {
+                string p = a.Length > 0 && a[0].IsString ? a[0].StringValue : "";
+                return new MValue(System.IO.Path.GetDirectoryName(p) ?? "");
+            };
+            _builtins["fullfile"] = a => {
+                var parts = new System.Collections.Generic.List<string>();
+                foreach (var x in a) if (x.IsString) parts.Add(x.StringValue);
+                return new MValue(parts.Count == 0 ? "" : System.IO.Path.Combine(parts.ToArray()));
+            };
             _builtins["shading"] = a => new MValue(0);
             // NOTA: la definición buena de text() está arriba (usa MatlabPlots.Text2D →
             // se acumula en la figura con xref:'x'/yref:'y'). Se quitó un segundo text()
@@ -1892,6 +1998,14 @@ namespace Calcpad.Core.Matlab
             _builtins["isstring"]  = a => new MValue((a[0].IsDoubleQuoted || a[0].IsStringArray) ? 1 : 0);
             _builtins["islogical"] = a => new MValue(!a[0].IsStruct && !a[0].IsString ? 1 : 0);
             _builtins["isreal"]    = a => new MValue(!a[0].IsStruct && !a[0].IsString ? 1 : 0);
+            // isequal(A,B,...) → 1 si TODOS son iguales (mismo tamaño y mismos valores). Usado en
+            // el bucle de conjunto-activo del FEM (converge cuando el set no cambia).
+            _builtins["isequal"] = a => {
+                if (a.Length < 2) return new MValue(1);
+                for (int i = 1; i < a.Length; i++)
+                    if (!MValuesEqual(a[0], a[i])) return new MValue(0);
+                return new MValue(1);
+            };
             _builtins["isnan"]     = a => {
                 if (a[0].IsScalar) return new MValue(double.IsNaN(a[0].Scalar) ? 1 : 0);
                 var r = new MValue(a[0].Rows, a[0].Cols);
@@ -5404,6 +5518,30 @@ namespace Calcpad.Core.Matlab
                     }
                 return new[] { X, Y };
             };
+            // cylinder(r,n): [X,Y,Z] de un cilindro radio r (escalar -> [r,r]) o perfil
+            // de radios (vector). [r 0] -> cono. n puntos en la circunferencia (def 20).
+            _multiOutBuiltins["cylinder"] = a => {
+                var rv = a.Length > 0 ? a[0] : new MValue(1.0);
+                int m = Math.Max(rv.Rows, rv.Cols);
+                double[] r;
+                if (m <= 1) { double r0 = rv.Data.Length > 0 ? rv.Data[0] : 1.0; r = new[] { r0, r0 }; m = 2; }
+                else { r = new double[m]; for (int k = 0; k < m; k++) r[k] = rv.Data[k]; }
+                int n = a.Length > 1 ? (int)Math.Round(a[1].Data[0]) : 20;
+                if (n < 1) n = 20;
+                int cols = n + 1;
+                var X = new MValue(m, cols);
+                var Y = new MValue(m, cols);
+                var Z = new MValue(m, cols);
+                for (int i = 0; i < m; i++)
+                    for (int j = 0; j < cols; j++)
+                    {
+                        double th = 2.0 * Math.PI * j / n;
+                        X.Set(i, j, r[i] * Math.Cos(th));
+                        Y.Set(i, j, r[i] * Math.Sin(th));
+                        Z.Set(i, j, (double)i / (m - 1));
+                    }
+                return new[] { X, Y, Z };
+            };
             _multiOutBuiltins["size"] = a => new[] {
                 new MValue(a[0].Rows),
                 new MValue(a[0].Cols)
@@ -5483,9 +5621,24 @@ namespace Calcpad.Core.Matlab
             return $"rgb({r},{g},{b})";
         }
         /// <summary>Patch en modo named-args: patch('Faces', F, 'Vertices', V, ...)</summary>
+        /// <summary>Crea un handle de gráficos (axes/uicontrol) guardando los pares name-value en Fields.</summary>
+        private static MValue MkGfxHandle(MValue[] a)
+        {
+            var h = new MValue(0) { IsGfxHandle = true };
+            h.Fields = new System.Collections.Generic.Dictionary<string, MValue>();
+            for (int i = 0; i + 1 < a.Length; i += 2)
+                if (a[i].IsString) h.Fields[a[i].StringValue.ToLowerInvariant()] = a[i + 1];
+            return h;
+        }
+        /// <summary>Quita un handle de eje inicial (forma plot(ax, …), title(ax, …), etc.).</summary>
+        private static MValue[] DropAxes(MValue[] a) =>
+            (a.Length > 0 && a[0].IsGfxHandle) ? a[1..] : a;
+
+
         private static MValue EvalPatchNamed(MValue[] a)
         {
             MValue Faces = null, Vertices = null, CData = null;
+            MValue Xd = null, Yd = null, Zd = null;
             string faceColor = "lightblue", edgeColor = "black";
             string faceColorMode = "uniform";  // 'interp' | 'flat' | 'uniform'
             double faceAlpha = 1, lineWidth = 1;
@@ -5499,6 +5652,10 @@ namespace Calcpad.Core.Matlab
                     case "faces": Faces = val; break;
                     case "vertices": Vertices = val; break;
                     case "facevertexcdata": CData = val; break;
+                    case "xdata": Xd = val; break;
+                    case "ydata": Yd = val; break;
+                    case "zdata": Zd = val; break;
+                    case "parent": break;   // Lab usa un eje implicito -> se ignora el handle
                     case "facecolor":
                         if (val.IsString)
                         {
@@ -5516,6 +5673,17 @@ namespace Calcpad.Core.Matlab
                     case "facealpha": faceAlpha = val.Scalar; break;
                     case "linewidth": lineWidth = val.Scalar; break;
                 }
+            }
+            // Forma poligono simple: patch('XData', X, 'YData', Y[, 'ZData', Z], ...).
+            // Con ZData → polígono 3D (arandelas/tuercas de los pernos) compuesto en la escena;
+            // sin ZData → parche 2D.
+            if (Xd != null && Yd != null)
+            {
+                if (Zd != null)
+                    MatlabPlots.Patch3DPolygon(Xd.Data, Yd.Data, Zd.Data, faceColor, edgeColor, faceAlpha);
+                else
+                    MatlabPlots.Patch2D(Xd.Data, Yd.Data, faceColor, edgeColor, faceAlpha, lineWidth);
+                return new MValue(0);
             }
             if (Faces == null || Vertices == null)
                 throw new MatlabRuntimeException("patch named: 'Faces' y 'Vertices' obligatorios");
@@ -5537,7 +5705,7 @@ namespace Calcpad.Core.Matlab
                 trifaces = split;
             }
             MatlabPlots.PatchMesh(trifaces, Vertices, CData, faceColorMode,
-                                   faceColor, edgeColor, faceAlpha, lineWidth, "jet");
+                                   faceColor, edgeColor, faceAlpha, lineWidth, "jet", Faces.Cols == 4);
             return new MValue(0);
         }
 
@@ -6575,10 +6743,19 @@ namespace Calcpad.Core.Matlab
         }
         private static bool MValuesEqual(MValue a, MValue b)
         {
-            if (a.IsString && b.IsString) return a.StringValue == b.StringValue;
-            if (a.IsString || b.IsString) return false;
-            if (a.IsScalar && b.IsScalar) return a.Scalar == b.Scalar;
-            return false; // MVP: no comparación de matrices
+            if (a == null || b == null) return a == b;
+            if (a.IsString || b.IsString)
+                return a.IsString && b.IsString && a.StringValue == b.StringValue;
+            if (a.Rows != b.Rows || a.Cols != b.Cols) return false;
+            var ad = a.Data; var bd = b.Data;
+            if (ad == null || bd == null) return ad == bd;
+            if (ad.Length != bd.Length) return false;
+            for (int i = 0; i < ad.Length; i++)
+                if (ad[i] != bd[i]) return false;
+            if (a.IsComplex || b.IsComplex)
+                for (int i = 0; i < ad.Length; i++)
+                    if ((a.Imag != null ? a.Imag[i] : 0) != (b.Imag != null ? b.Imag[i] : 0)) return false;
+            return true;
         }
         private void ExecuteTryCatch(TryCatch tc, MatlabScope scope)
         {

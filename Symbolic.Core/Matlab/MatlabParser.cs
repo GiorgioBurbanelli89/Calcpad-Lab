@@ -46,7 +46,8 @@ namespace Calcpad.Core.Matlab
             // global/persistent SON keywords, NO command-form — tienen handlers en el switch de ParseStatement
             "syms", "clear", "close", "hold", "format",
             "load", "save", "disp", "warning", "error", "echo", "pkg",
-            "grid", "axis", "legend", "box"   // plotting on/off commands
+            "grid", "axis", "legend", "box",   // plotting on/off commands
+            "lighting", "material", "shading", "colormap"   // 3D: lighting gouraud, material dull, shading interp
         };
 
         public MatlabNode ParseStatement()
@@ -55,7 +56,7 @@ namespace Calcpad.Core.Matlab
             if (_octave && (Peek().Kind == MatlabTokenKind.Increment || Peek().Kind == MatlabTokenKind.Decrement))
             {
                 var opTok = Consume();
-                var tgt = TryParseAssignmentLhs();
+                var tgt = TryParseAssignmentLhs(bareTargetOk: true);
                 if (tgt == null || tgt.Count != 1)
                     throw new MatlabParseException("Se esperaba una variable tras '++'/'--'", opTok.Line, opTok.Column);
                 bool supprInc = ConsumeStatementTerminator();
@@ -348,9 +349,12 @@ namespace Calcpad.Core.Matlab
                 Consume();
                 while (Peek().Kind != MatlabTokenKind.RParen)
                 {
-                    if (Peek().Kind != MatlabTokenKind.Identifier)
+                    if (Peek().Kind == MatlabTokenKind.Identifier)
+                        def.ParamNames.Add(Consume().Text);
+                    else if (Peek().Kind == MatlabTokenKind.Not)   // '~' = parametro ignorado (MATLAB)
+                        { Consume(); def.ParamNames.Add("~" + def.ParamNames.Count); }
+                    else
                         throw new MatlabParseException("Expected parameter name", Peek().Line, Peek().Column);
-                    def.ParamNames.Add(Consume().Text);
                     if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
                 }
                 Consume(); // )
@@ -524,9 +528,12 @@ namespace Calcpad.Core.Matlab
                 Consume();
                 while (Peek().Kind != MatlabTokenKind.RParen)
                 {
-                    if (Peek().Kind != MatlabTokenKind.Identifier)
+                    if (Peek().Kind == MatlabTokenKind.Identifier)
+                        fn.ParamNames.Add(Consume().Text);
+                    else if (Peek().Kind == MatlabTokenKind.Not)   // '~' = parametro ignorado (MATLAB)
+                        { Consume(); fn.ParamNames.Add("~" + fn.ParamNames.Count); }
+                    else
                         throw new MatlabParseException("Expected parameter name in @(…)", Peek().Line, Peek().Column);
-                    fn.ParamNames.Add(Consume().Text);
                     if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
                 }
                 Consume(); // )
@@ -586,7 +593,7 @@ namespace Calcpad.Core.Matlab
         /// Intenta parsear el LHS de una asignación. Devuelve la lista de targets
         /// si encuentra un patrón `target = ...` (o `[t1, t2] = ...`), o null si no.
         /// </summary>
-        private List<MatlabNode> TryParseAssignmentLhs()
+        private List<MatlabNode> TryParseAssignmentLhs(bool bareTargetOk = false)
         {
             // Caso 1: [t1, t2, ...] = ...   (multi-output)
             if (Peek().Kind == MatlabTokenKind.LBracket)
@@ -693,7 +700,10 @@ namespace Calcpad.Core.Matlab
                 }
                 // En modo Octave, un target simple también es válido si va seguido de una
                 // asignación compuesta (+= …) o de ++/-- (postfijo). Lo resuelve ParseStatement.
-                if (Peek().Kind != MatlabTokenKind.Assign &&
+                // bareTargetOk: el llamador (p.ej. prefijo `++x`) ya consumió el operador,
+                // así que un target "pelado" seguido de terminador es válido.
+                if (!bareTargetOk &&
+                    Peek().Kind != MatlabTokenKind.Assign &&
                     !(_octave && IsCompoundOrIncrement(Peek().Kind)))
                 { _pos = saved; return null; }
                 return new List<MatlabNode> { target };
