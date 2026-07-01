@@ -64,6 +64,15 @@ namespace Calcpad.Core
             var sb = new StringBuilder();
             var includedFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // Las funciones DEFINIDAS en el archivo principal (top-level + locales) son
+            // AUTORITATIVAS: se anexa el main al final, y cualquier function-file hermana
+            // que redefina alguno de esos nombres se SALTEA para evitar colisión de firmas.
+            // (Bug real: `placa_base_3d_lab.m` define drawBox(9 args) y la hermana
+            //  `placa_base_3d.m` define drawBox(10 args, con ax) → chocaban y rompían el
+            //  render 3D. Como en MATLAB, las funciones del propio archivo tienen prioridad.)
+            foreach (var fn in ExtractAllFunctionNames(mainScript))
+                includedFunctions.Add(fn);
+
             foreach (var path in mFiles)
             {
                 var name = Path.GetFileName(path);
@@ -83,8 +92,15 @@ namespace Calcpad.Core
                 // real, que tiene todas las funciones del current directory + path
                 // disponibles). Esto resuelve cadenas de dispatch transitivas donde
                 // el main llama f1() y f1() llama internamente f2() en otro archivo.
-                // Evitar duplicados (mismo nombre de funcion en archivos distintos).
-                if (!includedFunctions.Add(fnName)) continue;
+                // PERO saltear la hermana si CUALQUIERA de sus funciones (top o local)
+                // ya está definida por el main o por otra hermana ya incluida → evita
+                // colisión de helpers homónimos con firmas distintas.
+                var sibFns = ExtractAllFunctionNames(content);
+                bool collides = false;
+                foreach (var fn in sibFns)
+                    if (includedFunctions.Contains(fn)) { collides = true; break; }
+                if (collides) continue;
+                foreach (var fn in sibFns) includedFunctions.Add(fn);
 
                 // Auto-include silencioso: las function-files se REGISTRAN (sus
                 // funciones quedan disponibles) pero sus comentarios de doc a nivel
@@ -198,6 +214,39 @@ namespace Calcpad.Core
 
         private static bool IsIdentChar(char c) =>
             char.IsLetterOrDigit(c) || c == '_';
+
+        /// <summary>Extrae el nombre de UNA línea `function ... NAME(args)` (ya TrimStart,
+        /// empezando con "function"). Devuelve "" si no puede.</summary>
+        private static string ParseFunctionNameFromLine(string line)
+        {
+            if (line.Length <= 8) return "";
+            var rest = line[8..].TrimStart();
+            int eqIdx = rest.IndexOf('=');
+            if (eqIdx > 0 && !(eqIdx + 1 < rest.Length && rest[eqIdx + 1] == '='))
+                rest = rest[(eqIdx + 1)..].TrimStart();
+            int parenIdx = rest.IndexOf('(');
+            if (parenIdx > 0) return rest[..parenIdx].Trim();
+            int w = 0;
+            while (w < rest.Length && (char.IsLetterOrDigit(rest[w]) || rest[w] == '_')) w++;
+            return rest[..w];
+        }
+
+        /// <summary>Todos los nombres de función DEFINIDOS en el contenido (top-level + locales).
+        /// Usado para que las funciones del archivo principal tengan prioridad sobre las hermanas.</summary>
+        private static HashSet<string> ExtractAllFunctionNames(string content)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(content)) return names;
+            foreach (var rawLine in content.Replace("\r\n", "\n").Split('\n'))
+            {
+                var line = rawLine.TrimStart();
+                if (!line.StartsWith("function", StringComparison.Ordinal)) continue;
+                if (line.Length > 8 && !(line[8] == ' ' || line[8] == '\t' || line[8] == '[')) continue;
+                var nm = ParseFunctionNameFromLine(line);
+                if (!string.IsNullOrEmpty(nm)) names.Add(nm);
+            }
+            return names;
+        }
 
         /// <summary>
         /// Heurística: el archivo es un "function file" estilo MATLAB si la PRIMERA
