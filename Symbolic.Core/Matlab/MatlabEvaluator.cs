@@ -48,6 +48,8 @@ namespace Calcpad.Core.Matlab
         /// <summary>Si no-null, este MValue es un cell array.</summary>
         public MValue[,] CellData;
         public bool IsCell => CellData != null;
+        public System.Collections.Generic.List<MValue> StructArrayItems;   // struct-array: res(k).field
+        public bool IsStructArray => StructArrayItems != null;
         /// <summary>Si no-null: storage sparse CSR. Vals + Cols + RowPtr.</summary>
         public double[] SparseVals;
         public int[] SparseCols;
@@ -108,6 +110,14 @@ namespace Calcpad.Core.Matlab
         {
             var v = new MValue(0);
             v.Fields = new Dictionary<string, MValue>(StringComparer.Ordinal);
+            return v;
+        }
+        /// <summary>Struct-array MATLAB: res(1).n=… res(2).n=… — lista de structs (cada elemento
+        /// es un struct con Fields). Soporta res(k).f=v, res(s).f y {res.n}.</summary>
+        public static MValue NewStructArray()
+        {
+            var v = new MValue(0);
+            v.StructArrayItems = new System.Collections.Generic.List<MValue>();
             return v;
         }
         /// <summary>Constructor containers.Map vacío.</summary>
@@ -250,7 +260,7 @@ namespace Calcpad.Core.Matlab
         private Action<MatlabNode, StatementResult> _innerStmtOut;
         public Action<MatlabNode, StatementResult> InnerStmtOut { get => _innerStmtOut; set => _innerStmtOut = value; }
         /// <summary>Colormap activo. Cambiado por <c>colormap('jet')</c> y consumido por surf/contourf.</summary>
-        private string _activeColormap = "jet_r";   // default = jet INVERTIDO (estilo SAP2000), 2D y 3D
+        private string _activeColormap = "jet";   // default = JET (azul=bajo, rojo=alto) como IDEA StatiCa / CSI
         /// <summary>Subplot grid activo (m, n) si subplot(m, n, p) fue llamado.</summary>
         internal (int m, int n)? _subplotGrid;
         /// <summary>Posición 1-based del subplot activo.</summary>
@@ -1670,6 +1680,15 @@ namespace Calcpad.Core.Matlab
             _builtins["shading"] = a => new MValue(0);
             _builtins["axis"] = a => {
                 // axis('equal'|'square'|'tight'|'normal') o axis([xmin xmax ymin ymax])
+                a = DropAxes(a);   // tolerar axis(ax, …)
+                // Aspecto del canvas 3D: equal/square = proporciones reales (escena sólida);
+                // tight/normal/auto = cada eje se estira para llenar (surf de resultados).
+                if (a.Length > 0 && a[0].IsString)
+                    switch (a[0].StringValue)
+                    {
+                        case "equal": case "square": case "image": MatlabPlots.SetAxisEqual(true); break;
+                        case "tight": case "normal": case "auto": MatlabPlots.SetAxisEqual(false); break;
+                    }
                 int id = MatlabPlots.LastPlotId;
                 if (id == 0) return new MValue(0);
                 if (a.Length > 0 && a[0].IsString)
@@ -1934,6 +1953,30 @@ namespace Calcpad.Core.Matlab
             _builtins["uicontrol"] = a => MkGfxHandle(a);
             _builtins["uipanel"] = a => MkGfxHandle(a);
             _builtins["addlistener"] = a => MkGfxHandle(System.Array.Empty<MValue>());
+            // ancestor(h,'figure') -> handle (Lab usa un contenedor implícito; devolvemos el mismo
+            // handle para que get/set/appdata hagan round-trip dentro de la función).
+            _builtins["ancestor"] = a => (a.Length > 0 && a[0].IsGfxHandle) ? a[0] : MkGfxHandle(System.Array.Empty<MValue>());
+            // getappdata/setappdata: almacén clave-valor sobre el handle (para itw_hover y GUIs).
+            _builtins["getappdata"] = a => {
+                if (a.Length >= 2 && a[0].Fields != null && a[1].IsString
+                    && a[0].Fields.TryGetValue("__app_" + a[1].StringValue, out var v)) return v;
+                return new MValue(0, 0);   // [] vacío
+            };
+            _builtins["setappdata"] = a => {
+                if (a.Length >= 3 && a[0].Fields != null && a[1].IsString)
+                    a[0].Fields["__app_" + a[1].StringValue] = a[2];
+                return new MValue(0);
+            };
+            // eps: épsilon de máquina. eps -> 2.22e-16 ; eps(x) -> distancia al siguiente double.
+            _builtins["eps"] = a => {
+                if (a.Length >= 1 && a[0].IsScalar && !a[0].IsString)
+                {
+                    double x = Math.Abs(a[0].Scalar);
+                    if (x == 0) return new MValue(4.9406564584124654e-324);
+                    return new MValue(Math.Pow(2, Math.Floor(Math.Log2(x)) - 52));
+                }
+                return new MValue(2.220446049250313e-16);
+            };
             _builtins["xlim"] = a => new MValue(0);   // Lab auto-escala los ejes
             _builtins["ylim"] = a => new MValue(0);
             _builtins["zlim"] = a => new MValue(0);
@@ -6978,6 +7021,28 @@ namespace Calcpad.Core.Matlab
                 scope.Set(ciId.Name, updated);
                 return new StatementResult(ciId.Name, updated, asg.Suppressed);
             }
+            // struct.field{idx} = val — cell autogrow sobre un campo de struct (p.ej. L.items{end+1}=E)
+            if (tgt is CellIndex ci2 && ci2.Target is FieldAccess ciFa)
+            {
+                MValue parentStruct;
+                if (ciFa.Target is IdentRef pid)
+                {
+                    if (!scope.TryGet(pid.Name, out parentStruct) || !parentStruct.IsStruct)
+                    {
+                        parentStruct = MValue.NewStruct();
+                        scope.Set(pid.Name, parentStruct);
+                    }
+                }
+                else if (ciFa.Target is FieldAccess pfa)
+                    parentStruct = ResolveOrCreateStruct(pfa, scope);
+                else
+                    throw new MatlabRuntimeException("Unsupported cell-field assignment target");
+                if (!parentStruct.Fields.TryGetValue(ciFa.FieldName, out var cell) || cell == null || !cell.IsCell)
+                    cell = MValue.NewCell(new MValue[1, 0]);
+                var updatedCell = CellIndexedAssign(cell, ci2.Args, val, scope);
+                parentStruct.Fields[ciFa.FieldName] = updatedCell;
+                return new StatementResult(GetRootVarName(ciFa), updatedCell, asg.Suppressed);
+            }
             throw new MatlabRuntimeException("Unsupported assignment target");
         }
 
@@ -7183,6 +7248,20 @@ namespace Calcpad.Core.Matlab
                 // s.a.b = val → ensure s.a is a struct, recurse
                 var parentRoot = ResolveOrCreateStruct(parent, scope);
                 parentRoot.Fields[fa.FieldName] = val;
+                return;
+            }
+            // res(k).field = val → struct-array: crecer hasta k y setear el campo del elemento.
+            if (fa.Target is CallOrIndex idxTgt && idxTgt.Target is IdentRef arrId && idxTgt.Args.Count == 1)
+            {
+                int k = (int)Eval(idxTgt.Args[0], scope).Scalar;
+                if (k < 1) throw new MatlabRuntimeException("struct-array: índice debe ser >= 1");
+                if (!scope.TryGet(arrId.Name, out var arr) || !arr.IsStructArray)
+                {
+                    arr = MValue.NewStructArray();
+                    scope.Set(arrId.Name, arr);
+                }
+                while (arr.StructArrayItems.Count < k) arr.StructArrayItems.Add(MValue.NewStruct());
+                arr.StructArrayItems[k - 1].Fields[fa.FieldName] = val;
                 return;
             }
             throw new MatlabRuntimeException("Unsupported field assignment target");
@@ -7476,6 +7555,15 @@ namespace Calcpad.Core.Matlab
                 case AnonFunction af: return MakeAnonHandle(af, scope);
                 case FieldAccess fa: {
                     var target = Eval(fa.Target, scope);
+                    // struct-array res.n en contexto escalar -> primer elemento (la expansión
+                    // como comma-list {res.n} se maneja en EvalCellLit).
+                    if (target.IsStructArray)
+                    {
+                        if (target.StructArrayItems.Count > 0 && target.StructArrayItems[0].Fields != null
+                            && target.StructArrayItems[0].Fields.TryGetValue(fa.FieldName, out var f0))
+                            return f0;
+                        throw new MatlabRuntimeException($"Reference to non-existent field '{fa.FieldName}'");
+                    }
                     if (!target.IsStruct || !target.Fields.TryGetValue(fa.FieldName, out var fv))
                         throw new MatlabRuntimeException($"Reference to non-existent field '{fa.FieldName}'");
                     return fv;
@@ -7999,6 +8087,19 @@ namespace Calcpad.Core.Matlab
                         }
                         return MValue.NewSymbolic(expr.Simplify());
                     }
+                    // struct-array: res(s) -> el struct del elemento s
+                    if (v.IsStructArray)
+                    {
+                        var ia = EvalArgs(c.Args, scope);
+                        if (ia.Length == 1)
+                        {
+                            int k = (int)ia[0].Scalar;
+                            if (k < 1 || k > v.StructArrayItems.Count)
+                                throw new MatlabRuntimeException($"struct-array: índice {k} fuera de rango (1..{v.StructArrayItems.Count})");
+                            return v.StructArrayItems[k - 1];
+                        }
+                        throw new MatlabRuntimeException("struct-array: solo indexación 1D (res(k))");
+                    }
                     return IndexInto(v, c.Args, scope);
                 }
                 // 2) Class constructor
@@ -8347,6 +8448,19 @@ namespace Calcpad.Core.Matlab
         private MValue EvalCellLit(CellLit cl, MatlabScope scope)
         {
             if (cl.Rows.Count == 0) return MValue.NewCell(new MValue[0, 0]);
+            // Caso {res.n} — un solo elemento que es un campo de struct-array (comma-list):
+            // se expande a una fila de N celdas (una por elemento del array).
+            if (cl.Rows.Count == 1 && cl.Rows[0].Count == 1
+                && cl.Rows[0][0] is FieldAccess fa && fa.Target is IdentRef arrId
+                && scope.TryGet(arrId.Name, out var arrV) && arrV.IsStructArray)
+            {
+                var items = arrV.StructArrayItems;
+                var row = new MValue[1, Math.Max(1, items.Count)];
+                for (int j = 0; j < items.Count; j++)
+                    row[0, j] = (items[j].Fields != null && items[j].Fields.TryGetValue(fa.FieldName, out var fj))
+                                ? fj : new MValue(0);
+                return MValue.NewCell(row);
+            }
             int nRows = cl.Rows.Count;
             int nCols = 0;
             foreach (var row in cl.Rows) if (row.Count > nCols) nCols = row.Count;

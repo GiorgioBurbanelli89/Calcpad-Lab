@@ -54,16 +54,22 @@ namespace Calcpad.Core.Matlab
         private static System.Collections.Generic.List<float> _cvOpaque, _cvAlpha, _cvLines;
         private static double _cvXmin, _cvXmax, _cvYmin, _cvYmax, _cvZmin, _cvZmax;
         private static bool _cvAny;
+        // Aspecto del canvas 3D. true = 'axis equal' (proporciones reales, escena sólida IDEA);
+        // false = 'axis tight'/'normal' (cada eje se estira para llenar la vista, como el surf de
+        // resultados MATLAB). Default true = comportamiento previo (seguro para escenas existentes).
+        private static bool _cvAxisEqual = true;
+        public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; }
         private static double? _caxisMin, _caxisMax;
         public static void SetCAxis(double lo, double hi) { _caxisMin = lo; _caxisMax = hi; }
         private static void CvReset()
         {
-            _cvOpaque = new(); _cvAlpha = new(); _cvLines = new(); _cvAny = false;
+            _cvOpaque = new(); _cvAlpha = new(); _cvLines = new(); _cvAny = false; _cvAxisEqual = true;
             _cvXmin = _cvYmin = _cvZmin = double.MaxValue;
             _cvXmax = _cvYmax = _cvZmax = double.MinValue;
-            // Escala de color por defecto [0,1] (dato FEM normalizado, como caxis([0 1]) de MATLAB).
-            // Como caxis suele llamarse DESPUÉS de dibujar, el canvas colorea con este default.
-            _caxisMin = 0; _caxisMax = 1;
+            // Sin caxis explícito -> AUTO-escala al rango de los datos (como MATLAB). Solo un
+            // caxis([lo hi]) explícito fija la escala. (Antes default [0,1] pintaba mal un surf
+            // cuyos datos no estaban normalizados, p.ej. la deformada w en mm.)
+            _caxisMin = null; _caxisMax = null;
         }
         private static void CvBound(double x, double y, double z)
         {
@@ -230,7 +236,8 @@ namespace Calcpad.Core.Matlab
             sb.Append(FloatCsv(_cvOpaque)).Append("],[").Append(FloatCsv(_cvAlpha)).Append("],[").Append(FloatCsv(_cvLines)).Append("],[");
             sb.Append(x0.ToString(Inv)).Append(',').Append(x1.ToString(Inv)).Append(',')
               .Append(y0.ToString(Inv)).Append(',').Append(y1.ToString(Inv)).Append(',')
-              .Append(z0.ToString(Inv)).Append(',').Append(z1.ToString(Inv)).Append("]);})();</script>\n");
+              .Append(z0.ToString(Inv)).Append(',').Append(z1.ToString(Inv)).Append("],")
+              .Append(_cvAxisEqual ? "1" : "0").Append(");})();</script>\n");
             return sb.ToString();
         }
         // Mini-motor WebGL embebido (una sola vez por página, guard window.LAB3D). Órbita con mouse.
@@ -240,8 +247,10 @@ function persp(fy,as,n,f){var t=1/Math.tan(fy/2);return new Float32Array([t/as,0
 function tr(x,y,z){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1]);}
 function rx(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,0,c,s,0,0,-s,c,0,0,0,0,1]);}
 function rz(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,s,0,0,-s,c,0,0,0,0,1,0,0,0,0,1]);}
+function scl(x,y,z){return new Float32Array([x,0,0,0,0,y,0,0,0,0,z,0,0,0,0,1]);}
 function sh(gl,t,src){var o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o;}
-function make(cv,op,al,ln,bb){
+function make(cv,op,al,ln,bb,eq){
+if(eq===undefined)eq=1;
 var gl=cv.getContext('webgl',{antialias:true});if(!gl){cv.parentNode.innerHTML='<div style=color:#a00>WebGL no disponible</div>';return;}
 gl.getExtension('OES_standard_derivatives');
 var vs='attribute vec3 p;attribute vec4 c;uniform mat4 m;varying vec4 v;varying vec3 w;void main(){gl_Position=m*vec4(p,1.0);v=c;w=p;}';
@@ -254,12 +263,16 @@ var box=[],e=[[0,0,0,1,0,0],[1,0,0,1,1,0],[1,1,0,0,1,0],[0,1,0,0,0,0],[0,0,1,1,0
 for(var q=0;q<e.length;q++){var s=e[q];box.push(bb[0]+s[0]*(bb[1]-bb[0]),bb[2]+s[1]*(bb[3]-bb[2]),bb[4]+s[2]*(bb[5]-bb[4]),0.30,0.32,0.36,bb[0]+s[3]*(bb[1]-bb[0]),bb[2]+s[4]*(bb[3]-bb[2]),bb[4]+s[5]*(bb[5]-bb[4]),0.30,0.32,0.36);}
 var bxb=B(box),nB=box.length/6;
 var cx=(bb[0]+bb[1])/2,cy=(bb[2]+bb[3])/2,cz=(bb[4]+bb[5])/2,dx=bb[1]-bb[0],dy=bb[3]-bb[2],dz=bb[5]-bb[4];
-var st={az:-0.7,el:0.35,dist:1.7*Math.sqrt(dx*dx+dy*dy+dz*dz)||3};
+dx=dx||1;dy=dy||1;dz=dz||1;
+var sx,sy,sz;
+if(eq){var mxs=Math.max(dx,dy,dz);sx=sy=sz=2/mxs;}else{sx=2/dx;sy=2/dy;sz=2/dz;}
+var ex=sx*dx,ey=sy*dy,ez=sz*dz;
+var st={az:-0.7,el:0.35,dist:1.7*Math.sqrt(ex*ex+ey*ey+ez*ez)||3};
 gl.enable(gl.DEPTH_TEST);
 function bind(buf,stride,csz){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,csz,gl.FLOAT,false,stride,12);}
 function draw(){
 gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0.08,0.09,0.11,1.0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul(mul(rx(st.el-1.5708),rz(st.az)),tr(-cx,-cy,-cz))));
+var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul(mul(rx(st.el-1.5708),rz(st.az)),mul(scl(sx,sy,sz),tr(-cx,-cy,-cz)))));
 gl.uniformMatrix4fv(lm,false,M);
 gl.uniform1f(ll,0.0);
 if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}

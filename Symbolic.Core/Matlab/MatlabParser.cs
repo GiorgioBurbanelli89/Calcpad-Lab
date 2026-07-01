@@ -698,6 +698,16 @@ namespace Calcpad.Core.Matlab
                     Consume(); // }
                     target = new CellIndex { Target = target, Args = args };
                 }
+                // Field-access ENCADENADO tras el indexado: res(1).n = ..., a{2}.x = ...
+                // (asignación a campo de un elemento de struct-array / cell de structs).
+                while (Peek().Kind == MatlabTokenKind.Dot &&
+                       _pos + 1 < _tokens.Count &&
+                       _tokens[_pos + 1].Kind == MatlabTokenKind.Identifier)
+                {
+                    Consume(); // .
+                    var fld = Consume();
+                    target = new FieldAccess { Target = target, FieldName = fld.Text };
+                }
                 // En modo Octave, un target simple también es válido si va seguido de una
                 // asignación compuesta (+= …) o de ++/-- (postfijo). Lo resuelve ParseStatement.
                 // bareTargetOk: el llamador (p.ej. prefijo `++x`) ya consumió el operador,
