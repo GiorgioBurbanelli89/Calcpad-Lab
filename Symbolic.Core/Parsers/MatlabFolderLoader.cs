@@ -49,6 +49,11 @@ namespace Calcpad.Core
         /// Como <see cref="Load"/> pero el caller especifica la carpeta y el
         /// nombre del archivo principal directamente (útil para tests).
         /// </summary>
+        // Builtins de VISUALIZACION nativos de Lab que NO deben ser sombreados por un .m
+        // hermano. Justificacion: `hoverdata.m` existe como la version MATLAB (datacursormode)
+        // para que el MISMO script corra en MATLAB 2017a; en Calcpad Lab gana el builtin (canvas).
+        private static readonly HashSet<string> ReservedLabBuiltins = new(StringComparer.OrdinalIgnoreCase) { "hoverdata" };
+
         public static string LoadFromFolder(string mainScript, string folder, string mainFileName)
         {
             if (!Directory.Exists(folder)) return mainScript;
@@ -83,6 +88,7 @@ namespace Calcpad.Core
                 catch { continue; }
 
                 if (!IsFunctionFile(content, out var fnName)) continue;
+                if (ReservedLabBuiltins.Contains(fnName)) continue;   // hoverdata.m: version MATLAB; en Lab gana el builtin
                 // Robustez: si una function-file usa sintaxis MATLAB aún NO soportada
                 // por el parser (multi-output indexado, etc.), NO debe romper TODA la
                 // carpeta. La validamos por separado y la salteamos si no parsea —

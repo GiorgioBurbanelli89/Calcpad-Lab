@@ -308,8 +308,12 @@ namespace Calcpad.Core.Matlab
         private readonly Dictionary<string, List<string>> _symFunParams = new(StringComparer.Ordinal);
         /// <summary>Clases definidas via <c>classdef</c>.</summary>
         private readonly Dictionary<string, ClassDef> _classes = new(StringComparer.Ordinal);
+        /// <summary>Builtins de visualizacion reservados: si un .m AUTOCONTENIDO define una funcion
+        /// local homonima (p.ej. `hoverdata` con la version MATLAB/datacursor), Lab NO la registra
+        /// → usa su builtin (canvas). Asi UN SOLO archivo identico corre en Calcpad Lab y MATLAB 2017a.</summary>
+        private static readonly HashSet<string> _reservedVizBuiltins = new(StringComparer.Ordinal) { "hoverdata" };
         /// <summary>Registra función para uso en pre-pass del pipeline (MATLAB script + helpers).</summary>
-        public void RegisterFunction(FunctionDef fd) => _userFunctions[fd.Name] = fd;
+        public void RegisterFunction(FunctionDef fd) { if (!_reservedVizBuiltins.Contains(fd.Name)) _userFunctions[fd.Name] = fd; }
 
         /// <summary>True si todos los args son IdentRef y referencian sym vars
         /// existentes en scope (declaradas via `syms`). Usado para detectar el
@@ -811,8 +815,34 @@ namespace Calcpad.Core.Matlab
             _builtins["prod"] = a => Reduce(a[0], 1.0, (acc, x) => acc * x);
             _builtins["mean"] = a => {
                 var v = a[0];
-                double s = 0; for (int i = 0; i < v.Data.Length; i++) s += v.Data[i];
-                return new MValue(s / Math.Max(v.Data.Length, 1));
+                int dim = a.Length > 1 ? (int)a[1].Scalar : 0;   // 0 = auto
+                bool isVec = (v.Rows == 1 || v.Cols == 1);
+                if (dim == 0 && isVec)   // vector -> escalar (media de todo)
+                {
+                    double s = 0; for (int i = 0; i < v.Data.Length; i++) s += v.Data[i];
+                    return new MValue(s / Math.Max(v.Data.Length, 1));
+                }
+                if (dim == 0) dim = 1;   // matriz sin dim -> medias por COLUMNA (como MATLAB)
+                if (dim == 1)            // media por columna -> 1 x Cols
+                {
+                    var r = new MValue(1, v.Cols);
+                    for (int j = 0; j < v.Cols; j++)
+                    {
+                        double s = 0; for (int i = 0; i < v.Rows; i++) s += v.At(i, j);
+                        r.Set(0, j, s / Math.Max(v.Rows, 1));
+                    }
+                    return r;
+                }
+                else                     // dim==2 -> media por fila -> Rows x 1
+                {
+                    var r = new MValue(v.Rows, 1);
+                    for (int i = 0; i < v.Rows; i++)
+                    {
+                        double s = 0; for (int j = 0; j < v.Cols; j++) s += v.At(i, j);
+                        r.Set(i, 0, s / Math.Max(v.Cols, 1));
+                    }
+                    return r;
+                }
             };
             _builtins["length"] = a => new MValue(Math.Max(a[0].Rows, a[0].Cols));
             _builtins["numel"] = a => new MValue(a[0].Rows * a[0].Cols);
@@ -1156,6 +1186,40 @@ namespace Calcpad.Core.Matlab
                     for (int j = 0; j < r.Cols; j++)
                         r.Set(i, j, v.At(i % v.Rows, j % v.Cols));
                 return r;
+            };
+            _builtins["repelem"] = a => {
+                // repelem(v, n)  o  repelem(v, counts) para vectores (repite cada elemento)
+                var v = a[0];
+                bool isRow = v.Rows == 1;
+                int len = v.Rows * v.Cols;
+                var el = new double[len];
+                { int k = 0;
+                  if (isRow) for (int j = 0; j < v.Cols; j++) el[k++] = v.At(0, j);
+                  else for (int i = 0; i < v.Rows; i++) el[k++] = v.At(i, 0); }
+                var cnt = new int[len];
+                if (a[1].Rows * a[1].Cols == 1) { int n = (int)a[1].Scalar; for (int i = 0; i < len; i++) cnt[i] = n; }
+                else { for (int i = 0; i < len && i < a[1].Data.Length; i++) cnt[i] = (int)a[1].Data[i]; }
+                int total = 0; for (int i = 0; i < len; i++) total += cnt[i];
+                var outd = new double[total];
+                { int k = 0; for (int i = 0; i < len; i++) for (int rr = 0; rr < cnt[i]; rr++) outd[k++] = el[i]; }
+                return isRow ? new MValue(1, total, outd) : new MValue(total, 1, outd);
+            };
+            _builtins["jet"] = a => {
+                // jet(n): colormap n x 3 (azul->cian->amarillo->rojo), paleta Abaqus/CSI
+                int n = a.Length >= 1 ? (int)a[0].Scalar : 64;
+                if (n < 1) n = 1;
+                var m = new MValue(n, 3);
+                for (int i = 0; i < n; i++)
+                {
+                    double t = n == 1 ? 0.5 : (double)i / (n - 1);
+                    double r = Math.Min(4 * t - 1.5, -4 * t + 4.5);
+                    double g = Math.Min(4 * t - 0.5, -4 * t + 3.5);
+                    double b = Math.Min(4 * t + 0.5, -4 * t + 2.5);
+                    m.Set(i, 0, Math.Max(0.0, Math.Min(1.0, r)));
+                    m.Set(i, 1, Math.Max(0.0, Math.Min(1.0, g)));
+                    m.Set(i, 2, Math.Max(0.0, Math.Min(1.0, b)));
+                }
+                return m;
             };
             _builtins["sort"] = a => {
                 var v = a[0];
@@ -1788,6 +1852,7 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["line"] = a => {
+                a = DropAxes(a);   // tolerar line(ax, …)
                 if (a.Length < 2) throw new MatlabRuntimeException("line(x, y [, props...])");
                 MValue X = a[0], Y = a[1];
                 string color = "black";
@@ -2008,7 +2073,44 @@ namespace Calcpad.Core.Matlab
             _builtins["rotate3d"] = a => new MValue(0);
             // print/exportgraphics: en Lab la figura se rende INLINE (no PNG a disco). No-op:
             // la figura compuesta se emite al cerrar/terminar el script (FinishFigure).
-            _builtins["print"] = a => new MValue(0);
+            _builtins["hoverdata"] = a => {
+                // hoverdata(M, 'lbl1|lbl2|...'): adjunta valores por-cara (M: NE x k) al hover interactivo
+                var M = a[0]; int rows = M.Rows, cols = M.Cols;
+                var vals = new double[rows][];
+                for (int i = 0; i < rows; i++) { vals[i] = new double[cols]; for (int j = 0; j < cols; j++) vals[i][j] = M.At(i, j); }
+                string[] labels;
+                if (a.Length > 1 && a[1].IsString) labels = a[1].StringValue.Split('|');
+                else { labels = new string[cols]; for (int j = 0; j < cols; j++) labels[j] = "v" + (j + 1); }
+                MatlabPlots.SetHoverData(vals, labels);
+                return new MValue(0);
+            };
+            // alias interno para que un .m AUTOCONTENIDO (funcion local hoverdata que despacha
+            // por plataforma) llame al canvas de Lab sin recursion. En MATLAB no existe -> el .m
+            // toma la rama datacursor. Asi UN SOLO archivo corre en Calcpad Lab y en MATLAB 2017a.
+            _builtins["__hoverdata_lab"] = _builtins["hoverdata"];
+            _builtins["print"] = a => {
+                // print(fig,'-dpng'[,'-rNNN'],'archivo.png'): rasteriza la figura a PNG EMBEBIDO (sin JS)
+                bool png = false; string file = null;
+                foreach (var x in a)
+                {
+                    if (!x.IsString) continue;
+                    string s = x.StringValue;
+                    if (s.Equals("-dpng", StringComparison.OrdinalIgnoreCase)) png = true;
+                    else if (!s.StartsWith("-")) file = s;
+                }
+                if (png && !string.IsNullOrEmpty(file) && MatlabPlots.HasOpenFigure)
+                {
+                    // Escribe SOLO el archivo PNG (verificacion); NO emite inline ni limpia,
+                    // para que FinishFigure emita el render de la figura (canvas interactivo / SVG).
+                    var bytes = MatlabPlots.RasterizeFigurePng(960, 700);
+                    if (bytes != null)
+                    {
+                        try { System.IO.File.WriteAllBytes(file, bytes); }
+                        catch (Exception ex) { _output?.Invoke($"print: error PNG: {ex.Message}"); }
+                    }
+                }
+                return new MValue(0);
+            };
             _builtins["exportgraphics"] = a => new MValue(0);
             // mfilename / fileparts / fullfile: usados típicamente para armar rutas de guardado.
             // En Lab (render inline) la ruta es irrelevante, pero los implementamos para no romper.
@@ -5744,6 +5846,34 @@ namespace Calcpad.Core.Matlab
                     MatlabPlots.Patch2D(Xd.Data, Yd.Data, faceColor, edgeColor, faceAlpha, lineWidth);
                 return new MValue(0);
             }
+            // Vertices 2D (Nx2) + Faces, sin ZData -> parches 2D en _figPrims (rasterizable a PNG/SVG, SIN Plotly/JS)
+            if (Faces != null && Vertices != null && Vertices.Cols == 2 && Zd == null)
+            {
+                // FaceVertexCData (una valor por cara) -> color por valor (jet+caxis) + guardar valor para hover
+                bool hasC = CData != null && CData.Data.Length >= Faces.Rows;
+                double clo = 0, chi = 1;
+                if (hasC && !MatlabPlots.TryGetCAxis(out clo, out chi))
+                {
+                    clo = double.MaxValue; chi = double.MinValue;
+                    for (int f = 0; f < Faces.Rows; f++) { double v = CData.Data[f]; if (v < clo) clo = v; if (v > chi) chi = v; }
+                    if (chi <= clo) chi = clo + 1;
+                }
+                for (int f = 0; f < Faces.Rows; f++)
+                {
+                    int nv = Faces.Cols;
+                    var xs = new double[nv]; var ys = new double[nv];
+                    for (int k = 0; k < nv; k++)
+                    {
+                        int vi = (int)System.Math.Round(Faces.At(f, k)) - 1;   // 1-based -> 0-based
+                        if (vi < 0) vi = 0; else if (vi >= Vertices.Rows) vi = Vertices.Rows - 1;
+                        xs[k] = Vertices.At(vi, 0); ys[k] = Vertices.At(vi, 1);
+                    }
+                    double val = double.NaN; string fc = faceColor;
+                    if (hasC) { val = CData.Data[f]; fc = MatlabPlots.JetCss((val - clo) / (chi - clo)); }
+                    MatlabPlots.Patch2D(xs, ys, fc, edgeColor, faceAlpha, lineWidth, val);
+                }
+                return new MValue(0);
+            }
             if (Faces == null || Vertices == null)
                 throw new MatlabRuntimeException("patch named: 'Faces' y 'Vertices' obligatorios");
             // Mesh triangular o quad. Si el patch es Q4 (4 cols), lo dividimos en 2 triángulos T3
@@ -6632,7 +6762,7 @@ namespace Calcpad.Core.Matlab
                     ExecuteTryCatch(tc, scope);
                     return new StatementResult(null, null, true);
                 case FunctionDef fd:
-                    _userFunctions[fd.Name] = fd;
+                    if (!_reservedVizBuiltins.Contains(fd.Name)) _userFunctions[fd.Name] = fd;   // builtin reservado (hoverdata) gana
                     return new StatementResult(null, null, true);
                 case ClassDef cd:
                     _classes[cd.Name] = cd;

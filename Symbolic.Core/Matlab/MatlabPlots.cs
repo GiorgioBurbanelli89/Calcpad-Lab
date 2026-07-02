@@ -34,8 +34,25 @@ namespace Calcpad.Core.Matlab
             public int[] FaceI, FaceJ, FaceK;
             public bool IsRgb;
             public int Rgb_R, Rgb_G, Rgb_B;
+            public double Val = double.NaN;   // valor por-cara (para hover interactivo)
+        }
+        /// <summary>Color CSS 'rgb(r,g,b)' del colormap jet para t en [0,1].</summary>
+        public static string JetCss(double t)
+        {
+            if (t < 0) t = 0; else if (t > 1) t = 1;
+            double r = System.Math.Min(4 * t - 1.5, -4 * t + 4.5);
+            double g = System.Math.Min(4 * t - 0.5, -4 * t + 3.5);
+            double b = System.Math.Min(4 * t + 0.5, -4 * t + 2.5);
+            int R = (int)(255 * System.Math.Max(0, System.Math.Min(1, r)));
+            int G = (int)(255 * System.Math.Max(0, System.Math.Min(1, g)));
+            int B = (int)(255 * System.Math.Max(0, System.Math.Min(1, b)));
+            return $"rgb({R},{G},{B})";
         }
         private static System.Collections.Generic.List<FigPrim> _figPrims = null;
+        // Datos extra por-cara para el hover (esfuerzo, deformacion, ...): filas alineadas con las caras.
+        private static double[][] _hoverVals = null;
+        private static string[] _hoverLabels = null;
+        public static void SetHoverData(double[][] vals, string[] labels) { _hoverVals = vals; _hoverLabels = labels; }
         private static System.Collections.Generic.List<string> _figTraces = null;
         private static System.Collections.Generic.List<string> _figAnnotations = null;
         private static int _figId = 0;
@@ -61,6 +78,7 @@ namespace Calcpad.Core.Matlab
         public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; }
         private static double? _caxisMin, _caxisMax;
         public static void SetCAxis(double lo, double hi) { _caxisMin = lo; _caxisMax = hi; }
+        public static bool TryGetCAxis(out double lo, out double hi) { lo = _caxisMin ?? 0; hi = _caxisMax ?? 1; return _caxisMin.HasValue; }
         private static void CvReset()
         {
             _cvOpaque = new(); _cvAlpha = new(); _cvLines = new(); _cvAny = false; _cvAxisEqual = true;
@@ -313,6 +331,12 @@ return {make:make};
             {
                 _figTraces = null; _figAnnotations = null;
                 return "";
+            }
+            // Malla 2D CON valor por-cara (patch FaceVertexCData) → CANVAS interactivo con hover.
+            if (!_figIs3D && HasFaceValues())
+            {
+                string iv = RenderInteractiveMesh(760, 560);
+                if (iv != null) return iv;
             }
             // DIBUJO 2D estructural (malla: patches/texto/markers) → SVG inline (nítido,
             // numeración fiable). Plotly se reserva para resultados (surf/contour/datos).
@@ -612,7 +636,7 @@ return {make:make};
 
         /// <summary>Patch 2D simple — polígono cerrado con relleno.</summary>
         public static void Patch2D(double[] xs, double[] ys, string faceColor, string edgeColor,
-                                    double faceAlpha, double lineWidth)
+                                    double faceAlpha, double lineWidth, double val = double.NaN)
         {
             var sb = new StringBuilder();
             sb.Append("{type:'scatter', mode:'lines', fill:'toself'");
@@ -625,7 +649,7 @@ return {make:make};
             AddTrace(sb.ToString());
             if (_figPrims != null) _figPrims.Add(new FigPrim{
                 Kind="patch2d", Xs=(double[])xs.Clone(), Ys=(double[])ys.Clone(),
-                FaceColor=faceColor, EdgeColor=edgeColor, FaceAlpha=faceAlpha, LineWidth=lineWidth
+                FaceColor=faceColor, EdgeColor=edgeColor, FaceAlpha=faceAlpha, LineWidth=lineWidth, Val=val
             });
         }
         public static void Line2D(double[] xs, double[] ys, string color, double lineWidth)
@@ -793,7 +817,7 @@ return {make:make};
 
         /// <summary>Rasteriza la figura 2D actual (primitives line/patch/marker/text)
         /// a RGB row-major (byte[h*w*3]) vía SkiaSharp. Para getframe → GIF.</summary>
-        public static byte[] RasterizeFigure(int width, int height)
+        private static SKBitmap BuildFigureBitmap(int width, int height)
         {
             if (_figPrims == null || _figPrims.Count == 0) return null;
             double xmin = double.MaxValue, xmax = double.MinValue, ymin = double.MaxValue, ymax = double.MinValue;
@@ -813,7 +837,7 @@ return {make:make};
             float TX(double x) => (float)(mL + (x - xmin) * sx);
             float TY(double y) => (float)(height - mB - (y - ymin) * sy);
 
-            using var bmp = new SKBitmap(width, height);
+            var bmp = new SKBitmap(width, height);
             using (var canvas = new SKCanvas(bmp))
             {
                 canvas.Clear(SKColors.White);
@@ -854,10 +878,144 @@ return {make:make};
                     }
                 }
             }
-            var px = bmp.Pixels;   // SKColor[]
-            var rgb = new byte[width * height * 3];
-            for (int i = 0; i < px.Length; i++) { rgb[i * 3] = px[i].Red; rgb[i * 3 + 1] = px[i].Green; rgb[i * 3 + 2] = px[i].Blue; }
-            return rgb;
+            return bmp;
+        }
+        /// <summary>Rasteriza la figura 2D a RGB row-major (para getframe -> GIF).</summary>
+        public static byte[] RasterizeFigure(int width, int height)
+        {
+            var bmp = BuildFigureBitmap(width, height);
+            if (bmp == null) return null;
+            using (bmp)
+            {
+                var px = bmp.Pixels;   // SKColor[]
+                var rgb = new byte[width * height * 3];
+                for (int i = 0; i < px.Length; i++) { rgb[i * 3] = px[i].Red; rgb[i * 3 + 1] = px[i].Green; rgb[i * 3 + 2] = px[i].Blue; }
+                return rgb;
+            }
+        }
+        /// <summary>Rasteriza la figura 2D a PNG (bytes). SIN JS — para embeber como &lt;img&gt; en WebView2.</summary>
+        public static byte[] RasterizeFigurePng(int width, int height)
+        {
+            var bmp = BuildFigureBitmap(width, height);
+            if (bmp == null) return null;
+            using (bmp)
+            using (var img = SKImage.FromBitmap(bmp))
+            using (var data = img.Encode(SKEncodedImageFormat.Png, 100))
+                return data.ToArray();
+        }
+        /// <summary>Descarta la figura actual (para que FinishFigure no la re-emita tras un print/PNG).</summary>
+        public static void ClearFigure() { _figTraces = null; _figAnnotations = null; _figPrims = null; }
+
+        /// <summary>¿La figura 2D tiene parches con valor por-cara? (patch FaceVertexCData) -> hover interactivo.</summary>
+        public static bool HasFaceValues() =>
+            _figPrims != null && _figPrims.Exists(p => p.Kind == "patch2d" && !double.IsNaN(p.Val));
+
+        /// <summary>Emite un CANVAS interactivo (JS inline, SIN librerias externas): dibuja la malla
+        /// coloreada + tooltip que sigue al cursor mostrando el valor bajo el cursor y la COLUMNA
+        /// vertical de valores en esa x. Consume y limpia la figura.</summary>
+        public static string RenderInteractiveMesh(int width, int height)
+        {
+            if (_figPrims == null) { return null; }
+            var faces = _figPrims.FindAll(p => p.Kind == "patch2d" && p.Xs != null && !double.IsNaN(p.Val));
+            if (faces.Count == 0) return null;
+            double xmin = double.MaxValue, xmax = double.MinValue, ymin = double.MaxValue, ymax = double.MinValue;
+            foreach (var p in _figPrims)
+            {
+                if (p.Xs == null) continue;
+                foreach (var x in p.Xs) { if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
+                foreach (var y in p.Ys) { if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
+            }
+            int id = ++_plotCounter;
+            var pj = new StringBuilder(); pj.Append('[');
+            for (int k = 0; k < faces.Count; k++)
+            {
+                var p = faces[k]; if (k > 0) pj.Append(',');
+                pj.Append("[[");
+                for (int i = 0; i < p.Xs.Length; i++) { if (i > 0) pj.Append(','); pj.Append(p.Xs[i].ToString("0.##", Inv)); pj.Append(','); pj.Append(p.Ys[i].ToString("0.##", Inv)); }
+                pj.Append("],\"").Append(p.FaceColor).Append("\",").Append(p.Val.ToString("0.####", Inv));
+                if (_hoverVals != null && k < _hoverVals.Length && _hoverVals[k] != null)
+                {
+                    pj.Append(",[");
+                    for (int c = 0; c < _hoverVals[k].Length; c++) { if (c > 0) pj.Append(','); pj.Append(_hoverVals[k][c].ToString("0.#####", Inv)); }
+                    pj.Append("]");
+                }
+                pj.Append(']');
+            }
+            pj.Append(']');
+            string hlJs = "null";
+            if (_hoverLabels != null)
+            {
+                var lb = new StringBuilder("[");
+                for (int i = 0; i < _hoverLabels.Length; i++) { if (i > 0) lb.Append(','); lb.Append("\"").Append(EscapeJs(_hoverLabels[i])).Append("\""); }
+                lb.Append("]"); hlJs = lb.ToString();
+            }
+            var lj = new StringBuilder(); lj.Append('['); bool first = true;
+            foreach (var p in _figPrims.FindAll(q => q.Kind == "line2d" && q.Xs != null))
+            {
+                if (!first) lj.Append(','); first = false; lj.Append("[[");
+                for (int i = 0; i < p.Xs.Length; i++) { if (i > 0) lj.Append(','); lj.Append(p.Xs[i].ToString("0.##", Inv)); lj.Append(','); lj.Append(p.Ys[i].ToString("0.##", Inv)); }
+                lj.Append("],\"").Append(p.Color ?? "#555").Append("\"]");
+            }
+            lj.Append(']');
+            var sb = new StringBuilder();
+            sb.Append("<div style=\"position:relative;display:inline-block;font-family:sans-serif\">");
+            sb.Append($"<div style=\"text-align:center;font-size:14px;margin:3px\">{EscapeXml(_figTitle)}</div>");
+            sb.Append($"<canvas id=\"cv{id}\" width=\"{width}\" height=\"{height}\" style=\"border:1px solid #ccc;background:#fff;cursor:crosshair\"></canvas>");
+            sb.Append($"<div id=\"tt{id}\" style=\"position:absolute;pointer-events:none;display:none;background:rgba(15,15,22,.92);color:#fff;font:11px monospace;padding:5px 8px;border-radius:4px;white-space:pre;z-index:20\"></div>");
+            sb.Append("</div>\n<script>(function(){\n");
+            double cmin, cmax;
+            if (!TryGetCAxis(out cmin, out cmax))
+            {
+                cmin = double.MaxValue; cmax = double.MinValue;
+                foreach (var p in faces) { if (p.Val < cmin) cmin = p.Val; if (p.Val > cmax) cmax = p.Val; }
+                if (cmax <= cmin) cmax = cmin + 1;
+            }
+            sb.Append($"var P={pj},L={lj},HL={hlJs},bb=[{xmin.ToString("0.##", Inv)},{ymin.ToString("0.##", Inv)},{xmax.ToString("0.##", Inv)},{ymax.ToString("0.##", Inv)}],cmin={cmin.ToString("0.####", Inv)},cmax={cmax.ToString("0.####", Inv)};\n");
+            sb.Append($"var cv=document.getElementById('cv{id}'),ctx=cv.getContext('2d'),tt=document.getElementById('tt{id}');\n");
+            sb.Append(@"var W=cv.width,H=cv.height,padL=58,padR=98,padT=10,padB=42;
+var pw=W-padL-padR,ph=H-padT-padB;
+var s=Math.min(pw/(bb[2]-bb[0]),ph/(bb[3]-bb[1]));
+var ox=padL+(pw-s*(bb[2]-bb[0]))/2, oyt=padT+(ph-s*(bb[3]-bb[1]))/2;
+function TX(x){return ox+(x-bb[0])*s;}function TY(y){return oyt+(bb[3]-y)*s;}
+function jet(t){t=Math.max(0,Math.min(1,t));var r=Math.min(4*t-1.5,-4*t+4.5),g=Math.min(4*t-0.5,-4*t+3.5),b=Math.min(4*t+0.5,-4*t+2.5);return 'rgb('+((255*Math.max(0,Math.min(1,r)))|0)+','+((255*Math.max(0,Math.min(1,g)))|0)+','+((255*Math.max(0,Math.min(1,b)))|0)+')';}
+function ticks(lo,hi){var r=(hi-lo)/6,p=Math.pow(10,Math.floor(Math.log(r)/Math.LN10)),n=r/p,st=(n<1.5?1:n<3?2:n<7?5:10)*p,t=[],v=Math.ceil(lo/st-1e-9)*st;for(;v<=hi+1e-9;v+=st)t.push(v);return t;}
+function draw(){ctx.clearRect(0,0,W,H);
+ for(var k=0;k<P.length;k++){var p=P[k][0];ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));
+  for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.closePath();ctx.fillStyle=P[k][1];ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.13)';ctx.lineWidth=.3;ctx.stroke();}
+ for(var k=0;k<L.length;k++){var p=L[k][0];ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));
+  for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.strokeStyle=L[k][1];ctx.lineWidth=1.6;ctx.stroke();}
+ var y0=TY(bb[1]),y1=TY(bb[3]);
+ ctx.strokeStyle='#333';ctx.lineWidth=1;ctx.fillStyle='#222';ctx.font='11px sans-serif';
+ ctx.beginPath();ctx.moveTo(padL,y0);ctx.lineTo(W-padR,y0);ctx.moveTo(padL,y1);ctx.lineTo(padL,y0);ctx.stroke();
+ ctx.textAlign='center';ctx.textBaseline='top';
+ var xt=ticks(bb[0],bb[2]);for(var i=0;i<xt.length;i++){var X=TX(xt[i]);if(X<padL-1||X>W-padR+1)continue;ctx.beginPath();ctx.moveTo(X,y0);ctx.lineTo(X,y0+4);ctx.stroke();ctx.fillText(xt[i].toFixed(0),X,y0+6);}
+ ctx.fillText('x (mm)',(padL+W-padR)/2,H-15);
+ ctx.textAlign='right';ctx.textBaseline='middle';
+ var yt=ticks(bb[1],bb[3]);for(var i=0;i<yt.length;i++){var Y=TY(yt[i]);if(Y<padT-1||Y>y0+1)continue;ctx.beginPath();ctx.moveTo(padL-4,Y);ctx.lineTo(padL,Y);ctx.stroke();ctx.fillText(yt[i].toFixed(0),padL-6,Y);}
+ ctx.save();ctx.translate(13,padT+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('y (mm)',0,0);ctx.restore();
+ var cbx=W-padR+22,cbw=16,cby=padT+4,cbh=ph-8;
+ for(var i=0;i<cbh;i++){ctx.fillStyle=jet(1-i/cbh);ctx.fillRect(cbx,cby+i,cbw,1);}
+ ctx.strokeStyle='#333';ctx.strokeRect(cbx,cby,cbw,cbh);
+ ctx.fillStyle='#222';ctx.textAlign='left';ctx.textBaseline='middle';
+ var ct=ticks(cmin,cmax);for(var i=0;i<ct.length;i++){var fr=(ct[i]-cmin)/(cmax-cmin);if(fr<-1e-6||fr>1.000001)continue;var Y=cby+cbh*(1-fr);ctx.beginPath();ctx.moveTo(cbx+cbw,Y);ctx.lineTo(cbx+cbw+3,Y);ctx.stroke();ctx.fillText(ct[i].toFixed(2),cbx+cbw+5,Y);}
+ ctx.save();ctx.translate(W-8,padT+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('DAMAGET',0,0);ctx.restore();}
+draw();
+function pip(px,py,p){var ins=false,n=p.length/2;for(var i=0,j=n-1;i<n;j=i++){var xi=p[2*i],yi=p[2*i+1],xj=p[2*j],yj=p[2*j+1];if(((yi>py)!=(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))ins=!ins;}return ins;}
+cv.addEventListener('mousemove',function(ev){var r=cv.getBoundingClientRect();var mx=ev.clientX-r.left,my=ev.clientY-r.top;
+ var dx=bb[0]+(mx-ox)/s,dy=bb[3]-(my-oyt)/s,hit=-1;
+ for(var k=0;k<P.length;k++){if(pip(dx,dy,P[k][0])){hit=k;break;}}
+ if(hit<0){tt.style.display='none';return;}
+ var e=P[hit],t='x = '+dx.toFixed(0)+' mm\ny = '+dy.toFixed(0)+' mm';
+ if(HL&&e.length>3){for(var q=0;q<HL.length;q++)t+='\n'+HL[q]+' = '+e[3][q].toPrecision(4);}else t+='\nvalor = '+e[2].toFixed(3);
+ tt.textContent=t;
+ tt.style.display='block';var tx=mx+14;if(tx+120>W)tx=mx-125;tt.style.left=tx+'px';tt.style.top=Math.max(2,my-10)+'px';});
+cv.addEventListener('mouseleave',function(){tt.style.display='none';});
+");
+            sb.Append("})();</script>\n");
+            _figTraces = null; _figAnnotations = null; _figPrims = null;
+            _hoverVals = null; _hoverLabels = null;
+            return sb.ToString();
         }
 
         private static SKColor ParseColor(string s)
@@ -867,6 +1025,19 @@ return {make:make};
             {
                 try { return new SKColor(Convert.ToByte(s.Substring(1, 2), 16), Convert.ToByte(s.Substring(3, 2), 16), Convert.ToByte(s.Substring(5, 2), 16)); }
                 catch { return SKColors.Black; }
+            }
+            if (s.StartsWith("rgb", System.StringComparison.OrdinalIgnoreCase))
+            {
+                int p = s.IndexOf('('), q = s.IndexOf(')');
+                if (p >= 0 && q > p)
+                {
+                    var parts = s.Substring(p + 1, q - p - 1).Split(',');
+                    if (parts.Length >= 3 &&
+                        byte.TryParse(parts[0].Trim(), out byte r) &&
+                        byte.TryParse(parts[1].Trim(), out byte g) &&
+                        byte.TryParse(parts[2].Trim(), out byte b))
+                        return new SKColor(r, g, b);
+                }
             }
             switch (s.ToLowerInvariant())
             {
@@ -1096,7 +1267,7 @@ return {make:make};
         // Template del viewer (JS interactivo 2D canvas jet + 3D Three.js, con hover y selector).
         // Placeholders: __ID__ __NA__ __NB__ __A__ __BB__ __HC__ __OPTIONS__ __DINIT__ __UINIT__ __DDATA__ __FIRSTKEY__
         private const string SlabViewerTemplate =
-@"<div id=""rv__ID__"" style=""font:13px Segoe UI""> <b>Resultado:</b> <select id=""rvs__ID__"" style=""font:13px Segoe UI;padding:2px 6px;margin:4px 0"">__OPTIONS__</select> <div style=""display:flex;flex-wrap:wrap;gap:10px""><div id=""rv2__ID__""></div><div id=""rv3__ID__""></div></div></div> <script>(function(){ var na=__NA__,nb=__NB__,A=__A__,Bb=__BB__,Hc=__HC__; var D={__DINIT__},U={__UINIT__}; __DDATA__ var nx=na+1,ny=nb+1; function jt(t){t=Math.max(0,Math.min(1,t));return[Math.max(0,Math.min(1,Math.min(4*t-1.5,-4*t+4.5)))*255|0,Math.max(0,Math.min(1,Math.min(4*t-0.5,-4*t+3.5)))*255|0,Math.max(0,Math.min(1,Math.min(4*t+0.5,-4*t+2.5)))*255|0];} function jc(t){var c=jt(t);return new THREE.Color(c[0]/255,c[1]/255,c[2]/255);} var P2=document.getElementById(""rv2__ID__""),P3=document.getElementById(""rv3__ID__""),SEL=document.getElementById(""rvs__ID__""); var tip=document.createElement(""div"");tip.style.cssText=""position:fixed;pointer-events:none;background:rgba(20,20,28,.9);color:#fff;font:12px Consolas;padding:3px 7px;border-radius:4px;display:none;z-index:99999"";document.body.appendChild(tip); function draw2D(g,uni){var W=420,H=380,ml=38,mr=64,mt=16,pw=W-ml-mr,ph=H-mt-26;P2.innerHTML='';var hd=document.createElement(""div"");var wr=document.createElement(""div"");wr.style.cssText=""position:relative;width:""+W+""px;height:""+H+""px;flex:0 0 auto"";var bs=document.createElement(""canvas"");bs.width=W;bs.height=H;bs.style.cssText=""position:absolute;border:1px solid #ddd"";var ov=document.createElement(""canvas"");ov.width=W;ov.height=H;ov.style.cssText=""position:absolute;pointer-events:none"";wr.appendChild(bs);wr.appendChild(ov);P2.appendChild(hd);P2.appendChild(wr);var cx=bs.getContext(""2d""),ox=ov.getContext(""2d""); var xs=[];for(var i=0;i<nx;i++)xs.push(i*A/na);var ys=[];for(var j=0;j<ny;j++)ys.push(j*Bb/nb);function gv(i,j){return g[i*ny+j];} function SX(x){return ml+x/A*pw;}function SY(y){return mt+(Bb-y)/Bb*ph;}function wX(p){return(p-ml)/pw*A;}function wY(p){return Bb-(p-mt)/ph*Bb;} function bl(x,y){if(x<0||x>A||y<0||y>Bb)return null;var i=0;while(i<nx-2&&xs[i+1]<x)i++;var j=0;while(j<ny-2&&ys[j+1]<y)j++;var u=(x-xs[i])/(xs[i+1]-xs[i]),v=(y-ys[j])/(ys[j+1]-ys[j]);return gv(i,j)*(1-u)*(1-v)+gv(i+1,j)*u*(1-v)+gv(i,j+1)*(1-u)*v+gv(i+1,j+1)*u*v;} var vn=1e30,vx=-1e30;for(var k=0;k<g.length;k++){if(g[k]<vn)vn=g[k];if(g[k]>vx)vx=g[k];}if(vx-vn<1e-9)vx=vn+1; var im=cx.createImageData(pw,ph),dd=im.data;for(var py=0;py<ph;py++)for(var px=0;px<pw;px++){var v=bl(wX(ml+px),wY(mt+py)),qq=(py*pw+px)*4;if(v==null){dd[qq+3]=0;}else{var c=jt((v-vn)/(vx-vn));dd[qq]=c[0];dd[qq+1]=c[1];dd[qq+2]=c[2];dd[qq+3]=255;}}cx.putImageData(im,ml,mt); cx.strokeStyle=""rgba(40,40,40,.25)"";for(var i=0;i<nx;i++){cx.beginPath();cx.moveTo(SX(xs[i]),mt);cx.lineTo(SX(xs[i]),mt+ph);cx.stroke();}for(var j=0;j<ny;j++){cx.beginPath();cx.moveTo(ml,SY(ys[j]));cx.lineTo(ml+pw,SY(ys[j]));cx.stroke();}cx.strokeStyle=""#888"";cx.strokeRect(ml,mt,pw,ph); var cbx=W-mr+20;cx.font=""10px Consolas"";for(var k=0;k<ph;k++){var c=jt(1-k/ph);cx.fillStyle=""rgb(""+c[0]+"",""+c[1]+"",""+c[2]+"")"";cx.fillRect(cbx,mt+k,13,1);}cx.fillStyle=""#333"";cx.fillText(vx.toFixed(2),cbx-2,mt-3);cx.fillText(vn.toFixed(2),cbx-2,mt+ph+10); hd.innerHTML=""<b>2D (planta)</b> max=""+vx.toFixed(2)+uni+"" min=""+vn.toFixed(2)+uni; bs.onmousemove=function(ev){var rc=bs.getBoundingClientRect();var px=ev.clientX-rc.left,py=ev.clientY-rc.top,x=wX(px),y=wY(py);var v=(px>=ml&&px<=ml+pw&&py>=mt&&py<=mt+ph)?bl(x,y):null;ox.clearRect(0,0,W,H);if(v==null)return;ox.strokeStyle=""#000"";ox.beginPath();ox.moveTo(px,mt);ox.lineTo(px,mt+ph);ox.moveTo(ml,py);ox.lineTo(ml+pw,py);ox.stroke();ox.fillStyle=""rgba(20,20,28,.9)"";ox.fillRect(px+8,py-15,140,15);ox.fillStyle=""#fff"";ox.font=""11px Consolas"";ox.fillText(v.toFixed(2)+uni+"" @(""+x.toFixed(1)+"",""+y.toFixed(1)+"")"",px+11,py-4);};bs.onmouseleave=function(){ox.clearRect(0,0,W,H);};} var scn,cam,ren,ctrl,grp,mesh,geo,vv,rdy=false; function init3D(){var W=440,H=400;scn=new THREE.Scene();scn.background=new THREE.Color(0xeef0f4);cam=new THREE.PerspectiveCamera(45,W/H,.001,9000);ren=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});ren.setSize(W,H);var hd=document.createElement(""div"");hd.id=""rv3h__ID__"";P3.appendChild(hd);P3.appendChild(ren.domElement);cam.up.set(0,0,1);var dg0=Math.hypot(A,Bb,Hc)||1;cam.position.set(A/2+dg0,Bb/2-dg0*1.4,Hc/2+dg0);cam.lookAt(A/2,Bb/2,Hc/2);ctrl=new THREE.OrbitControls(cam,ren.domElement);ctrl.target.set(A/2,Bb/2,Hc/2);ctrl.update();scn.add(new THREE.AmbientLight(0xffffff,.9));var dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(8,-12,18);scn.add(dl);var ray=new THREE.Raycaster(),mo=new THREE.Vector2();ren.domElement.addEventListener(""mousemove"",function(ev){if(!mesh)return;var r=ren.domElement.getBoundingClientRect();mo.x=((ev.clientX-r.left)/r.width)*2-1;mo.y=-((ev.clientY-r.top)/r.height)*2+1;ray.setFromCamera(mo,cam);var h=ray.intersectObject(mesh,false);if(h.length){var f=h[0].face,ap=geo.attributes.position,p0=new THREE.Vector3().fromBufferAttribute(ap,f.a),p1=new THREE.Vector3().fromBufferAttribute(ap,f.b),p2=new THREE.Vector3().fromBufferAttribute(ap,f.c),bc=new THREE.Vector3();new THREE.Triangle(p0,p1,p2).getBarycoord(h[0].point,bc);var val=bc.x*vv[f.a]+bc.y*vv[f.b]+bc.z*vv[f.c];tip.style.display=""block"";tip.style.left=(ev.clientX+13)+""px"";tip.style.top=(ev.clientY+8)+""px"";tip.innerHTML=val.toFixed(2);}else tip.style.display=""none"";});ren.domElement.addEventListener(""mouseleave"",function(){tip.style.display=""none"";});function anim(){requestAnimationFrame(anim);ctrl.update();ren.render(scn,cam);}anim();rdy=true;} function build3D(colorG,uni){if(!rdy)return;if(grp)scn.remove(grp);grp=new THREE.Group(); var wG=D.w;function wv(i,j){return wG[i*ny+j];}function cg(i,j){return colorG[i*ny+j];} var wn=Math.min.apply(null,wG),wx=Math.max.apply(null,wG);var wa=Math.max(Math.abs(wn),Math.abs(wx),1e-9);var ampw=(.40*Hc)/wa; function Pt(i,j){return new THREE.Vector3(i*A/na,j*Bb/nb,Hc+wv(i,j)*ampw);} var cn=Math.min.apply(null,colorG),cx2=Math.max.apply(null,colorG);if(cx2-cn<1e-9)cx2=cn+1; var pos=[],col=[];vv=[];function pv(p,t){pos.push(p.x,p.y,p.z);var c=jc(t);col.push(c.r,c.g,c.b);} for(var i=0;i<nx-1;i++)for(var j=0;j<ny-1;j++){var pa=Pt(i,j),pb=Pt(i+1,j),pc=Pt(i+1,j+1),pd=Pt(i,j+1),ta=(cg(i,j)-cn)/(cx2-cn),tb=(cg(i+1,j)-cn)/(cx2-cn),tc=(cg(i+1,j+1)-cn)/(cx2-cn),td=(cg(i,j+1)-cn)/(cx2-cn);pv(pa,ta);pv(pb,tb);pv(pc,tc);vv.push(cg(i,j),cg(i+1,j),cg(i+1,j+1));pv(pa,ta);pv(pc,tc);pv(pd,td);vv.push(cg(i,j),cg(i+1,j+1),cg(i,j+1));} geo=new THREE.BufferGeometry();geo.setAttribute(""position"",new THREE.Float32BufferAttribute(pos,3));geo.setAttribute(""color"",new THREE.Float32BufferAttribute(col,3));geo.computeVertexNormals();mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide}));grp.add(mesh); var wp=[];for(var i=0;i<nx;i++)for(var j=0;j<ny-1;j++){var aa=Pt(i,j),bb=Pt(i,j+1);wp.push(aa.x,aa.y,aa.z,bb.x,bb.y,bb.z);}for(var j=0;j<ny;j++)for(var i=0;i<nx-1;i++){var aa=Pt(i,j),bb=Pt(i+1,j);wp.push(aa.x,aa.y,aa.z,bb.x,bb.y,bb.z);}var wg=new THREE.BufferGeometry();wg.setAttribute(""position"",new THREE.Float32BufferAttribute(wp,3));grp.add(new THREE.LineSegments(wg,new THREE.LineBasicMaterial({color:0x556677}))); var corn=[[0,0],[nx-1,0],[nx-1,ny-1],[0,ny-1]]; var cp=[];for(var k=0;k<4;k++){var ci=corn[k][0],cj=corn[k][1],ptop=Pt(ci,cj);cp.push(ci*A/na,cj*Bb/nb,0,ptop.x,ptop.y,ptop.z);}var cgeo=new THREE.BufferGeometry();cgeo.setAttribute(""position"",new THREE.Float32BufferAttribute(cp,3));grp.add(new THREE.LineSegments(cgeo,new THREE.LineBasicMaterial({color:0x222222}))); var bp=[];function edge(ii,jj,di,dj,n){for(var s=0;s<n;s++){var a1=Pt(ii+di*s,jj+dj*s),a2=Pt(ii+di*(s+1),jj+dj*(s+1));bp.push(a1.x,a1.y,a1.z,a2.x,a2.y,a2.z);}} edge(0,0,1,0,nx-1);edge(0,ny-1,1,0,nx-1);edge(0,0,0,1,ny-1);edge(nx-1,0,0,1,ny-1);var bgeo=new THREE.BufferGeometry();bgeo.setAttribute(""position"",new THREE.Float32BufferAttribute(bp,3));grp.add(new THREE.LineSegments(bgeo,new THREE.LineBasicMaterial({color:0x8d6e63,linewidth:2}))); for(var k=0;k<4;k++){var ci=corn[k][0]*A/na,cj=corn[k][1]*Bb/nb,cm=new THREE.Mesh(new THREE.ConeGeometry(.05*Math.max(A,Bb),.10*Math.max(A,Bb),4),new THREE.MeshBasicMaterial({color:0x2244aa}));cm.position.set(ci,cj,-.05*Math.max(A,Bb));cm.rotation.x=Math.PI/2;grp.add(cm);} scn.add(grp); var cxx=A/2,cyy=Bb/2,czz=Hc/2,diag=Math.hypot(A,Bb,Hc)||1;cam.up.set(0,0,1);cam.position.set(cxx+diag*1.0,cyy-diag*1.4,czz+diag*.9);cam.lookAt(cxx,cyy,czz);ctrl.target.set(cxx,cyy,czz);ctrl.update(); document.getElementById(""rv3h__ID__"").innerHTML=""<b>Mesa 3D - ""+SEL.options[SEL.selectedIndex].text+""</b> max=""+cx2.toFixed(2)+uni+"" min=""+cn.toFixed(2)+uni+"" (arrastra/zoom/hover)"";} function render(){var k=SEL.value,g=D[k],uni=U[k];draw2D(g,uni);build3D(g,uni);} SEL.onchange=render; var s1=document.createElement(""script"");s1.src=""https://cdn.jsdelivr.net/npm/three@0.145.0/build/three.min.js"";s1.onload=function(){var s2=document.createElement(""script"");s2.src=""https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/controls/OrbitControls.js"";s2.onload=function(){init3D();render();};document.head.appendChild(s2);};document.head.appendChild(s1); draw2D(D.__FIRSTKEY__,U.__FIRSTKEY__); })();</script>";
+@"<div id=""rv__ID__"" style=""font:13px Segoe UI""> <b>Resultado:</b> <select id=""rvs__ID__"" style=""font:13px Segoe UI;padding:2px 6px;margin:4px 0"">__OPTIONS__</select> <div style=""display:flex;flex-wrap:wrap;gap:10px""><div id=""rv2__ID__""></div><div id=""rv3__ID__""></div></div></div> <script>(function(){ var na=__NA__,nb=__NB__,A=__A__,Bb=__BB__,Hc=__HC__; var D={__DINIT__},U={__UINIT__}; __DDATA__ var nx=na+1,ny=nb+1; function jt(t){t=Math.max(0,Math.min(1,t));return[Math.max(0,Math.min(1,Math.min(4*t-1.5,-4*t+4.5)))*255|0,Math.max(0,Math.min(1,Math.min(4*t-0.5,-4*t+3.5)))*255|0,Math.max(0,Math.min(1,Math.min(4*t+0.5,-4*t+2.5)))*255|0];} function jc(t){var c=jt(t);return new THREE.Color(c[0]/255,c[1]/255,c[2]/255);} var P2=document.getElementById(""rv2__ID__""),P3=document.getElementById(""rv3__ID__""),SEL=document.getElementById(""rvs__ID__""); var tip=document.createElement(""div"");tip.style.cssText=""position:fixed;pointer-events:none;background:rgba(20,20,28,.9);color:#fff;font:12px Consolas;padding:3px 7px;border-radius:4px;display:none;z-index:99999"";document.body.appendChild(tip); function draw2D(g,uni){var W=420,H=380,ml=38,mr=64,mt=16,pw=W-ml-mr,ph=H-mt-26;P2.innerHTML='';var hd=document.createElement(""div"");var wr=document.createElement(""div"");wr.style.cssText=""position:relative;width:""+W+""px;height:""+H+""px;flex:0 0 auto"";var bs=document.createElement(""canvas"");bs.width=W;bs.height=H;bs.style.cssText=""position:absolute;border:1px solid #ddd"";var ov=document.createElement(""canvas"");ov.width=W;ov.height=H;ov.style.cssText=""position:absolute;pointer-events:none"";wr.appendChild(bs);wr.appendChild(ov);P2.appendChild(hd);P2.appendChild(wr);var cx=bs.getContext(""2d""),ox=ov.getContext(""2d""); var xs=[];for(var i=0;i<nx;i++)xs.push(i*A/na);var ys=[];for(var j=0;j<ny;j++)ys.push(j*Bb/nb);function gv(i,j){return g[i*ny+j];} function SX(x){return ml+x/A*pw;}function SY(y){return mt+(Bb-y)/Bb*ph;}function wX(p){return(p-ml)/pw*A;}function wY(p){return Bb-(p-mt)/ph*Bb;} function bl(x,y){if(x<0||x>A||y<0||y>Bb)return null;var i=0;while(i<nx-2&&xs[i+1]<x)i++;var j=0;while(j<ny-2&&ys[j+1]<y)j++;var u=(x-xs[i])/(xs[i+1]-xs[i]),v=(y-ys[j])/(ys[j+1]-ys[j]);return gv(i,j)*(1-u)*(1-v)+gv(i+1,j)*u*(1-v)+gv(i,j+1)*(1-u)*v+gv(i+1,j+1)*u*v;} var vn=1e30,vx=-1e30;for(var k=0;k<g.length;k++){if(g[k]<vn)vn=g[k];if(g[k]>vx)vx=g[k];}if(vx-vn<1e-9)vx=vn+1; var im=cx.createImageData(pw,ph),dd=im.data;for(var py=0;py<ph;py++)for(var px=0;px<pw;px++){var v=bl(wX(ml+px),wY(mt+py)),qq=(py*pw+px)*4;if(v==null){dd[qq+3]=0;}else{var c=jt((v-vn)/(vx-vn));dd[qq]=c[0];dd[qq+1]=c[1];dd[qq+2]=c[2];dd[qq+3]=255;}}cx.putImageData(im,ml,mt); cx.strokeStyle=""rgba(40,40,40,.25)"";for(var i=0;i<nx;i++){cx.beginPath();cx.moveTo(SX(xs[i]),mt);cx.lineTo(SX(xs[i]),mt+ph);cx.stroke();}for(var j=0;j<ny;j++){cx.beginPath();cx.moveTo(ml,SY(ys[j]));cx.lineTo(ml+pw,SY(ys[j]));cx.stroke();}cx.strokeStyle=""#888"";cx.strokeRect(ml,mt,pw,ph); var cbx=W-mr+20;cx.font=""10px Consolas"";for(var k=0;k<ph;k++){var c=jt(1-k/ph);cx.fillStyle=""rgb(""+c[0]+"",""+c[1]+"",""+c[2]+"")"";cx.fillRect(cbx,mt+k,13,1);}cx.fillStyle=""#333"";cx.fillText(vx.toFixed(2),cbx-2,mt-3);cx.fillText(vn.toFixed(2),cbx-2,mt+ph+10); hd.innerHTML=""<b>2D (planta)</b> max=""+vx.toFixed(2)+uni+"" min=""+vn.toFixed(2)+uni; bs.onmousemove=function(ev){var rc=bs.getBoundingClientRect();var px=ev.clientX-rc.left,py=ev.clientY-rc.top,x=wX(px),y=wY(py);var v=(px>=ml&&px<=ml+pw&&py>=mt&&py<=mt+ph)?bl(x,y):null;ox.clearRect(0,0,W,H);if(v==null)return;ox.strokeStyle=""#000"";ox.beginPath();ox.moveTo(px,mt);ox.lineTo(px,mt+ph);ox.moveTo(ml,py);ox.lineTo(ml+pw,py);ox.stroke();ox.fillStyle=""rgba(20,20,28,.9)"";ox.fillRect(px+8,py-15,140,15);ox.fillStyle=""#fff"";ox.font=""11px Consolas"";ox.fillText(v.toFixed(2)+uni+"" @(""+x.toFixed(1)+"",""+y.toFixed(1)+"")"",px+11,py-4);};bs.onmouseleave=function(){ox.clearRect(0,0,W,H);};} var scn,cam,ren,ctrl,grp,mesh,geo,vv,rdy=false; function init3D(){var W=440,H=400;scn=new THREE.Scene();scn.background=new THREE.Color(0xeef0f4);cam=new THREE.PerspectiveCamera(45,W/H,.001,9000);ren=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});ren.setSize(W,H);var hd=document.createElement(""div"");hd.id=""rv3h__ID__"";P3.appendChild(hd);P3.appendChild(ren.domElement);cam.up.set(0,0,1);var dg0=Math.hypot(A,Bb,Hc)||1;cam.position.set(A/2+dg0,Bb/2-dg0*1.4,Hc/2+dg0);cam.lookAt(A/2,Bb/2,Hc/2);ctrl=new THREE.OrbitControls(cam,ren.domElement);ctrl.target.set(A/2,Bb/2,Hc/2);ctrl.update();scn.add(new THREE.AmbientLight(0xffffff,.9));var dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(8,-12,18);scn.add(dl);var ray=new THREE.Raycaster(),mo=new THREE.Vector2();ren.domElement.addEventListener(""mousemove"",function(ev){if(!mesh)return;var r=ren.domElement.getBoundingClientRect();mo.x=((ev.clientX-r.left)/r.width)*2-1;mo.y=-((ev.clientY-r.top)/r.height)*2+1;ray.setFromCamera(mo,cam);var h=ray.intersectObject(mesh,false);if(h.length){var f=h[0].face,ap=geo.attributes.position,p0=new THREE.Vector3().fromBufferAttribute(ap,f.a),p1=new THREE.Vector3().fromBufferAttribute(ap,f.b),p2=new THREE.Vector3().fromBufferAttribute(ap,f.c),bc=new THREE.Vector3();new THREE.Triangle(p0,p1,p2).getBarycoord(h[0].point,bc);var val=bc.x*vv[f.a]+bc.y*vv[f.b]+bc.z*vv[f.c];tip.style.display=""block"";tip.style.left=(ev.clientX+13)+""px"";tip.style.top=(ev.clientY+8)+""px"";tip.innerHTML=val.toFixed(2);}else tip.style.display=""none"";});ren.domElement.addEventListener(""mouseleave"",function(){tip.style.display=""none"";});function anim(){requestAnimationFrame(anim);ctrl.update();ren.render(scn,cam);}anim();rdy=true;} function build3D(colorG,uni){if(!rdy)return;if(grp)scn.remove(grp);grp=new THREE.Group(); var wG=D.w;function wv(i,j){return wG[i*ny+j];}function cg(i,j){return colorG[i*ny+j];} var wn=Math.min.apply(null,wG),wx=Math.max.apply(null,wG);var wa=Math.max(Math.abs(wn),Math.abs(wx),1e-9);var ampw=(.40*Hc)/wa; function Pt(i,j){return new THREE.Vector3(i*A/na,j*Bb/nb,Hc+wv(i,j)*ampw);} var cn=Math.min.apply(null,colorG),cx2=Math.max.apply(null,colorG);if(cx2-cn<1e-9)cx2=cn+1; var pos=[],col=[];vv=[];function pv(p,t){pos.push(p.x,p.y,p.z);var c=jc(t);col.push(c.r,c.g,c.b);} for(var i=0;i<nx-1;i++)for(var j=0;j<ny-1;j++){var pa=Pt(i,j),pb=Pt(i+1,j),pc=Pt(i+1,j+1),pd=Pt(i,j+1),ta=(cg(i,j)-cn)/(cx2-cn),tb=(cg(i+1,j)-cn)/(cx2-cn),tc=(cg(i+1,j+1)-cn)/(cx2-cn),td=(cg(i,j+1)-cn)/(cx2-cn);pv(pa,ta);pv(pb,tb);pv(pc,tc);vv.push(cg(i,j),cg(i+1,j),cg(i+1,j+1));pv(pa,ta);pv(pc,tc);pv(pd,td);vv.push(cg(i,j),cg(i+1,j+1),cg(i,j+1));} geo=new THREE.BufferGeometry();geo.setAttribute(""position"",new THREE.Float32BufferAttribute(pos,3));geo.setAttribute(""color"",new THREE.Float32BufferAttribute(col,3));geo.computeVertexNormals();mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide}));grp.add(mesh); var wp=[];for(var i=0;i<nx;i++)for(var j=0;j<ny-1;j++){var aa=Pt(i,j),bb=Pt(i,j+1);wp.push(aa.x,aa.y,aa.z,bb.x,bb.y,bb.z);}for(var j=0;j<ny;j++)for(var i=0;i<nx-1;i++){var aa=Pt(i,j),bb=Pt(i+1,j);wp.push(aa.x,aa.y,aa.z,bb.x,bb.y,bb.z);}var wg=new THREE.BufferGeometry();wg.setAttribute(""position"",new THREE.Float32BufferAttribute(wp,3));grp.add(new THREE.LineSegments(wg,new THREE.LineBasicMaterial({color:0x556677}))); var corn=[[0,0],[nx-1,0],[nx-1,ny-1],[0,ny-1]]; var cp=[];for(var k=0;k<4;k++){var ci=corn[k][0],cj=corn[k][1],ptop=Pt(ci,cj);cp.push(ci*A/na,cj*Bb/nb,0,ptop.x,ptop.y,ptop.z);}var cgeo=new THREE.BufferGeometry();cgeo.setAttribute(""position"",new THREE.Float32BufferAttribute(cp,3));grp.add(new THREE.LineSegments(cgeo,new THREE.LineBasicMaterial({color:0x222222}))); var bp=[];function edge(ii,jj,di,dj,n){for(var s=0;s<n;s++){var a1=Pt(ii+di*s,jj+dj*s),a2=Pt(ii+di*(s+1),jj+dj*(s+1));bp.push(a1.x,a1.y,a1.z,a2.x,a2.y,a2.z);}} edge(0,0,1,0,nx-1);edge(0,ny-1,1,0,nx-1);edge(0,0,0,1,ny-1);edge(nx-1,0,0,1,ny-1);var bgeo=new THREE.BufferGeometry();bgeo.setAttribute(""position"",new THREE.Float32BufferAttribute(bp,3));grp.add(new THREE.LineSegments(bgeo,new THREE.LineBasicMaterial({color:0x8d6e63,linewidth:2}))); for(var k=0;k<4;k++){var ci=corn[k][0]*A/na,cj=corn[k][1]*Bb/nb,cm=new THREE.Mesh(new THREE.ConeGeometry(.05*Math.max(A,Bb),.10*Math.max(A,Bb),4),new THREE.MeshBasicMaterial({color:0x2244aa}));cm.position.set(ci,cj,-.05*Math.max(A,Bb));cm.rotation.x=Math.PI/2;grp.add(cm);} scn.add(grp); var cxx=A/2,cyy=Bb/2,czz=Hc/2,diag=Math.hypot(A,Bb,Hc)||1;cam.up.set(0,0,1);cam.position.set(cxx+diag*1.0,cyy-diag*1.4,czz+diag*.9);cam.lookAt(cxx,cyy,czz);ctrl.target.set(cxx,cyy,czz);ctrl.update(); document.getElementById(""rv3h__ID__"").innerHTML=""<b>Mesa 3D - ""+SEL.options[SEL.selectedIndex].text+""</b> max=""+cx2.toFixed(2)+uni+"" min=""+cn.toFixed(2)+uni+"" (arrastra/zoom/hover)"";} function render(){var k=SEL.value,g=D[k],uni=U[k];draw2D(g,uni);build3D(g,uni);} SEL.onchange=render; var s1=document.createElement(""script"");s1.src=""https://calcpad.local/three-0.145.0.min.js"";s1.onload=function(){var s2=document.createElement(""script"");s2.src=""https://calcpad.local/OrbitControls-0.145.0.js"";s2.onload=function(){init3D();render();};document.head.appendChild(s2);};document.head.appendChild(s1); draw2D(D.__FIRSTKEY__,U.__FIRSTKEY__); })();</script>";
 
         public static string Plot3(MValue X, MValue Y, MValue Z)
         {

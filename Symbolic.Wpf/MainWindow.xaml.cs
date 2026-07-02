@@ -1466,9 +1466,14 @@ namespace Calcpad.Wpf
                 GC.Collect(2, GCCollectionMode.Forced, blocking: true);
                 GC.WaitForPendingFinalizers();
                 DiagLog("Pre-parse GC done");
+                // Hint de auto-run: si el .m es solo funciones, invocar la que se llama igual
+                // que el archivo (la primaria en MATLAB). Se lee en el hilo UI antes del Task.Run.
+                var entryHint = string.IsNullOrWhiteSpace(CurrentFileName)
+                    ? null : Path.GetFileNameWithoutExtension(CurrentFileName);
                 await Task.Run(() =>
                 {
                     var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
+                    pipeline.EntryFunctionHint = entryHint;
                     pipeline.StreamingMode = true;  // chunks vivos al WebView2
                     // Pre-split del source en lineas para mostrar la linea actual en el banner.
                     var sourceLines = sourceCapture.Replace("\r\n", "\n").Split('\n');

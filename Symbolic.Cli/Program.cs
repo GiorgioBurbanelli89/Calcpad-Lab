@@ -381,6 +381,9 @@ namespace Calcpad.Cli
                     // Tokenizer + Parser + Evaluator + HtmlWriter propios. Sólo se reutiliza
                     // el CSS template de Calcpad (clases matrix/tr/td/var/eq/b).
                     var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
+                    // Auto-run de archivo-función: si el .m es solo funciones, invocar la
+                    // primaria (la que se llama igual que el archivo), como MATLAB al pulsar Run.
+                    pipeline.EntryFunctionHint = Path.GetFileNameWithoutExtension(fileName);
                     if (isStreamDebug)
                     {
                         pipeline.StreamingMode = true;

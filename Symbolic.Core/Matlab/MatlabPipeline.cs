@@ -34,6 +34,13 @@ namespace Calcpad.Core.Matlab
         public bool OctaveMode { get; set; }
             = Environment.GetEnvironmentVariable("CALCPAD_OCTAVE") == "1";
 
+        /// <summary>Nombre de la función de ENTRADA (= nombre del archivo .m sin extensión).
+        /// Cuando el archivo es solo-funciones (function file), correrlo en MATLAB invoca la
+        /// función primaria — la que se llama igual que el archivo. El CLI/WPF lo setea con el
+        /// basename del archivo; así el auto-run llama a la función correcta aunque el
+        /// MatlabFolderLoader haya antepuesto funciones de OTROS .m de la carpeta.</summary>
+        public string EntryFunctionHint { get; set; }
+
         /// <summary>Fires antes de ejecutar cada statement top-level (line, sourceText).
         /// La UI lo usa para mostrar "Calculando línea N..." progresivamente.</summary>
         public event Action<int> StatementStarting;
@@ -65,6 +72,45 @@ namespace Calcpad.Core.Matlab
                     _evaluator.RegisterFunction(fd2);
                 else if (stmt is ClassDef cd2)
                     _evaluator.RegisterClass(cd2);
+            }
+            // AUTO-RUN de archivo-función (comportamiento MATLAB): un archivo cuyo primer
+            // código es `function` y que NO tiene sentencias top-level ejecutables NO corre
+            // solo con el pre-pass (solo registra). En MATLAB, pulsar Run sobre ese archivo
+            // INVOCA la función primaria (la primera) sin argumentos. Replicamos eso: si no
+            // hay código top-level ejecutable y la función primaria no requiere argumentos,
+            // añadimos una llamada sintética `primaria()` para que el loop la ejecute (y sus
+            // side-effects — figure/surf/light/... — emitan HTML como cualquier statement).
+            {
+                bool hasTopLevelExec = false;
+                FunctionDef firstFn = null;
+                FunctionDef entryFn = null;
+                foreach (var stmt in stmts)
+                {
+                    if (stmt is FunctionDef fd)
+                    {
+                        if (firstFn == null) firstFn = fd;
+                        if (EntryFunctionHint != null && string.Equals(fd.Name, EntryFunctionHint, System.StringComparison.Ordinal))
+                            entryFn = fd;
+                    }
+                    else if (stmt is ClassDef) { /* solo registro */ }
+                    else if (stmt is CommentStmt) { /* comentario, no ejecutable */ }
+                    else { hasTopLevelExec = true; }
+                }
+                // Preferir la función que coincide con el nombre del archivo (la primaria en
+                // MATLAB). Si no hay hint o no matchea, caer a la PRIMERA función definida.
+                // Con MatlabFolderLoader anteponiendo otros .m, "la primera" ya no es la del
+                // archivo abierto — por eso el hint es lo correcto.
+                FunctionDef primaryFn = entryFn ?? firstFn;
+                if (!hasTopLevelExec && primaryFn != null && primaryFn.ParamNames.Count == 0)
+                {
+                    var call = new CallOrIndex
+                    {
+                        Target = new IdentRef { Name = primaryFn.Name, Line = primaryFn.Line },
+                        Args = new System.Collections.Generic.List<MatlabNode>(),
+                        Line = primaryFn.Line
+                    };
+                    stmts.Add(new ExprStmt { Expr = call, Suppressed = true, Line = primaryFn.Line });
+                }
             }
             var sb = new StringBuilder();
             // Re-route stdout (disp) y HTML inline (plots) al output
@@ -403,8 +449,9 @@ namespace Calcpad.Core.Matlab
             // anteponer la libreria UNA vez. Script bloqueante en document.write =>
             // queda definida antes de los Plotly.newPlot del cuerpo. Asi el HTML
             // sirve en web, WPF/CLI y exportado, sin inyeccion del host.
-            if (fullHtml.Contains("Plotly.newPlot") && !fullHtml.Contains("cdn.plot.ly"))
-                fullHtml = "<script src=\"https://cdn.plot.ly/plotly-2.35.2.min.js\" charset=\"utf-8\"></script>\n" + fullHtml;
+            // Plotly EMBEBIDO (calcpad.local -> doc/, sin CDN externo; funciona offline).
+            if (fullHtml.Contains("Plotly.newPlot") && !fullHtml.Contains("plotly-2.35.2"))
+                fullHtml = "<script src=\"https://calcpad.local/plotly-2.35.2.min.js\" charset=\"utf-8\"></script>\n" + fullHtml;
             ScriptFinished?.Invoke(fullHtml);
             return fullHtml;
         }

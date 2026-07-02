@@ -8,9 +8,24 @@ of `.cpd`. Native MATLAB engine in C#, **no MATLAB installation required**.
 > Same renderized HTML/PDF/DOCX output as Calcpad, same auto-run-on-save,
 > same template — only the input syntax is MATLAB.
 
-📥 **Download v1.0.50:** [Calcpad-Lab-Setup-1.0.50.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/latest) (self-contained, no .NET required)
+📥 **Download v1.0.55:** [Calcpad-Lab-Setup-1.0.55.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/latest) (self-contained, no .NET required)
 🎬 **Video demo:** https://youtu.be/-Xcyc2SsG7s
-📁 **107 ejemplos `.m`** en 18 categorías bundleadas con el installer.
+📁 **130+ ejemplos `.m` (puro MATLAB)** en 18 categorías bundleadas con el installer.
+
+---
+
+## Novedades — v1.0.55: muro de corte con grieta + hover (2026-07-02)
+
+- **Nuevo ejemplo `muro_de_corte.m`** (14 Sismo y Dinámica): FEM de un muro de corte de hormigón con
+  **Daño Plástico del Hormigón (CDP)** — reproduce la grieta diagonal de cortante validada contra
+  Abaqus (**divergencia < 9%**), con la malla deformada, colorbar y la paleta de Abaqus.
+- **Hover interactivo** (canvas embebido, sin JS externo): al pasar el cursor por el muro muestra
+  σ, τ, ε, γ y el daño en cada punto. El motor agrega `hoverdata`, `imagesc`/`patch` con
+  `FaceVertexCData`, `print -dpng` (PNG embebido), y los builtins `repelem`/`jet`; arreglado
+  `mean(A,dim)` y `line(ax,…)`.
+- **Un solo `.m` idéntico corre en Calcpad Lab y en MATLAB 2017a**: `hoverdata` es builtin en Lab y
+  función local (datacursor) en MATLAB — el mismo archivo, sin ramas ni dependencias externas.
+- **Ejemplos = puro `.m`**: se limpiaron las salidas generadas (`.html`/`.png`/…); quedan solo scripts.
 
 ---
 
