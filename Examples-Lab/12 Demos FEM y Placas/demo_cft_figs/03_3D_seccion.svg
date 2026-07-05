@@ -1,0 +1,39 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
+  <rect x='0' y='0' width='800' height='800' fill='white'/>
+  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>Vista en SECCIÓN (y = L_y/2) — CFT + placa + anclajes + pedestal</text>
+  <text x='415' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>x (mm)</text>
+  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>y (mm)</text>
+  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-25</text>
+  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>238</text>
+  <text x='202' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>85</text>
+  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>292</text>
+  <text x='344' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>195</text>
+  <text x='55' y='468' text-anchor='end' font-family='sans-serif' font-size='10'>348</text>
+  <text x='486.00000000000006' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>305</text>
+  <text x='55' y='330' text-anchor='end' font-family='sans-serif' font-size='10'>402</text>
+  <text x='628' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>415</text>
+  <text x='55' y='192' text-anchor='end' font-family='sans-serif' font-size='10'>458</text>
+  <text x='770' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>525</text>
+  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>512</text>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+    <polygon points='92.27,708.64 737.73,708.64 737.73,708.64 92.27,708.64' fill='rgb(177,173,156)' fill-opacity='1' stroke='black' stroke-width='1.5'/>
+    <polygon points='737.73,81.36 92.27,81.36 92.27,81.36 737.73,81.36' fill='rgb(89,107,140)' fill-opacity='1' stroke='black' stroke-width='0.8'/>
+    <polygon points='92.27,708.64 737.73,708.64 737.73,708.64 92.27,708.64' fill='rgb(53,64,84)' fill-opacity='1' stroke='black' stroke-width='1.5'/>
+    <polygon points='221.36,332.27 608.64,332.27 608.64,332.27 221.36,332.27' fill='rgb(89,107,140)' fill-opacity='1' stroke='blue' stroke-width='1'/>
+    <polygon points='221.36,708.64 221.36,332.27 221.36,332.27 221.36,708.64' fill='rgb(89,107,140)' fill-opacity='1' stroke='blue' stroke-width='1'/>
+    <polygon points='608.64,708.64 608.64,332.27 608.64,332.27 608.64,708.64' fill='rgb(89,107,140)' fill-opacity='1' stroke='blue' stroke-width='1'/>
+    <polygon points='221.36,332.27 608.64,332.27 608.64,708.64 221.36,708.64' fill='rgb(89,107,140)' fill-opacity='1' stroke='blue' stroke-width='0.8'/>
+    <polygon points='221.36,708.64 231.69,708.64 231.69,708.64 221.36,708.64' fill='rgb(53,64,84)' fill-opacity='1' stroke='black' stroke-width='1.2'/>
+    <polygon points='598.31,708.64 608.64,708.64 608.64,708.64 598.31,708.64' fill='rgb(53,64,84)' fill-opacity='1' stroke='black' stroke-width='1.2'/>
+    <polygon points='221.36,708.64 608.64,708.64 608.64,708.64 221.36,708.64' fill='rgb(53,64,84)' fill-opacity='1' stroke='black' stroke-width='1.2'/>
+    <polygon points='231.69,708.64 598.31,708.64 598.31,708.64 231.69,708.64' fill='rgb(198,183,153)' fill-opacity='1' stroke='rgb(127,102,76)' stroke-width='1'/>
+    <text x='415.00' y='708.64' fill='black' font-family='sans-serif' font-size='13' text-anchor='middle' dominant-baseline='central'>CFT</text>
+    <text x='202.00' y='708.64' fill='rgb(51,76,127)' font-family='sans-serif' font-size='10' text-anchor='end' dominant-baseline='central'>HSS</text>
+    <text x='415.00' y='708.64' fill='rgb(102,76,38)' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>Hormigón\nrelleno</text>
+    <text x='640.91' y='708.64' fill='rgb(102,76,51)' font-family='sans-serif' font-size='11' text-anchor='end' dominant-baseline='central'>Pedestal\nHA</text>
+    <text x='221.36' y='708.64' fill='rgb(51,51,51)' font-family='sans-serif' font-size='9' text-anchor='start' dominant-baseline='central'>Anclajes\nembebidos</text>
+    <text x='415.00' y='708.64' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>arranque HA-HA</text>
+  </g>
+</svg>

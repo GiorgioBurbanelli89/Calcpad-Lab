@@ -547,7 +547,9 @@ namespace Calcpad.Core.Matlab
         {
             if (u.IsPrefix)
                 return u.Op + RenderExpression(u.Operand);
-            // postfix: `' ` o `.'`
+            // postfix transpose ' o .' → superíndice T (notación matematica Aᵀ, no A')
+            if (PrettyMath && (u.Op == "'" || u.Op == ".'"))
+                return RenderExpression(u.Operand) + "<sup>T</sup>";
             return RenderExpression(u.Operand) + u.Op;
         }
         /// <summary>Activar/desactivar rendering pretty-print (fracciones, raíces, exponentes).</summary>
@@ -644,21 +646,29 @@ namespace Calcpad.Core.Matlab
                 //   {f}&thinsp;<var>d{x}</var>
                 // El diferencial va dentro de <var>...</var> para que se rendea italica como
                 // las demas variables (Georgia Pro italic via .eq var en template.html).
-                if (fname == "int" && c.Args.Count >= 2)
+                if (fname == "int" && c.Args.Count >= 1)
                 {
                     var fExpr = RenderExpression(c.Args[0]);
-                    // Diferencial: usar el nombre crudo (NO el render con <var> wrapper),
-                    // sino quedaria `<var>d<var>x</var></var>` (anidado invalido).
-                    string vName = c.Args[1] is IdentRef vId
-                        ? (GreekLetterMap(vId.Name) ?? System.Web.HttpUtility.HtmlEncode(vId.Name))
-                        : RenderExpression(c.Args[1]);
-                    string sup = "", sub = "";
-                    if (c.Args.Count >= 4)
+                    // Diferencial crudo (NO <var> wrapper, sino quedaria anidado). El 2o arg
+                    // es la VARIABLE solo si es identificador; si es numero/expr son limites
+                    // (int(f,a,b)) y la variable es la de f (por defecto x). int(f) [1 arg] =
+                    // indefinida, variable por defecto x → tambien usa el ∫ pretty (antes texto).
+                    string vName = "x", sup = "", sub = "";
+                    if (c.Args.Count >= 2)
                     {
-                        sub = RenderExpression(c.Args[2]);
-                        sup = RenderExpression(c.Args[3]);
+                        if (c.Args[1] is IdentRef vId)
+                        {
+                            vName = GreekLetterMap(vId.Name) ?? System.Web.HttpUtility.HtmlEncode(vId.Name);
+                            if (c.Args.Count >= 4) { sub = RenderExpression(c.Args[2]); sup = RenderExpression(c.Args[3]); }
+                        }
+                        else if (c.Args.Count >= 3)
+                        {
+                            sub = RenderExpression(c.Args[1]);
+                            sup = RenderExpression(c.Args[2]);
+                        }
+                        else vName = RenderExpression(c.Args[1]);
                     }
-                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\">∫</span><small>{sub}</small></span>{fExpr} <var>d{vName}</var>";
+                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\"><em>∫</em></span><small>{sub}</small></span>{fExpr} d<var>{vName}</var>";
                 }
                 // limit(f, x, c)
                 if (fname == "limit" && c.Args.Count >= 3)
@@ -666,6 +676,10 @@ namespace Calcpad.Core.Matlab
                     var fExpr = RenderExpression(c.Args[0]);
                     var vExpr = RenderExpression(c.Args[1]);
                     var cExpr = RenderExpression(c.Args[2]);
+                    // Inf/inf → ∞ , -Inf → −∞ (detectar en el ARG; cExpr trae markup HTML)
+                    if (c.Args[2] is IdentRef cInf && (cInf.Name == "Inf" || cInf.Name == "inf")) cExpr = "∞";
+                    else if (c.Args[2] is NumberLit cNum && double.IsInfinity(cNum.Value)) cExpr = cNum.Value < 0 ? "−∞" : "∞";
+                    else if (c.Args[2] is UnaryOp cU && cU.Op == "-" && cU.Operand is IdentRef cI2 && (cI2.Name == "Inf" || cI2.Name == "inf")) cExpr = "−∞";
                     return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;color:#7c2bb2\">lim</span><sub>{vExpr}&rarr;{cExpr}</sub>&thinsp;{fExpr}";
                 }
                 // taylor(f, ...) — display como T_n(f) con subscript del orden
@@ -703,7 +717,9 @@ namespace Calcpad.Core.Matlab
                 if (pid.Name == "sqrt")
                 {
                     var inner = RenderExpression(c.Args[0]);
-                    return $"<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{inner}</span>";
+                    // SqrPad antes del √ (como el HtmWriter de Calcpad): separa el √ del
+                    // operando anterior — antes el "+" (o cualquier op) se SOLAPABA con el √.
+                    return $"&ensp;&hairsp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{inner}</span>";
                 }
                 if (pid.Name == "abs")
                 {
@@ -717,6 +733,23 @@ namespace Calcpad.Core.Matlab
                 var n = RenderExpression(c.Args[1]);
                 var x = RenderExpression(c.Args[0]);
                 return $"<span class=\"o0\"><sup style=\"font-size:.7em\">{n}</sup><span class=\"r\">√</span>&hairsp;{x}</span>";
+            }
+            // Pretty: ALGEBRA LINEAL — notacion matematica en vez del nombre de funcion.
+            //   norm(v)→‖v‖  dot(a,b)→a·b  cross(a,b)→a×b  det(A)→|A|  inv(A)→A⁻¹  transpose(A)→Aᵀ
+            if (PrettyMath && c.Target is IdentRef laId)
+            {
+                if (laId.Name == "norm" && c.Args.Count == 1)
+                    return $"<b class=\"b0\">‖</b>&hairsp;{RenderExpression(c.Args[0])}&hairsp;<b class=\"b0\">‖</b>";
+                if (laId.Name == "dot" && c.Args.Count == 2)
+                    return $"{RenderExpression(c.Args[0])} · {RenderExpression(c.Args[1])}";
+                if (laId.Name == "cross" && c.Args.Count == 2)
+                    return $"{RenderExpression(c.Args[0])} × {RenderExpression(c.Args[1])}";
+                if (laId.Name == "det" && c.Args.Count == 1)
+                    return $"<b class=\"b0\">|</b>&hairsp;{RenderExpression(c.Args[0])}&hairsp;<b class=\"b0\">|</b>";
+                if (laId.Name == "inv" && c.Args.Count == 1)
+                    return $"{RenderExpression(c.Args[0])}<sup>−1</sup>";
+                if (laId.Name == "transpose" && c.Args.Count == 1)
+                    return $"{RenderExpression(c.Args[0])}<sup>T</sup>";
             }
             var sb = new StringBuilder();
             // Funciones builtin: sans-serif bold morado para diferenciacion clara

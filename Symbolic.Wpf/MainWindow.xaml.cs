@@ -2736,14 +2736,24 @@ namespace Calcpad.Wpf
                 HtmlFileSave();
         }
 
+        private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
+
         private void TryOpenOnStartup()
         {
             StartupMark("TryOpenOnStartup: start");
-            var args = Environment.GetCommandLineArgs();
-            var n = args.Length;
-            if (n > 1)
+            var argv = Environment.GetCommandLineArgs();
+            // Extraer "--shot <png>" (captura headless del WebViewer a PNG, sin abrir la
+            // ventana visualmente / sin navegador) — el resto de args = el archivo.
+            _shotPng = null;
+            var fileParts = new System.Collections.Generic.List<string>();
+            for (int i = 1; i < argv.Length; i++)
             {
-                var s = string.Join(" ", args, 1, n - 1);
+                if (argv[i] == "--shot" && i + 1 < argv.Length) _shotPng = argv[++i];
+                else fileParts.Add(argv[i]);
+            }
+            if (fileParts.Count > 0)
+            {
+                var s = string.Join(" ", fileParts);
                 StartupMark($"TryOpenOnStartup: file = {System.IO.Path.GetFileName(s)}");
                 if (File.Exists(s))
                 {
@@ -2785,6 +2795,9 @@ namespace Calcpad.Wpf
                                 }
                                 _wv2Warper.NavigateToBlank();
                                 CalculateAsync();
+                                // Modo headless --shot: tras calcular+renderizar, captura el
+                                // WebViewer a PNG y cierra la app (sin interacción). Para tests.
+                                if (_shotPng != null) { await Task.Delay(7000); await CaptureWebViewerAndExit(_shotPng); }
                             }, DispatcherPriority.Background);
                         }
                         AddRecentFile(CurrentFileName);
@@ -2794,6 +2807,27 @@ namespace Calcpad.Wpf
             }
             ShowHelp();
             DispatchLineNumbers();
+        }
+
+        // Captura de PÁGINA COMPLETA del WebViewer (WebView2) a PNG vía DevTools
+        // Page.captureScreenshot y cierra la app. Modo headless --shot: permite testear
+        // el render REAL del WPF sin abrir la ventana visualmente ni usar un navegador.
+        private async Task CaptureWebViewerAndExit(string png)
+        {
+            try
+            {
+                await WebViewer.EnsureCoreWebView2Async();
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                var wStr = await WebViewer.CoreWebView2.ExecuteScriptAsync("Math.max(document.body.scrollWidth,document.documentElement.scrollWidth)");
+                var hStr = await WebViewer.CoreWebView2.ExecuteScriptAsync("Math.max(document.body.scrollHeight,document.documentElement.scrollHeight)");
+                int w = (int)double.Parse(wStr, ci), h = (int)double.Parse(hStr, ci);
+                var prm = "{\"format\":\"png\",\"captureBeyondViewport\":true,\"clip\":{\"x\":0,\"y\":0,\"width\":" + w + ",\"height\":" + h + ",\"scale\":1}}";
+                var res = await WebViewer.CoreWebView2.CallDevToolsProtocolMethodAsync("Page.captureScreenshot", prm);
+                using var jd = System.Text.Json.JsonDocument.Parse(res);
+                File.WriteAllBytes(png, Convert.FromBase64String(jd.RootElement.GetProperty("data").GetString()));
+            }
+            catch { }
+            Application.Current.Shutdown();
         }
 
         private void Window_Closing(object sender, CancelEventArgs e)

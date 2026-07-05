@@ -44,6 +44,13 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>eigen_solver.dll</Link>
     </None>
+    <!-- CAS giac (Xcas, GPL, self-contained, 16 MB) → junto al .exe. GiacRunner.cs lo
+         llama por P/Invoke (caseval) para int/diff/simplify simbolicos, como MATLAB
+         llama a MuPAD (mupadmex). Interfaz por strings. -->
+    <None Include="Native\giac.dll" Condition="Exists('Native\giac.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>giac.dll</Link>
+    </None>
     <None Include="Native\matlab_helpers.dll" Condition="Exists('Native\matlab_helpers.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>matlab_helpers.dll</Link>

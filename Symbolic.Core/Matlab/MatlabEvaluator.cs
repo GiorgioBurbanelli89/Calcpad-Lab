@@ -188,6 +188,19 @@ namespace Calcpad.Core.Matlab
         public double At(int r, int c) => Data[r * Cols + c];
         public void Set(int r, int c, double v) => Data[r * Cols + c] = v;
 
+        // Densifica una matriz sparse CSR → densa (row-major). Si ya es densa, la
+        // devuelve tal cual. Red de seguridad: cualquier operación que no soporte
+        // sparse llama a ToDense() y sigue con el camino denso (comportamiento previo).
+        public MValue ToDense()
+        {
+            if (!IsSparseReal) return this;
+            var r = new MValue(Rows, Cols);
+            for (int i = 0; i < Rows; i++)
+                for (int k = SparseRowPtr[i]; k < SparseRowPtr[i + 1]; k++)
+                    r.Set(i, SparseCols[k], SparseVals[k]);
+            return r;
+        }
+
         public override string ToString()
         {
             if (IsString) return $"'{StringValue}'";
@@ -454,16 +467,16 @@ namespace Calcpad.Core.Matlab
                 }
                 if (a.Length >= 5)
                 {
+                    // SPARSE REAL (CSR): antes densificaba a m×n (128 MB para FEM grande y
+                    // el solve escaneaba densa 3× por iteracion). Ahora TripletsToCsr guarda
+                    // solo los no-ceros → K*U (SpMV), K(free,free) (submatriz sparse) y
+                    // K\b (PARDISO) corren en el camino sparse, como MATLAB.
                     int m = (int)a[3].Scalar, n = (int)a[4].Scalar;
-                    var ii = a[0].Data; var jj = a[1].Data; var ss = a[2].Data;
-                    var dM = new MValue(m, n);
-                    for (int t = 0; t < ii.Length; t++)
-                    {
-                        int ri = (int)ii[t] - 1, ci = (int)jj[t] - 1;
-                        double sv = ss.Length == 1 ? ss[0] : ss[t];
-                        dM.Set(ri, ci, dM.At(ri, ci) + sv);   // acumula duplicados (MATLAB)
-                    }
-                    return dM;
+                    var ss = a[2].Data;
+                    var svArr = ss.Length == 1 && a[0].Data.Length > 1
+                        ? System.Linq.Enumerable.Repeat(ss[0], a[0].Data.Length).ToArray()
+                        : ss;
+                    return TripletsToCsr(m, n, a[0].Data, a[1].Data, svArr);
                 }
                 if (a.Length >= 2 && a[0].IsScalar && a[1].IsScalar)
                 {
@@ -1791,6 +1804,25 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["hold"] = a => new MValue(0);
+            // Modos interactivos de figura de MATLAB 2017a — en Calcpad Lab los plots
+            // (plotly + canvas WebView2) YA traen hover/datatip/zoom/pan nativos, así que
+            // estos son no-op para que el MISMO script con hover cursor no falle (Undefined).
+            // El hover interactivo funciona igual: al pasar el cursor se ven los valores.
+            _builtins["datacursormode"] = a => new MValue(0);
+            _builtins["zoom"] = a => new MValue(0);
+            _builtins["pan"] = a => new MValue(0);
+            _builtins["rotate3d"] = a => new MValue(0);
+            _builtins["brush"] = a => new MValue(0);
+            // guidata(h, data) almacena / guidata(h) recupera datos de app por figura
+            // (el patrón de hover custom de MATLAB: set(fig,'WindowButtonMotionFcn',@cb)
+            // + guidata para pasar datos al callback). Store en memoria por handle.
+            var guiStore = new Dictionary<int, MValue>();
+            _builtins["guidata"] = a => {
+                if (a.Length == 0) throw new MatlabRuntimeException("guidata(h[, data])");
+                int h = a[0].IsScalar ? (int)a[0].Scalar : 0;
+                if (a.Length >= 2) { guiStore[h] = a[1]; return new MValue(0); }
+                return guiStore.TryGetValue(h, out var d) ? d : new MValue(0);
+            };
             _builtins["figure"] = a => {
                 // Cerrar figura anterior si está abierta (emit HTML), comenzar nueva
                 string prev = MatlabPlots.BeginFigure();
@@ -3613,6 +3645,10 @@ namespace Calcpad.Core.Matlab
                     {
                         if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
                         else if (a[1].IsString) varName = a[1].StringValue;
+                        // diff(expr, n) con n escalar NUMÉRICO = n-ésima derivada (MATLAB).
+                        // Antes se ignoraba → diff(g,2) daba diff(g,1). Bug reportado por la
+                        // comunidad (derivadas de orden superior iguales a la 1ª).
+                        else if (a[1].IsScalar) order = (int)a[1].Scalar;
                     }
                     if (a.Length >= 3) order = (int)a[2].Scalar;
                     var result = a[0].Symbolic;
@@ -3872,6 +3908,12 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["simplify"] = a => {
                 if (!a[0].IsSymbolic) return a[0];
+                // PUENTE giac (como MATLAB→MuPAD): simplify(...) → giac. Fallback: motor propio.
+                if (GiacRunner.IsAvailable())
+                {
+                    var (ok, res) = GiacRunner.Eval($"simplify({a[0].Symbolic.ToInfix()})");
+                    if (ok) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(res)).Simplify()); } catch { } }
+                }
                 var r = a[0].Symbolic.Simplify();
                 r = TrigRules.SimplifyTrig(r);   // aplica reducciones trig
                 return MValue.NewSymbolic(r);
@@ -3880,6 +3922,13 @@ namespace Calcpad.Core.Matlab
                 if (a.Length == 0) throw new MatlabRuntimeException("expand(symExpr)");
                 if (a[0].IsSymbolic)
                 {
+                    // PUENTE giac (como MATLAB→MuPAD): expand(...) → giac (da x^3+3x^2+3x+1,
+                    // no la forma de Horner anidada del motor propio). Fallback: motor propio.
+                    if (GiacRunner.IsAvailable())
+                    {
+                        var (oke, rese) = GiacRunner.Eval($"expand({a[0].Symbolic.ToInfix()})");
+                        if (oke) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(rese))); } catch { } }
+                    }
                     // Trig expand primero (sin(a+b) → sin(a)cos(b)+cos(a)sin(b)), luego algebraic expand
                     var rT = TrigRules.ExpandTrig(a[0].Symbolic);
                     var rA = SymNode.Expand(rT);
@@ -3919,6 +3968,26 @@ namespace Calcpad.Core.Matlab
                     // lo deje pasar sin escapar al flushear el dispBuffer.
                     return new MValue("" + a[0].Symbolic.Simplify().ToHtml() + "");
                 }
+                // Matriz simbólica: p.ej. sol(k) de solve() es un sym 1x1. Renderizar
+                // celda a celda (1x1 = la expresión sola) para que char() dé "3", no
+                // el fallback numérico que producía char(0) = carácter nulo.
+                if (a[0].IsSymMatrix)
+                {
+                    var sc = a[0].SymCells;
+                    int rs = sc.GetLength(0), cs = sc.GetLength(1);
+                    var sbc = new System.Text.StringBuilder();
+                    for (int i = 0; i < rs; i++)
+                    {
+                        if (i > 0) sbc.Append('\n');
+                        for (int j = 0; j < cs; j++)
+                        {
+                            if (j > 0) sbc.Append("  ");
+                            var html = sc[i, j].Simplify().ToHtml();
+                            sbc.Append((char)0xE001).Append(html).Append((char)0xE002);
+                        }
+                    }
+                    return new MValue(sbc.ToString());
+                }
                 if (a[0].IsScalar) return new MValue(((char)(int)a[0].Scalar).ToString());
                 return a[0];
             };
@@ -3934,27 +4003,43 @@ namespace Calcpad.Core.Matlab
             _builtins["int"] = a => {
                 if (a.Length == 0 || !a[0].IsSymbolic)
                     throw new MatlabRuntimeException("int(symExpr[, var])");
+                // Casos MATLAB: int(f) · int(f,x) · int(f,a,b) definida · int(f,x,a,b) definida.
+                // El 2o arg es VARIABLE solo si es simbólico o string; si es número son límites.
                 string varName = "x";
-                if (a.Length >= 2)
+                SymNode limA = null, limB = null;
+                bool arg1IsVar = a.Length >= 2 && ((a[1].IsSymbolic && a[1].Symbolic is SymVar) || a[1].IsString);
+                if (arg1IsVar)
                 {
                     if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
-                    else if (a[1].IsString) varName = a[1].StringValue;
+                    else varName = a[1].StringValue;
+                    if (a.Length >= 4)   // int(f, x, a, b)
+                    {
+                        limA = a[2].IsSymbolic ? a[2].Symbolic : new SymConst(a[2].Scalar);
+                        limB = a[3].IsSymbolic ? a[3].Symbolic : new SymConst(a[3].Scalar);
+                    }
                 }
-                if (a.Length >= 4)
+                else if (a.Length >= 3)   // int(f, a, b) — definida, variable por defecto
                 {
-                    // ∫_a^b: integral definida
+                    limA = a[1].IsSymbolic ? a[1].Symbolic : new SymConst(a[1].Scalar);
+                    limB = a[2].IsSymbolic ? a[2].Symbolic : new SymConst(a[2].Scalar);
+                }
+                // PUENTE giac (como MATLAB→MuPAD por strings). Fallback: motor propio SymOps.
+                if (limA != null)
+                {
+                    if (GiacRunner.IsAvailable())
+                    {
+                        var (okd, resd) = GiacRunner.Eval($"integrate({a[0].Symbolic.ToInfix()},{varName},{limA.ToInfix()},{limB.ToInfix()})");
+                        if (okd) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resd)).Simplify()); } catch { } }
+                    }
                     var antider = SymOps.Integrate(a[0].Symbolic, varName).Simplify();
-                    // Limites pueden ser numericos o simbolicos (e.g. int(f, x, 0, L))
-                    SymNode limA = a[2].IsSymbolic ? a[2].Symbolic : new SymConst(a[2].Scalar);
-                    SymNode limB = a[3].IsSymbolic ? a[3].Symbolic : new SymConst(a[3].Scalar);
-                    // F(b) - F(a) via Subs simbolico (preserva otras variables libres)
                     var Fb_sym = antider.Subs(varName, limB).Simplify();
                     var Fa_sym = antider.Subs(varName, limA).Simplify();
-                    var resultSym = new SymSub(Fb_sym, Fa_sym).Simplify();
-                    // Mantener SIEMPRE el resultado como simbolico para preservar
-                    // rationales exactos (ej. 27/4 en vez de 6.75). El display de
-                    // SymConst tiene heuristica TryAsRational para mostrar n/d.
-                    return MValue.NewSymbolic(resultSym);
+                    return MValue.NewSymbolic(new SymSub(Fb_sym, Fa_sym).Simplify());
+                }
+                if (GiacRunner.IsAvailable())
+                {
+                    var (oki, resi) = GiacRunner.Eval($"integrate({a[0].Symbolic.ToInfix()},{varName})");
+                    if (oki) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resi)).Simplify()); } catch { } }
                 }
                 return MValue.NewSymbolic(SymOps.Integrate(a[0].Symbolic, varName).Simplify());
             };
@@ -4028,9 +4113,29 @@ namespace Calcpad.Core.Matlab
                     if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
                     else if (a[1].IsString) varName = a[1].StringValue;
                 }
-                var roots = SymOps.SolvePoly(a[0].Symbolic, varName);
+                List<double> roots;
+                try { roots = SymOps.SolvePoly(a[0].Symbolic, varName); }
+                catch (MatlabRuntimeException)
+                {
+                    // Coeficientes SIMBÓLICOS (a*x^2 + b*x + c): fórmula cuadrática
+                    // simbólica. Devuelve vector columna de sym.
+                    var symRoots = SymOps.SolveSymbolic(a[0].Symbolic, varName);
+                    if (symRoots == null || symRoots.Count == 0)
+                        throw new MatlabRuntimeException(
+                            "solve: no soportado (grado > 2 con coeficientes simbólicos)");
+                    var symCells = new SymNode[symRoots.Count, 1];
+                    for (int ri = 0; ri < symRoots.Count; ri++) symCells[ri, 0] = symRoots[ri];
+                    return MValue.NewSymMatrix(symCells);
+                }
                 if (roots.Count == 0) return new MValue(0, 0);
-                return new MValue(roots.Count, 1, roots.ToArray());
+                // MATLAB Symbolic Toolbox: solve() devuelve un vector COLUMNA de
+                // `sym`, no de doubles. Envolver cada raíz como SymConst para que
+                // char(sol(k)) renderice "3" (y no char(3) = carácter de control),
+                // y para que el resultado componga con el resto del álgebra simbólica.
+                var rootCells = new SymNode[roots.Count, 1];
+                for (int ri = 0; ri < roots.Count; ri++)
+                    rootCells[ri, 0] = new SymConst(roots[ri]);
+                return MValue.NewSymMatrix(rootCells);
             };
             // factor(symExpr [, var]) — factoriza polinomio: p(x) = (x-r1)(x-r2)...
             // Devuelve el PRODUCTO simbolico de factores (x - r_i) usando las raices
@@ -4044,6 +4149,12 @@ namespace Calcpad.Core.Matlab
                 {
                     if (a[1].IsSymbolic && a[1].Symbolic is SymVar svf) varFac = svf.Name;
                     else if (a[1].IsString) varFac = a[1].StringValue;
+                }
+                // PUENTE giac (como MATLAB→MuPAD): factor(...) → giac. Fallback: motor propio.
+                if (GiacRunner.IsAvailable())
+                {
+                    var (okf, resf) = GiacRunner.Eval($"factor({a[0].Symbolic.ToInfix()})");
+                    if (okf) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resf))); } catch { } }
                 }
                 var rootsFac = SymOps.SolvePoly(a[0].Symbolic, varFac);
                 if (rootsFac.Count == 0)
@@ -4602,6 +4713,15 @@ namespace Calcpad.Core.Matlab
                 if (a[1].IsSymbolic && a[1].Symbolic is SymVar v) varName = v.Name;
                 else if (a[1].IsString) varName = a[1].StringValue;
                 double x0 = a[2].Scalar;
+                // PUENTE giac (como MATLAB→MuPAD): limit(expr,var,x0) → giac. Fallback: L'Hopital propio.
+                if (GiacRunner.IsAvailable())
+                {
+                    string ptG = double.IsPositiveInfinity(x0) ? "+infinity"
+                               : double.IsNegativeInfinity(x0) ? "-infinity"
+                               : x0.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    var (okl, resl) = GiacRunner.Eval($"limit({a[0].Symbolic.ToInfix()},{varName},{ptG})");
+                    if (okl) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resl)).Simplify()); } catch { } }
+                }
                 var expr = a[0].Symbolic;
                 // 1) Probar L'Hôpital PRIMERO si expr es cociente
                 if (expr is SymDiv d)
@@ -6087,6 +6207,11 @@ namespace Calcpad.Core.Matlab
         }
         private static MValue MapBinary(MValue a, MValue b, Func<double, double, double> f)
         {
+            // Guarda SPARSE: las ops element-wise (+ - .* ./) usan .Data denso; si un
+            // operando es CSR se densifica (comportamiento previo). El camino sparse
+            // rápido solo está en sparse()/*, indexado y \ (el hot-path del FEM).
+            if (a.IsSparseReal) a = a.ToDense();
+            if (b.IsSparseReal) b = b.ToDense();
             // Real-only path. Si alguno es complex, el caller debe usar MapBinaryComplex.
             if (a.IsComplex || b.IsComplex)
                 return MapBinaryComplex(a, b, f);
@@ -8465,12 +8590,34 @@ namespace Calcpad.Core.Matlab
                     int total = m.Rows * m.Cols;
                     if (i < 0 || i >= total)
                         throw new MatlabRuntimeException($"Index {i + 1} out of bounds (1..{total})");
+                    // Matriz simbólica: devolver la CELDA como sym escalar (column-major).
+                    if (m.IsSymMatrix)
+                    {
+                        int col0 = i / m.Rows, row0 = i - col0 * m.Rows;
+                        return MValue.NewSymbolic(m.SymCells[row0, col0]);
+                    }
                     return new MValue(m.Data[i]);
                 }
                 // Slice: si idxNode es ColonAll (xg(:)) → COLUMN vector column-major
                 // Si idxNode es range/vector → preservar orientación del input (row si input es row)
                 bool isFullColon = idxNodes[0] is ColonAll;
                 bool sourceIsRow = m.Rows == 1;
+                // Matriz simbólica: slice → sub-matriz simbólica (misma orientación).
+                if (m.IsSymMatrix)
+                {
+                    bool asRow = !isFullColon && sourceIsRow;
+                    var cellsS = asRow ? new SymNode[1, lin.Length] : new SymNode[lin.Length, 1];
+                    for (int k = 0; k < lin.Length; k++)
+                    {
+                        int li = lin[k];
+                        if (li < 0 || li >= m.Rows * m.Cols)
+                            throw new MatlabRuntimeException($"Index {li + 1} out of bounds");
+                        int col = li / m.Rows, row = li - col * m.Rows;
+                        if (asRow) cellsS[0, k] = m.SymCells[row, col];
+                        else cellsS[k, 0] = m.SymCells[row, col];
+                    }
+                    return MValue.NewSymMatrix(cellsS);
+                }
                 MValue r;
                 if (isFullColon)
                     r = new MValue(lin.Length, 1);   // column vector
@@ -8499,9 +8646,27 @@ namespace Calcpad.Core.Matlab
                     int rr = rows[0], cc = cols[0];
                     if (rr < 0 || rr >= m.Rows || cc < 0 || cc >= m.Cols)
                         throw new MatlabRuntimeException($"Index ({rr + 1}, {cc + 1}) out of {m.Rows}×{m.Cols}");
+                    if (m.IsSymMatrix) return MValue.NewSymbolic(m.SymCells[rr, cc]);
                     return new MValue(m.At(rr, cc));
                 }
-                // Submatrix
+                // Matriz simbólica: submatriz → sub-matriz simbólica.
+                if (m.IsSymMatrix)
+                {
+                    var cellsS = new SymNode[rows.Length, cols.Length];
+                    for (int i = 0; i < rows.Length; i++)
+                        for (int j = 0; j < cols.Length; j++)
+                        {
+                            int rr = rows[i], cc = cols[j];
+                            if (rr < 0 || rr >= m.Rows || cc < 0 || cc >= m.Cols)
+                                throw new MatlabRuntimeException($"Submatrix index ({rr + 1}, {cc + 1}) out of {m.Rows}×{m.Cols}");
+                            cellsS[i, j] = m.SymCells[rr, cc];
+                        }
+                    return MValue.NewSymMatrix(cellsS);
+                }
+                // Submatrix: si m es SPARSE, mantener sparse (recorre solo no-ceros)
+                // en vez de densificar rows×cols y llamar At() por cada celda.
+                if (m.IsSparseReal)
+                    return MatlabLinAlg.SparseSubmatrix(m, rows, cols);
                 var sub = new MValue(rows.Length, cols.Length);
                 for (int i = 0; i < rows.Length; i++)
                     for (int j = 0; j < cols.Length; j++)
@@ -9187,8 +9352,69 @@ namespace Calcpad.Core.Matlab
         /// A puede ser N×N (cuadrada) o N×M (overdetermined → least-squares MVP via normal equations).
         /// b puede ser N×1 o N×k (múltiples RHS).
         /// </summary>
+        // Submatriz de una matriz SPARSE (CSR) → CSR, sin densificar. Recorre solo
+        // los no-ceros de las filas seleccionadas y remapea columnas. Soporta índices
+        // repetidos/desordenados en cols (mapa columna-origen → posiciones nuevas).
+        internal static MValue SparseSubmatrix(MValue m, int[] rows, int[] cols)
+        {
+            int nR = rows.Length, nC = cols.Length;
+            var colMap = new System.Collections.Generic.List<int>[m.Cols];
+            for (int j = 0; j < nC; j++)
+            {
+                int oc = cols[j];
+                if (oc < 0 || oc >= m.Cols)
+                    throw new MatlabRuntimeException($"Submatrix col index {oc + 1} out of {m.Cols}");
+                (colMap[oc] ??= new System.Collections.Generic.List<int>()).Add(j);
+            }
+            var rp = m.SparseRowPtr; var ci = m.SparseCols; var vv = m.SparseVals;
+            var newRowPtr = new int[nR + 1];
+            var newCols = new System.Collections.Generic.List<int>();
+            var newVals = new System.Collections.Generic.List<double>();
+            var rowBuf = new System.Collections.Generic.List<(int c, double v)>();
+            for (int i = 0; i < nR; i++)
+            {
+                newRowPtr[i] = newCols.Count;
+                int orow = rows[i];
+                if (orow < 0 || orow >= m.Rows)
+                    throw new MatlabRuntimeException($"Submatrix row index {orow + 1} out of {m.Rows}");
+                rowBuf.Clear();
+                for (int k = rp[orow]; k < rp[orow + 1]; k++)
+                {
+                    var dests = colMap[ci[k]];
+                    if (dests != null)
+                        foreach (var nc in dests) rowBuf.Add((nc, vv[k]));
+                }
+                rowBuf.Sort((x, y) => x.c.CompareTo(y.c));
+                foreach (var (c, v) in rowBuf) { newCols.Add(c); newVals.Add(v); }
+            }
+            newRowPtr[nR] = newCols.Count;
+            return MValue.NewSparseCSR(nR, nC, newVals.ToArray(), newCols.ToArray(), newRowPtr);
+        }
+
         public static MValue Linsolve(MValue A, MValue b)
         {
+            // Fast-path SPARSE: A CSR resuelto con MKL PARDISO — evita densificar A
+            // (128 MB) y los 3 escaneos densos por iteracion. b es un vector (se
+            // densifica). Si PARDISO falla, cae al camino denso (ToDense).
+            if (A.IsSparseReal && A.Rows == A.Cols && b.Cols == 1
+                && A.Imag == null && b.Imag == null && Calcpad.Core.BlasInterop.PardisoAvailable)
+            {
+                try
+                {
+                    int nn = A.Rows;
+                    var bd = b.IsSparseReal ? b.ToDense() : b;
+                    var bv = new double[nn];
+                    for (int i = 0; i < nn; i++) bv[i] = bd.At(i, 0);
+                    var xx = Calcpad.Core.BlasInterop.SolveSparsePardiso(nn, A.SparseRowPtr, A.SparseCols, A.SparseVals, bv);
+                    var rr = new MValue(nn, 1);
+                    for (int i = 0; i < nn; i++) rr.Set(i, 0, xx[i]);
+                    return rr;
+                }
+                catch { A = A.ToDense(); }
+            }
+            // Red de seguridad: cualquier operando sparse restante → denso.
+            if (A.IsSparseReal) A = A.ToDense();
+            if (b.IsSparseReal) b = b.ToDense();
             if (A.Rows != b.Rows)
                 throw new MatlabRuntimeException($"A\\b: row mismatch A is {A.Rows}×{A.Cols}, b is {b.Rows}×{b.Cols}");
             // Caso cuadrado

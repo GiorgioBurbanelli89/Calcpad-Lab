@@ -1355,7 +1355,6 @@ namespace Calcpad.Core
         // → renderiza cada ecuación y las une con ',  '
         private void ParseKeywordDeq(ReadOnlySpan<char> s)
         {
-            _sb.Append($"<!-- FORMEQ CALLED: len={s.Length} -->");
             // Saltar "#deq "
             var spaceIdx = s.IndexOf(' ');
             if (spaceIdx < 0) return;

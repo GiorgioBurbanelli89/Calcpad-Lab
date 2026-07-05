@@ -20,6 +20,15 @@ namespace Calcpad.Core.Matlab
         private readonly MatlabEvaluator _evaluator = new();
         public MatlabScope GlobalScope => _evaluator.Globals;
 
+        // ── Directivas Calcpad embebidas en comentarios MATLAB ──────────────
+        // Un `.m` corre idéntico en MATLAB 2017a (que ve `% #deq ...` como un
+        // comentario mudo) y en Calcpad-Lab (que aquí lo typografía). El motor
+        // MATLAB calcula los números/plots REALES; estas directivas son SOLO
+        // tipografía decorativa que enriquece el reporte de Lab sin alterar
+        // ningún resultado. Reusa el ExpressionParser de Calcpad-puro (mismo
+        // assembly) en vez de reimplementar el render.
+        private Settings _calcpadSettings;
+
         /// <summary>Si está en true, evita las mutaciones retroactivas del StringBuilder
         /// (inline comments / multi-stmt same-line) que rompen el streaming chunk-based,
         /// ya que el chunk previo ya fue enviado al UI. En modo streaming los inline
@@ -274,9 +283,16 @@ namespace Calcpad.Core.Matlab
                                        && !csInline.Text.StartsWith("--")
                                        && prevNonCommentLine >= 0
                                        && stmtLine == prevNonCommentLine;
-                if (isInlineComment && prevWasSuppressed)
+                // Regla Calcpad para comentarios INLINE (mismo renglón que un stmt):
+                //   `x = 4 %texto`   → comentario de código OCULTO (no se muestra).
+                //   `x = 4 %'texto`  → anotación VISIBLE (el `'` = marcador de texto
+                //                       Calcpad; se muestra sin el apóstrofo).
+                // Los comentarios en su PROPIA línea no se ven afectados por esto.
+                bool inlineShown = isInlineComment
+                                   && ((CommentStmt)stmt).Text.TrimStart().StartsWith("'");
+                if (isInlineComment && (prevWasSuppressed || !inlineShown))
                 {
-                    // Skipear sin ejecutar ni alterar el tracking
+                    // Oculto: skipear sin ejecutar ni alterar el tracking
                     continue;
                 }
 
@@ -333,7 +349,17 @@ namespace Calcpad.Core.Matlab
                 {
                     try
                     {
-                        if (stmt is CommentStmt cs && cs.IsHeading)
+                        // Directiva Calcpad escondida en `% #deq ...` — typeset via
+                        // el ExpressionParser de Calcpad-puro. MATLAB 2017a la ignora
+                        // (comentario); acá enriquece el reporte sin tocar números.
+                        if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
+                            && TryRenderCalcpadDirective(cdir.Text, stmtLine, out var directiveHtml))
+                        {
+                            sb.Append(directiveHtml);
+                            sb.Append('\n');
+                            lastEmittedPLine = stmtLine;
+                        }
+                        else if (stmt is CommentStmt cs && cs.IsHeading)
                         {
                             sb.Append(MatlabHtmlWriter.RenderStatement(stmt, result));
                             sb.Append("\n");
@@ -346,7 +372,10 @@ namespace Calcpad.Core.Matlab
                             // (caso assignment renderizado). Si no (void stmt
                             // intermedio, etc.), emit standalone.
                             var csInline2 = (CommentStmt)stmt;
-                            var encodedText = System.Net.WebUtility.HtmlEncode(csInline2.Text);
+                            // Quitar el marcador `'` inicial (Calcpad: `'` = texto, no se muestra).
+                            var inlineText = csInline2.Text.TrimStart();
+                            if (inlineText.StartsWith("'")) inlineText = inlineText[1..];
+                            var encodedText = System.Net.WebUtility.HtmlEncode(inlineText);
                             // Comentario en NEGRO como el texto `'...` de Calcpad puro (no verde).
                             var captionSpan = $"<span style=\"margin-left:1.5em\">{encodedText}</span>";
                             const string closeTag = "</p>\n";
@@ -488,6 +517,115 @@ namespace Calcpad.Core.Matlab
         public void Reset()
         {
             _evaluator.Globals.Vars.Clear();
+        }
+
+        /// <summary>
+        /// Intenta renderizar una directiva Calcpad escondida en un comentario
+        /// MATLAB (<c>% #deq ...</c>). Devuelve true y el HTML typeset si el
+        /// texto del comentario empieza por una directiva soportada; false si es
+        /// un comentario normal (el caller lo rendea como texto). Cualquier fallo
+        /// del render Calcpad cae a false (fallback seguro a comentario normal).
+        /// </summary>
+        private bool TryRenderCalcpadDirective(string commentText, int matlabLine, out string html)
+        {
+            html = null;
+            if (string.IsNullOrEmpty(commentText)) return false;
+            var t = commentText.Trim();
+            var expr = ParseDirective(t, out bool compute);
+            if (expr == null || expr.Length == 0) return false;
+            try
+            {
+                _calcpadSettings ??= new Settings();
+                // Instancia FRESCA por directiva: evita que definiciones (`w(x)=…`)
+                // de una directiva contaminen la siguiente. El costo es mínimo
+                // (pocas directivas por documento; el init estático ya se hizo).
+                var renderer = new ExpressionParser { Settings = _calcpadSettings };
+                // Dos modos, según el marcador (semántica Calcpad real):
+                //   #noc → SIMBÓLICO: MathParser real, sin calcular. Muestra la
+                //          FÓRMULA (ecuaciones y hasta `$Area{…}` como notación
+                //          integral). Es lo que usa el .cpd para las derivaciones.
+                //   #val / $Op directo → CÁLCULO: modo por defecto (ecuación +
+                //          valor) con los escalares MATLAB inyectados, para que un
+                //          operador numérico ($Area/$Slope/…) evalúe con los
+                //          valores reales que calculó MATLAB.
+                string source = compute
+                    ? BuildScalarInjection(expr) + expr
+                    : "#noc\n" + expr;
+                renderer.Parse(source, calculate: true, getXml: false);
+                var result = renderer.HtmlResult;
+                if (string.IsNullOrEmpty(result)) return false;
+                // El ExpressionParser numera desde su propia línea 1 y puede dejar
+                // comentarios HTML residuales: limpiar y reescribir el id de línea
+                // al número real del .m para que el click→navegación funcione.
+                result = System.Text.RegularExpressions.Regex.Replace(result, "<!--.*?-->", "");
+                if (result.Contains("id=\"line-"))
+                    result = System.Text.RegularExpressions.Regex.Replace(
+                        result, "id=\"line-\\d+\"", $"id=\"line-{matlabLine}\"");
+                else
+                    // El ExpressionParser no emitió id: inyectarlo en el primer <p>
+                    // para que el click→navegación llegue a la línea real del .m.
+                    result = new System.Text.RegularExpressions.Regex("<p\\b").Replace(
+                        result, $"<p id=\"line-{matlabLine}\"", 1);
+                html = result.Trim();
+                return html.Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reconoce el marcador de directiva Calcpad al inicio de un comentario
+        /// MATLAB y devuelve la expresión que sigue (o null si no es directiva).
+        /// <paramref name="compute"/> = true si hay que EVALUAR (modo cálculo:
+        /// <c>#val</c> o <c>$Op</c> directo); false si es SIMBÓLICO (<c>#noc</c>).
+        /// </summary>
+        private static string ParseDirective(string t, out bool compute)
+        {
+            compute = false;
+            if (TryMarker(t, "#noc", out var rest)) { compute = false; return rest; }
+            if (TryMarker(t, "#val", out rest))     { compute = true;  return rest; }
+            // Operador Calcpad directo: `% $Area{…}` / `% R = $Slope{…}` sin marcador.
+            if (t.StartsWith("$", StringComparison.Ordinal)) { compute = true; return t; }
+            return null;
+        }
+
+        private static bool TryMarker(string t, string p, out string rest)
+        {
+            rest = null;
+            if (t.StartsWith(p, StringComparison.Ordinal) &&
+                (t.Length == p.Length || t[p.Length] == ' ' || t[p.Length] == '\t'))
+            { rest = t[p.Length..].Trim(); return true; }
+            return false;
+        }
+
+        /// <summary>
+        /// Construye un preámbulo Calcpad <c>#hide … #show</c> que define, como
+        /// escalares Calcpad, las variables MATLAB que aparecen en la expresión de
+        /// un operador (<c>$Area</c>/<c>$Slope</c>/…). Así el operador numérico
+        /// puede evaluar usando los valores REALES calculados por MATLAB (p.ej.
+        /// <c>w0</c>, <c>L</c>) sin que el usuario los redefina. Solo escalares:
+        /// vectores/matrices/funciones se omiten (el usuario escribe el integrando
+        /// inline, no como handle <c>f(x)</c>). El <c>#hide</c> evita que las
+        /// definiciones inyectadas aparezcan en el reporte.
+        /// </summary>
+        private string BuildScalarInjection(string expr)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(expr, @"[A-Za-z_]\w*"))
+                ids.Add(m.Value);
+            if (ids.Count == 0) return string.Empty;
+            var defs = new StringBuilder();
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var name in ids)
+                if (_evaluator.Globals.Vars.TryGetValue(name, out var v) && v.IsScalar)
+                    // Formato decimal plano (sin notación científica, que el parser
+                    // de Calcpad interpreta mal — 1e-4 lee 'e' como unidad).
+                    defs.Append($"{name} = {v.Scalar.ToString("0.###############", ci)}\n");
+            if (defs.Length == 0) return string.Empty;
+            return "#hide\n" + defs + "#show\n";
         }
 
         // Sentinels PUA (Private Use Area) que char(symbolic) usa para marcar
@@ -681,6 +819,17 @@ namespace Calcpad.Core.Matlab
             new(@"(?<=</var>|</sub>|</sup>|\d)\*(?=<var\b|<i\b|<sup\b|\d)",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
+        // Operador derivada en texto plano de fprintf/disp: d/dx, d/dt, d^2/dx^2,
+        // d^n/dx^n. Sin este paso, BeautifyMath italiza SOLO la `d` inicial (la `d`
+        // del denominador queda excluida por ir tras `/`), dejando un `d/dx` a
+        // medias — ni fraccion ni texto limpio. Aqui se detecta el operador y se
+        // rende como la MISMA fraccion Leibniz que produce diff(f,x) en una
+        // expresion real (clase .dvc del template). El exponente n admite digitos
+        // o una sola letra (d^n/dx^n).
+        private static readonly System.Text.RegularExpressions.Regex DerivativeOpRegex =
+            new(@"(?<![A-Za-z0-9])d(?:\^([0-9A-Za-z]))?/d([A-Za-z])(?:\^([0-9A-Za-z]))?(?![A-Za-z0-9])",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
         // Integral: `int_a^b` o `int_a` o `int` standalone → ∫ con limites como
         // sub/sup. Excluye `int(...)` (call de funcion sym).
         private static readonly System.Text.RegularExpressions.Regex IntegralRegex =
@@ -743,6 +892,20 @@ namespace Calcpad.Core.Matlab
                     .Replace("^3", "<sup>3</sup>")
                     .Replace("^2", "<sup>2</sup>");
                 return $"<i class=\"unit\">{u}</i>";
+            });
+
+            // 1.4) Operador derivada `d/dx` (texto plano de fprintf/disp) → fraccion
+            // Leibniz .dvc, identica a la que genera diff(f,x). Debe ir ANTES de
+            // LooseVar/Power/Mul para que esos pasos no italicen a medias la `d/dx`.
+            s = DerivativeOpRegex.Replace(s, m =>
+            {
+                var numPow = m.Groups[1].Success ? $"<sup>{m.Groups[1].Value}</sup>" : "";
+                var v      = m.Groups[2].Value;
+                var denPow = m.Groups[3].Success ? $"<sup>{m.Groups[3].Value}</sup>" : "";
+                var num = $"d{numPow}";
+                var den = $"d<var>{v}</var>{denPow}";
+                return $"<span class=\"dvc\"><span class=\"dvc-num\">{num}</span>" +
+                       $"<span class=\"dvl\"></span><span class=\"dvc-den\">{den}</span></span>";
             });
 
             // 1.5) Integrales: int_a^b → ∫_a^b con estilo template `.dvr > .nary`

@@ -321,6 +321,10 @@ namespace Calcpad.Core.Matlab
                     else positive = new SymMul(m.A, new SymConst(-kB.Value));
                     return true;
                 }
+                // Constante negativa ANIDADA en un factor (p.ej. ((-4)·a)·c):
+                // recurrir para que `b² + ((-4)·a)·c` se renderice `b² - 4·a·c`.
+                if (TryNegativeForm(m.A, out var posA)) { positive = new SymMul(posA, m.B); return true; }
+                if (TryNegativeForm(m.B, out var posB)) { positive = new SymMul(m.A, posB); return true; }
             }
             return false;
         }
@@ -890,7 +894,15 @@ namespace Calcpad.Core.Matlab
             };
         }
         public override string ToInfix() => $"{Name}({Arg.ToInfix()})";
-        public override string ToHtml() => $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{System.Net.WebUtility.HtmlEncode(Name)}</span>({Arg.ToHtml()})";
+        public override string ToHtml()
+        {
+            // sqrt/sqr → radical Calcpad (√ con vínculo sobre el radicando), no "sqrt(...)"
+            // texto plano. Mismo markup que HtmWriter.FormatRoot nivel 0.
+            var lname = Name.ToLowerInvariant();
+            if (lname == "sqrt" || lname == "sqr")
+                return $"&ensp;&hairsp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{Arg.ToHtml()}</span>";
+            return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{System.Net.WebUtility.HtmlEncode(Name)}</span>({Arg.ToHtml()})";
+        }
         public override string ToLatex() => $"\\{Name}\\left({Arg.ToLatex()}\\right)";   // \sin(x), \cos(x), etc.
         public override SymNode Subs(string var, SymNode val) => new SymFunc(Name, Arg.Subs(var, val)).Simplify();
         public override SymNode Simplify()
@@ -1288,6 +1300,45 @@ namespace Calcpad.Core.Matlab
             // Grado ≥ 3: usar Durand-Kerner numérico (raíces complejas también)
             return DurandKerner(coefs, deg);
         }
+        /// <summary>
+        /// Resuelve <c>expr = 0</c> para <paramref name="var"/> cuando los
+        /// COEFICIENTES son simbólicos (p.ej. <c>a*x^2 + b*x + c</c>). Devuelve
+        /// las raíces simbólicas (fórmula cuadrática / lineal), o null si el grado
+        /// en var es &gt; 2. Extrae A,B,C por derivación: C = e|_{x=0},
+        /// B = e'|_{x=0}, 2A = e''|_{x=0}; exige e''' ≡ 0.
+        /// </summary>
+        public static List<SymNode> SolveSymbolic(SymNode expr, string var)
+        {
+            var e = expr.Simplify();
+            var zero = new SymConst(0);
+            var C  = e.Subs(var, zero).Simplify();
+            var d1 = e.Diff(var).Simplify();
+            var B  = d1.Subs(var, zero).Simplify();
+            var d2 = d1.Diff(var).Simplify();
+            var A2 = d2.Subs(var, zero).Simplify();   // = 2*A
+            var d3 = d2.Diff(var).Simplify();
+            if (!IsZeroNode(d3)) return null;          // grado > 2 → no soportado
+            if (IsZeroNode(A2))                          // lineal: B*x + C = 0
+            {
+                if (IsZeroNode(B)) return null;
+                return new List<SymNode> {
+                    new SymDiv(new SymMul(new SymConst(-1), C), B).Simplify()
+                };
+            }
+            // A2 = 2A. Entonces el denominador 2A = A2 (ya simplificado, evita
+            // arrastrar 2·(2a/2)); y B^2 - 4AC = B^2 - 2·A2·C.
+            var disc = new SymSub(new SymPow(B, new SymConst(2)),
+                                  new SymMul(new SymConst(2), new SymMul(A2, C))).Simplify();
+            var sq   = new SymFunc("sqrt", disc);
+            var twoA = A2;
+            var negB = new SymMul(new SymConst(-1), B).Simplify();
+            return new List<SymNode> {
+                new SymDiv(new SymAdd(negB, sq), twoA).Simplify(),
+                new SymDiv(new SymSub(negB, sq), twoA).Simplify()
+            };
+        }
+        private static bool IsZeroNode(SymNode n)
+            => n is SymConst c && Math.Abs(c.Value) < 1e-12;
         private static List<double> DurandKerner(double[] coefs, int deg)
         {
             // Durand-Kerner para raíces de polinomio. Retorna solo raíces reales (filtrado).
