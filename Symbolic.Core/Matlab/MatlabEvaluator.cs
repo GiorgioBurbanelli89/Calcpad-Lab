@@ -7577,6 +7577,16 @@ namespace Calcpad.Core.Matlab
                 parentStruct.Fields[ciFa.FieldName] = updatedCell;
                 return new StatementResult(GetRootVarName(ciFa), updatedCell, asg.Suppressed);
             }
+            // s.field(i,j) = val — asignación INDEXADA a un CAMPO de struct (ej. St.epl(:,e)=x)
+            if (tgt is CallOrIndex idxf && idxf.Target is FieldAccess idxfa)
+            {
+                MValue curField;
+                try { curField = Eval(idxfa, scope); } catch { curField = new MValue(0); }
+                if (curField == null) curField = new MValue(0);
+                var updatedField = IndexedAssign(curField, idxf.Args, val, scope);
+                AssignToField(idxfa, updatedField, scope);
+                return new StatementResult(GetRootVarName(idxfa), updatedField, asg.Suppressed);
+            }
             throw new MatlabRuntimeException("Unsupported assignment target");
         }
 
@@ -8653,7 +8663,16 @@ namespace Calcpad.Core.Matlab
             // Caso: (expr)(args) — donde expr evalúa a callable
             var target = Eval(c.Target, scope);
             if (target.IsCallable) return target.Callable(EvalArgs(c.Args, scope));
-            throw new MatlabRuntimeException("Target is not callable");
+            // si el target NO es llamable pero SÍ indexable (matriz/cell/3D/...), esto es INDEXING:
+            //   ej. Bc{e}(1,1) — Bc{e} da una matriz y (1,1) la indexa (MATLAB lo permite).
+            if (target != null && !target.IsStruct && !target.IsSymbolic && !target.IsMap
+                && !target.IsInstance && !target.IsGfxHandle && !target.IsStructArray)
+                return IndexInto(target, c.Args, scope);
+            string tdesc = c.Target is FieldAccess fa2 ? $"campo '{fa2.FieldName}'"
+                         : c.Target is CellIndex ? "cell{}"
+                         : c.Target is CallOrIndex ? "resultado de indexado"
+                         : c.Target?.GetType().Name ?? "?";
+            throw new MatlabRuntimeException($"Target is not callable [{tdesc}]");
         }
         /// <summary>Busca un método por nombre en una clase (y sus padres). Devuelve null si no existe.</summary>
         private FunctionDef FindMethod(ClassDef cls, string name)

@@ -612,25 +612,42 @@ namespace Calcpad.Core.Matlab
                     else if (Peek().Kind == MatlabTokenKind.Identifier)
                     {
                         MatlabNode tnode = new IdentRef { Name = Consume().Text };
-                        // Target indexado en multi-output (MATLAB 2017a):  [~, ~, CG(:,1)] = f()
-                        if (Peek().Kind == MatlabTokenKind.LParen)
+                        // Targets indexados/campos en multi-output (MATLAB 2017a):
+                        //   [~, CG(:,1)]=f()   [Bc{e}, dJ(e)]=f()   [s.a, b]=f()
+                        bool chainOk = true;
+                        while (chainOk)
                         {
-                            Consume(); // (
-                            var iargs = new List<MatlabNode>();
-                            bool iok = true;
-                            if (Peek().Kind != MatlabTokenKind.RParen)
+                            var pk = Peek().Kind;
+                            if (pk == MatlabTokenKind.LParen || pk == MatlabTokenKind.LBrace)
                             {
-                                while (true)
+                                bool brace = pk == MatlabTokenKind.LBrace;
+                                var close = brace ? MatlabTokenKind.RBrace : MatlabTokenKind.RParen;
+                                Consume(); // ( o {
+                                var iargs = new List<MatlabNode>();
+                                bool iok = true;
+                                if (Peek().Kind != close)
                                 {
-                                    try { iargs.Add(ParseExpressionOrColon()); }
-                                    catch { iok = false; break; }
-                                    if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
-                                    break;
+                                    while (true)
+                                    {
+                                        try { iargs.Add(ParseExpressionOrColon()); }
+                                        catch { iok = false; break; }
+                                        if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
+                                        break;
+                                    }
                                 }
+                                if (!iok || Peek().Kind != close) { _pos = saved; return null; }
+                                Consume(); // ) o }
+                                tnode = brace ? (MatlabNode)new CellIndex { Target = tnode, Args = iargs }
+                                              : new CallOrIndex { Target = tnode, Args = iargs };
                             }
-                            if (!iok || Peek().Kind != MatlabTokenKind.RParen) { _pos = saved; return null; }
-                            Consume(); // )
-                            tnode = new CallOrIndex { Target = tnode, Args = iargs };
+                            else if (pk == MatlabTokenKind.Dot &&
+                                     _pos + 1 < _tokens.Count &&
+                                     _tokens[_pos + 1].Kind == MatlabTokenKind.Identifier)
+                            {
+                                Consume(); // .
+                                tnode = new FieldAccess { Target = tnode, FieldName = Consume().Text };
+                            }
+                            else chainOk = false;
                         }
                         targets.Add(tnode);
                     }
