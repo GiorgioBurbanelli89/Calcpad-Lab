@@ -35,6 +35,7 @@ namespace Calcpad.Core.Matlab
             public bool IsRgb;
             public int Rgb_R, Rgb_G, Rgb_B;
             public double Val = double.NaN;   // valor por-cara (para hover interactivo)
+            public string Name;               // DisplayName (para la leyenda del SVG)
         }
         /// <summary>Color CSS 'rgb(r,g,b)' del colormap jet para t en [0,1].</summary>
         public static string JetCss(double t)
@@ -59,7 +60,10 @@ namespace Calcpad.Core.Matlab
         private static bool _figIs3D = false;
         private static string _figTitle = "";
         private static string _figXLabel = null, _figYLabel = null, _figZLabel = null;
+        private static bool _figShowLegend = false;
+        private static string _figLegendLoc = null;
         private static double? _figXMin, _figXMax, _figYMin, _figYMax;
+        private static bool _figAxisEqual = false;   // aspecto cuadrado en 2D SOLO si el script llama axis('equal') (MATLAB default=independiente)
         public static bool HasOpenFigure => _figTraces != null;
 
         // ============ Renderer CANVAS/WebGL (alternativa RÁPIDA a Plotly, sin CDN) ============
@@ -75,7 +79,7 @@ namespace Calcpad.Core.Matlab
         // false = 'axis tight'/'normal' (cada eje se estira para llenar la vista, como el surf de
         // resultados MATLAB). Default true = comportamiento previo (seguro para escenas existentes).
         private static bool _cvAxisEqual = true;
-        public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; }
+        public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; _figAxisEqual = eq; }
         private static double? _caxisMin, _caxisMax;
         public static void SetCAxis(double lo, double hi) { _caxisMin = lo; _caxisMax = hi; }
         public static bool TryGetCAxis(out double lo, out double hi) { lo = _caxisMin ?? 0; hi = _caxisMax ?? 1; return _caxisMin.HasValue; }
@@ -313,6 +317,7 @@ return {make:make};
         public static string BeginFigure()
         {
             string prev = FinishFigure();
+            ResetRetainedMesh();   // figura nueva → olvida la malla retenida anterior
             _figTraces = new System.Collections.Generic.List<string>();
             _figAnnotations = new System.Collections.Generic.List<string>();
             _figPrims = new System.Collections.Generic.List<FigPrim>();
@@ -322,6 +327,8 @@ return {make:make};
             _figTitle = "";
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
+            _figAxisEqual = false;
+            _figShowLegend = false; _figLegendLoc = null;
             return prev;
         }
         /// <summary>Cierra figura abierta y devuelve su HTML.</summary>
@@ -333,10 +340,11 @@ return {make:make};
                 return "";
             }
             // Malla 2D CON valor por-cara (patch FaceVertexCData) → CANVAS interactivo con hover.
+            if (_retActive) BuildRetainedFaces();   // figura FINAL desde el estado retenido (última mutación de set)
             if (!_figIs3D && HasFaceValues())
             {
                 string iv = RenderInteractiveMesh(760, 560);
-                if (iv != null) return iv;
+                if (iv != null) { ResetRetainedMesh(); return iv; }
             }
             // DIBUJO 2D estructural (malla: patches/texto/markers) → SVG inline (nítido,
             // numeración fiable). Plotly se reserva para resultados (surf/contour/datos).
@@ -365,6 +373,7 @@ return {make:make};
             }
             sb.Append("  ];\n  var layout = { ");
             sb.Append($"title: '{EscapeJs(_figTitle)}', margin:{{l:50,r:30,t:40,b:50}}");
+            if (_figShowLegend) sb.Append($", showlegend:true, legend:{LegendPosJson(_figLegendLoc)}");
             if (_figIs3D)
             {
                 sb.Append(", scene: { ");
@@ -384,8 +393,7 @@ return {make:make};
                 var yparts = new System.Collections.Generic.List<string>();
                 if (_figYLabel != null) yparts.Add($"title:'{EscapeJs(_figYLabel)}'");
                 if (_figYMin.HasValue) yparts.Add($"range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
-                yparts.Add("scaleanchor:'x'");
-                yparts.Add("scaleratio:1");
+                if (_figAxisEqual) { yparts.Add("scaleanchor:'x'"); yparts.Add("scaleratio:1"); }  // solo si axis('equal')
                 sb.Append(", yaxis:{").Append(string.Join(", ", yparts)).Append("}");
             }
             // annotations
@@ -413,6 +421,25 @@ return {make:make};
             _figAnnotations.Add(annJson);
         }
         public static void SetFigure3D(bool is3d) { if (_figTraces != null) _figIs3D = is3d; }
+        public static void SetLegend(string loc) { _figShowLegend = true; if (loc != null) _figLegendLoc = loc; }
+        /// <summary>Ubicación MATLAB de la leyenda -> posición Plotly (dentro de los ejes).</summary>
+        public static string LegendPosJson(string loc)
+        {
+            string bg = "bgcolor:'rgba(255,255,255,0.75)',bordercolor:'#ccc',borderwidth:1";
+            double x = 0.98, y = 0.98; string xa = "right", ya = "top";
+            switch ((loc ?? "northeast").ToLowerInvariant().Replace("outside", ""))
+            {
+                case "northwest": x=0.02; y=0.98; xa="left";  ya="top"; break;
+                case "southeast": x=0.98; y=0.02; xa="right"; ya="bottom"; break;
+                case "southwest": x=0.02; y=0.02; xa="left";  ya="bottom"; break;
+                case "north": x=0.5; y=0.98; xa="center"; ya="top"; break;
+                case "south": x=0.5; y=0.02; xa="center"; ya="bottom"; break;
+                case "east":  x=0.98; y=0.5; xa="right"; ya="middle"; break;
+                case "west":  x=0.02; y=0.5; xa="left";  ya="middle"; break;
+                default: x=0.98; y=0.98; xa="right"; ya="top"; break;
+            }
+            return $"{{x:{x.ToString(Inv)},y:{y.ToString(Inv)},xanchor:'{xa}',yanchor:'{ya}',{bg}}}";
+        }
         public static void SetFigTitle(string t) { _figTitle = t ?? ""; }
         public static void SetFigXLabel(string s) { _figXLabel = s; }
         public static void SetFigYLabel(string s) { _figYLabel = s; }
@@ -652,34 +679,40 @@ return {make:make};
                 FaceColor=faceColor, EdgeColor=edgeColor, FaceAlpha=faceAlpha, LineWidth=lineWidth, Val=val
             });
         }
-        public static void Line2D(double[] xs, double[] ys, string color, double lineWidth)
+        public static void Line2D(double[] xs, double[] ys, string color, double lineWidth, string name = null)
         {
             var sb = new StringBuilder();
             sb.Append("{type:'scatter', mode:'lines'");
             sb.Append($", line:{{color:'{color}', width:{lineWidth.ToString(Inv)}}}");
             sb.Append($", x:[{Csv(xs)}], y:[{Csv(ys)}]");
-            sb.Append(", showlegend:false, hoverinfo:'skip'}");
+            if (!string.IsNullOrEmpty(name))
+                sb.Append($", name:'{EscapeJs(name)}', showlegend:true, hoverinfo:'skip'}}");
+            else
+                sb.Append(", showlegend:false, hoverinfo:'skip'}");
             AddTrace(sb.ToString());
             if (_figPrims != null) _figPrims.Add(new FigPrim{
                 Kind="line2d", Xs=(double[])xs.Clone(), Ys=(double[])ys.Clone(),
-                Color=color, LineWidth=lineWidth
+                Color=color, LineWidth=lineWidth, Name=name
             });
         }
         /// <summary>Markers 2D — puntos (scatter mode:markers) que se ACUMULAN en la figura.
         /// Permite que plot(x,y,'o') componga con patch/line/text en los mismos ejes.</summary>
         public static void Markers2D(double[] xs, double[] ys, string fillColor, string edgeColor,
-                                      string symbol, double size)
+                                      string symbol, double size, string name = null)
         {
             var sb = new StringBuilder();
             sb.Append("{type:'scatter', mode:'markers'");
             sb.Append($", marker:{{symbol:'{symbol}', size:{size.ToString(Inv)}, color:'{fillColor}'");
             sb.Append($", line:{{color:'{edgeColor}', width:1}}}}");
             sb.Append($", x:[{Csv(xs)}], y:[{Csv(ys)}]");
-            sb.Append(", showlegend:false, hoverinfo:'skip'}");
+            if (!string.IsNullOrEmpty(name))
+                sb.Append($", name:'{EscapeJs(name)}', showlegend:true, hoverinfo:'skip'}}");
+            else
+                sb.Append(", showlegend:false, hoverinfo:'skip'}");
             AddTrace(sb.ToString());
             if (_figPrims != null) _figPrims.Add(new FigPrim{
                 Kind="markers2d", Xs=(double[])xs.Clone(), Ys=(double[])ys.Clone(),
-                FaceColor=fillColor, EdgeColor=edgeColor, FontSize=size, Text=symbol
+                FaceColor=fillColor, EdgeColor=edgeColor, FontSize=size, Text=symbol, Name=name
             });
         }
         public static void Text2D(double x, double y, string text, string color, double fontSize, string align = "left")
@@ -811,6 +844,41 @@ return {make:make};
                 }
             }
             svg.AppendLine($"  </g>");
+            // ---- LEYENDA (si se llamó legend() y hay curvas con DisplayName) ----
+            if (_figShowLegend)
+            {
+                var leg = new System.Collections.Generic.List<FigPrim>();
+                foreach (var p in _figPrims)
+                    if (!string.IsNullOrEmpty(p.Name) && (p.Kind == "line2d" || p.Kind == "markers2d")) leg.Add(p);
+                if (leg.Count > 0)
+                {
+                    int rowH = 18, padx = 8; int boxW = 40;
+                    foreach (var it in leg) boxW = Math.Max(boxW, 44 + (int)(it.Name.Length * 6.6));
+                    int boxH = leg.Count * rowH + 8;
+                    string loc = (_figLegendLoc ?? "northeast").ToLowerInvariant().Replace("outside", "");
+                    int rgt = marginL + plotW - boxW - 8, lft = marginL + 8;
+                    int top = marginT + 8, bot = marginT + plotH - boxH - 8;
+                    int lx, ly;
+                    switch (loc) {
+                        case "northwest": lx=lft; ly=top; break;
+                        case "southeast": lx=rgt; ly=bot; break;
+                        case "southwest": lx=lft; ly=bot; break;
+                        case "north": lx=marginL+plotW/2-boxW/2; ly=top; break;
+                        case "south": lx=marginL+plotW/2-boxW/2; ly=bot; break;
+                        default: lx=rgt; ly=top; break;
+                    }
+                    svg.AppendLine($"  <rect x='{lx}' y='{ly}' width='{boxW}' height='{boxH}' fill='white' fill-opacity='0.82' stroke='#bbb' stroke-width='1' rx='3'/>");
+                    for (int i = 0; i < leg.Count; i++)
+                    {
+                        var it = leg[i]; int cy = ly + 4 + i*rowH + rowH/2;
+                        string col = it.Kind == "line2d" ? (it.Color ?? "#333") : (it.FaceColor ?? "#333");
+                        svg.AppendLine($"    <line x1='{lx+padx}' y1='{cy}' x2='{lx+padx+24}' y2='{cy}' stroke='{col}' stroke-width='3'/>");
+                        if (it.Kind == "markers2d")
+                            svg.AppendLine($"    <circle cx='{lx+padx+12}' cy='{cy}' r='3' fill='{col}' stroke='{col}'/>");
+                        svg.AppendLine($"    <text x='{lx+padx+30}' y='{cy+4}' font-family='sans-serif' font-size='11' fill='#222'>{EscapeXml(it.Name)}</text>");
+                    }
+                }
+            }
             svg.AppendLine("</svg>");
             return svg.ToString();
         }
@@ -913,7 +981,9 @@ return {make:make};
         /// <summary>Emite un CANVAS interactivo (JS inline, SIN librerias externas): dibuja la malla
         /// coloreada + tooltip que sigue al cursor mostrando el valor bajo el cursor y la COLUMNA
         /// vertical de valores en esa x. Consume y limpia la figura.</summary>
-        public static string RenderInteractiveMesh(int width, int height)
+        // idOverride: id fijo del canvas (para ANIMAR: cada frame reemplaza el mismo lienzo).
+        // keepState=true: NO nulifica _figPrims/_hoverVals (para poder seguir actualizando la figura).
+        public static string RenderInteractiveMesh(int width, int height, string idOverride = null, bool keepState = false)
         {
             if (_figPrims == null) { return null; }
             var faces = _figPrims.FindAll(p => p.Kind == "patch2d" && p.Xs != null && !double.IsNaN(p.Val));
@@ -925,7 +995,7 @@ return {make:make};
                 foreach (var x in p.Xs) { if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
                 foreach (var y in p.Ys) { if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
             }
-            int id = ++_plotCounter;
+            string id = idOverride ?? ("m" + (++_plotCounter));
             var pj = new StringBuilder(); pj.Append('[');
             for (int k = 0; k < faces.Count; k++)
             {
@@ -957,11 +1027,17 @@ return {make:make};
                 lj.Append("],\"").Append(p.Color ?? "#555").Append("\"]");
             }
             lj.Append(']');
+            // Hover SOLO si el script lo pidió con hoverdata() — igual que MATLAB, donde un
+            // patch NO tiene hover salvo que se active WindowButtonMotionFcn/datacursormode.
+            // Sin hoverdata: sin tooltip, sin listener, cursor normal. Mismo script, mismo
+            // comportamiento (el Lab ya NO inventa hover en mallas coloreadas).
+            bool hoverOn = _hoverVals != null;
             var sb = new StringBuilder();
             sb.Append("<div style=\"position:relative;display:inline-block;font-family:sans-serif\">");
             sb.Append($"<div style=\"text-align:center;font-size:14px;margin:3px\">{EscapeXml(_figTitle)}</div>");
-            sb.Append($"<canvas id=\"cv{id}\" width=\"{width}\" height=\"{height}\" style=\"border:1px solid #ccc;background:#fff;cursor:crosshair\"></canvas>");
-            sb.Append($"<div id=\"tt{id}\" style=\"position:absolute;pointer-events:none;display:none;background:rgba(15,15,22,.92);color:#fff;font:11px monospace;padding:5px 8px;border-radius:4px;white-space:pre;z-index:20\"></div>");
+            sb.Append($"<canvas id=\"cv{id}\" width=\"{width}\" height=\"{height}\" style=\"border:1px solid #ccc;background:#fff;cursor:{(hoverOn ? "crosshair" : "default")}\"></canvas>");
+            if (hoverOn)
+                sb.Append($"<div id=\"tt{id}\" style=\"position:absolute;pointer-events:none;display:none;background:rgba(15,15,22,.92);color:#fff;font:11px monospace;padding:5px 8px;border-radius:4px;white-space:pre;z-index:20\"></div>");
             sb.Append("</div>\n<script>(function(){\n");
             double cmin, cmax;
             if (!TryGetCAxis(out cmin, out cmax))
@@ -1002,7 +1078,9 @@ function draw(){ctx.clearRect(0,0,W,H);
  ctx.save();ctx.translate(W-8,padT+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('DAMAGET',0,0);ctx.restore();}
 draw();
 function pip(px,py,p){var ins=false,n=p.length/2;for(var i=0,j=n-1;i<n;j=i++){var xi=p[2*i],yi=p[2*i+1],xj=p[2*j],yj=p[2*j+1];if(((yi>py)!=(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))ins=!ins;}return ins;}
-cv.addEventListener('mousemove',function(ev){var r=cv.getBoundingClientRect();var mx=ev.clientX-r.left,my=ev.clientY-r.top;
+");
+            if (hoverOn)
+                sb.Append(@"cv.addEventListener('mousemove',function(ev){var r=cv.getBoundingClientRect();var mx=ev.clientX-r.left,my=ev.clientY-r.top;
  var dx=bb[0]+(mx-ox)/s,dy=bb[3]-(my-oyt)/s,hit=-1;
  for(var k=0;k<P.length;k++){if(pip(dx,dy,P[k][0])){hit=k;break;}}
  if(hit<0){tt.style.display='none';return;}
@@ -1013,9 +1091,72 @@ cv.addEventListener('mousemove',function(ev){var r=cv.getBoundingClientRect();va
 cv.addEventListener('mouseleave',function(){tt.style.display='none';});
 ");
             sb.Append("})();</script>\n");
-            _figTraces = null; _figAnnotations = null; _figPrims = null;
-            _hoverVals = null; _hoverLabels = null;
+            if (!keepState)
+            {
+                _figTraces = null; _figAnnotations = null; _figPrims = null;
+                _hoverVals = null; _hoverLabels = null;
+            }
             return sb.ToString();
+        }
+
+        // ── ANIMACIÓN: render del frame ACTUAL de la malla (id de canvas fijo "anim", sin
+        // resetear el estado) para que drawnow lo emita y el WebView2 lo repinte en sitio. ──
+        public static string RenderFrame()
+        {
+            if (_retActive) BuildRetainedFaces();   // reconstruye la malla desde el estado RETENIDO (mutado por set) = modo MATLAB
+            if (_figPrims == null) return null;
+            return RenderInteractiveMesh(760, 560, "anim", keepState: true);
+        }
+
+        // Quita las caras de la malla (patch2d con Val) de _figPrims, para que set(...) la reconstruya.
+        public static void RemoveMeshFaces()
+        {
+            if (_figPrims != null) _figPrims.RemoveAll(p => p.Kind == "patch2d" && !double.IsNaN(p.Val));
+        }
+        // ── MALLA RETENIDA (modo MATLAB): UNA fuente de verdad. patch la fija, set la muta,
+        // y el renderer RECONSTRUYE las caras desde ella en cada frame (como el Handle Graphics
+        // de MATLAB: el objeto patch guarda Faces/Vertices/CData y el dibujo se regenera). ──
+        private static double[][] _retFaces, _retVerts;   // faces: idx de vértice (1-based) por cara; verts: [x,y]
+        private static double[] _retCData;                // valor por cara
+        private static string _retEdge = "black", _retFace = "lightblue";
+        private static double _retAlpha = 1, _retLw = 1;
+        private static bool _retActive = false;
+        public static void SetRetainedMesh(double[][] faces, double[][] verts, double[] cdata, string edge, string face, double alpha, double lw)
+        {
+            _retFaces = faces; _retVerts = verts; _retCData = cdata;
+            _retEdge = edge; _retFace = face; _retAlpha = alpha; _retLw = lw; _retActive = true;
+        }
+        public static bool RetainedActive => _retActive;
+        public static void UpdateRetainedVerts(double[][] verts) { if (_retActive && verts != null) _retVerts = verts; }
+        public static void UpdateRetainedCData(double[] cdata) { if (_retActive && cdata != null) _retCData = cdata; }
+        public static void ResetRetainedMesh() { _retActive = false; _retFaces = _retVerts = null; _retCData = null; }
+        // Reconstruye las caras de la malla en _figPrims desde el estado RETENIDO actual (llamado antes de renderizar).
+        public static void BuildRetainedFaces()
+        {
+            if (!_retActive || _figPrims == null || _retFaces == null || _retVerts == null) return;
+            RemoveMeshFaces();
+            bool hasC = _retCData != null && _retCData.Length >= _retFaces.Length;
+            double clo = 0, chi = 1;
+            if (hasC && !TryGetCAxis(out clo, out chi))
+            {
+                clo = double.MaxValue; chi = double.MinValue;
+                foreach (var v in _retCData) { if (v < clo) clo = v; if (v > chi) chi = v; }
+                if (chi <= clo) chi = clo + 1;
+            }
+            for (int f = 0; f < _retFaces.Length; f++)
+            {
+                var face = _retFaces[f]; int nv = face.Length;
+                var xs = new double[nv]; var ys = new double[nv];
+                for (int k = 0; k < nv; k++)
+                {
+                    int vi = (int)System.Math.Round(face[k]) - 1;
+                    if (vi < 0) vi = 0; else if (vi >= _retVerts.Length) vi = _retVerts.Length - 1;
+                    xs[k] = _retVerts[vi][0]; ys[k] = _retVerts[vi][1];
+                }
+                double val = double.NaN; string fc = _retFace;
+                if (hasC) { val = _retCData[f]; fc = JetCss((val - clo) / (chi - clo)); }
+                Patch2D(xs, ys, fc, _retEdge, _retAlpha, _retLw, val);
+            }
         }
 
         private static SKColor ParseColor(string s)
