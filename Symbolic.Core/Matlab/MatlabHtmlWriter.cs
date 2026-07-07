@@ -874,6 +874,8 @@ namespace Calcpad.Core.Matlab
             or "who" or "whos" or "clear" or "exist" or "tic" or "toc" or "assignin" or "evalin"
             // I/O
             or "csvread" or "csvwrite" or "dlmread" or "dlmwrite"
+            or "readmatrix" or "writematrix" or "readtable" or "writetable"
+            or "importdata" or "textread" or "xlsread" or "xlswrite"
             // Optim
             or "fsolve" or "lsqnonlin" or "lsqcurvefit"
             // Integration

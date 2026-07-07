@@ -3320,6 +3320,116 @@ namespace Calcpad.Core.Matlab
                 return st;
             };
 
+            // ── IMPORT/EXPORT de datos (txt/csv/Excel) como MATLAB ──
+            MValue ReadNumericMatrixFile(string path)
+            {
+                if (!System.IO.File.Exists(path)) throw new MatlabRuntimeException($"archivo no encontrado: {path}");
+                var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+                if (ext == ".xlsx" || ext == ".xlsm") return ReadXlsxMatrix(path);
+                var lines = System.IO.File.ReadAllLines(path);
+                var rows = new System.Collections.Generic.List<double[]>();
+                int ncols = -1; var sep = new[] { ',', ' ', '\t', ';' };
+                foreach (var line in lines)
+                {
+                    var tt = line.Trim();
+                    if (tt.Length == 0 || tt.StartsWith("#") || tt.StartsWith("%")) continue;
+                    var toks = tt.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                    var row = new double[toks.Length]; bool ok = true;
+                    for (int k = 0; k < toks.Length; k++)
+                        if (!double.TryParse(toks[k], System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out row[k])) { ok = false; break; }
+                    if (!ok) continue;                     // cabecera/texto → saltar (como readmatrix)
+                    if (ncols < 0) ncols = row.Length;
+                    if (row.Length == ncols) rows.Add(row);
+                }
+                if (rows.Count == 0) throw new MatlabRuntimeException($"'{path}' sin datos numéricos");
+                var mat = new MValue(rows.Count, ncols);
+                for (int i = 0; i < rows.Count; i++)
+                    for (int j = 0; j < ncols; j++) mat.Set(i, j, rows[i][j]);
+                return mat;
+            }
+            int ColFromRef(string r)
+            {
+                if (string.IsNullOrEmpty(r)) return 0;
+                int col = 0;
+                foreach (var ch in r) { if (ch >= 'A' && ch <= 'Z') col = col * 26 + (ch - 'A' + 1); else break; }
+                return col - 1;
+            }
+            MValue ReadXlsxMatrix(string path)
+            {
+                using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+                var sheet = zip.GetEntry("xl/worksheets/sheet1.xml");
+                if (sheet == null)
+                    foreach (var e in zip.Entries)
+                        if (e.FullName.StartsWith("xl/worksheets/") && e.FullName.EndsWith(".xml")) { sheet = e; break; }
+                if (sheet == null) throw new MatlabRuntimeException("xlsx: no encontré la hoja");
+                System.Xml.Linq.XDocument doc;
+                using (var s = sheet.Open()) doc = System.Xml.Linq.XDocument.Load(s);
+                var ns = doc.Root.Name.Namespace;
+                var cellRows = new System.Collections.Generic.List<System.Collections.Generic.SortedDictionary<int, double>>();
+                int maxCol = 0;
+                foreach (var row in doc.Descendants(ns + "row"))
+                {
+                    var cells = new System.Collections.Generic.SortedDictionary<int, double>();
+                    foreach (var c in row.Elements(ns + "c"))
+                    {
+                        var t = (string)c.Attribute("t");
+                        if (t != null && t != "n") continue;    // solo numéricas (ignora strings/cabeceras)
+                        var v = c.Element(ns + "v"); if (v == null) continue;
+                        if (!double.TryParse(v.Value, System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out var d)) continue;
+                        int col = ColFromRef((string)c.Attribute("r"));
+                        cells[col] = d; if (col + 1 > maxCol) maxCol = col + 1;
+                    }
+                    if (cells.Count > 0) cellRows.Add(cells);
+                }
+                if (cellRows.Count == 0) throw new MatlabRuntimeException("xlsx: sin datos numéricos");
+                var mat = new MValue(cellRows.Count, maxCol);
+                for (int i = 0; i < cellRows.Count; i++)
+                    foreach (var kv in cellRows[i]) mat.Set(i, kv.Key, kv.Value);
+                return mat;
+            }
+            string XlsxColName(int c) { string s = ""; c++; while (c > 0) { int r = (c - 1) % 26; s = (char)('A' + r) + s; c = (c - 1) / 26; } return s; }
+            void WriteXlsxMatrix(string path, MValue m)
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+                void Add(string name, string content) { var e = zip.CreateEntry(name); using var w = new System.IO.StreamWriter(e.Open()); w.Write(content); }
+                Add("[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
+                Add("_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
+                Add("xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+                Add("xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
+                var sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+                for (int i = 0; i < m.Rows; i++)
+                {
+                    sb.Append($"<row r=\"{i + 1}\">");
+                    for (int j = 0; j < m.Cols; j++)
+                        sb.Append($"<c r=\"{XlsxColName(j)}{i + 1}\"><v>{m.At(i, j).ToString("G", System.Globalization.CultureInfo.InvariantCulture)}</v></c>");
+                    sb.Append("</row>");
+                }
+                sb.Append("</sheetData></worksheet>");
+                Add("xl/worksheets/sheet1.xml", sb.ToString());
+            }
+            void WriteMatrixFile(string path, MValue m)
+            {
+                if (System.IO.Path.GetExtension(path).ToLowerInvariant() == ".xlsx") { WriteXlsxMatrix(path, m); return; }
+                var sb = new StringBuilder();
+                for (int i = 0; i < m.Rows; i++)
+                {
+                    for (int j = 0; j < m.Cols; j++) { if (j > 0) sb.Append(','); sb.Append(m.At(i, j).ToString("G", System.Globalization.CultureInfo.InvariantCulture)); }
+                    sb.Append('\n');
+                }
+                System.IO.File.WriteAllText(path, sb.ToString());
+            }
+            _builtins["readmatrix"] = a => ReadNumericMatrixFile(a[0].StringValue);
+            _builtins["importdata"] = a => ReadNumericMatrixFile(a[0].StringValue);
+            _builtins["textread"] = a => ReadNumericMatrixFile(a[0].StringValue);
+            _builtins["readtable"] = a => ReadNumericMatrixFile(a[0].StringValue);
+            _builtins["xlsread"] = a => ReadNumericMatrixFile(a[0].StringValue);
+            _builtins["writematrix"] = a => { if (a.Length < 2 || !a[1].IsString) throw new MatlabRuntimeException("writematrix(M, filename)"); WriteMatrixFile(a[1].StringValue, a[0]); return new MValue(0); };
+            _builtins["writetable"] = _builtins["writematrix"];
+            _builtins["xlswrite"] = a => { if (a.Length < 2 || !a[0].IsString) throw new MatlabRuntimeException("xlswrite(filename, M)"); WriteMatrixFile(a[0].StringValue, a[1]); return new MValue(0); };
+
             string MatSerialize(MValue v)
             {
                 if (v == null) return "null";
