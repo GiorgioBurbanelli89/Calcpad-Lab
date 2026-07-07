@@ -265,6 +265,10 @@ namespace Calcpad.Core.Matlab
         /// <summary>Callback opcional para HTML inline (plots, etc.). Si null, los plots se descartan.</summary>
         private Action<string> _htmlOut;
         public Action<string> HtmlOut { get => _htmlOut; set => _htmlOut = value; }
+        // Canal para FRAMES de animación (drawnow): se emite EN VIVO por iteración y el host
+        // lo repinta en el mismo lienzo. Distinto de HtmlOut (que se bufferiza por statement).
+        private Action<string> _frameOut;
+        public Action<string> FrameOut { get => _frameOut; set => _frameOut = value; }
         /// <summary>
         /// Callback opcional invocado para CADA statement ejecutado dentro de un
         /// bloque (for, while, if, switch, try). El pipeline lo usa para emitir HTML
@@ -824,8 +828,12 @@ namespace Calcpad.Core.Matlab
             _builtins["power"] = a => MapBinary(a[0], a[1], Math.Pow);
             _builtins["max"] = a => MinMaxBuiltin(a, true);
             _builtins["min"] = a => MinMaxBuiltin(a, false);
-            _builtins["sum"] = a => Reduce(a[0], 0.0, (acc, x) => acc + x);
-            _builtins["prod"] = a => Reduce(a[0], 1.0, (acc, x) => acc * x);
+            _builtins["sum"] = a => (a[0].IsSymbolic || a[0].IsSymMatrix)
+                ? ReduceSym(a[0], isProd: false)
+                : ReduceNumDim(a[0], a.Length > 1 && a[1] != null && !a[1].IsString ? (int)a[1].Scalar : 0, 0.0, (acc, x) => acc + x);
+            _builtins["prod"] = a => (a[0].IsSymbolic || a[0].IsSymMatrix)
+                ? ReduceSym(a[0], isProd: true)
+                : ReduceNumDim(a[0], a.Length > 1 && a[1] != null && !a[1].IsString ? (int)a[1].Scalar : 0, 1.0, (acc, x) => acc * x);
             _builtins["mean"] = a => {
                 var v = a[0];
                 int dim = a.Length > 1 ? (int)a[1].Scalar : 0;   // 0 = auto
@@ -1240,6 +1248,33 @@ namespace Calcpad.Core.Matlab
                 Array.Sort(data);
                 return new MValue(v.Rows, v.Cols, data);
             };
+            // sortrows(A) / sortrows(A, col): ordena FILAS por columna(s). col negativo = descendente.
+            _builtins["sortrows"] = a => {
+                var v = a[0];
+                int rows = v.Rows, cols = v.Cols;
+                var keys = new List<(int col, int dir)>();
+                if (a.Length >= 2 && a[1] != null && !a[1].IsString && a[1].Data.Length > 0) {
+                    foreach (var c in a[1].Data) { int ci = (int)c; keys.Add((System.Math.Abs(ci) - 1, ci < 0 ? -1 : 1)); }
+                } else {
+                    for (int j = 0; j < cols; j++) keys.Add((j, 1));
+                }
+                var idx = new int[rows];
+                for (int i = 0; i < rows; i++) idx[i] = i;
+                Array.Sort(idx, (x, y) => {
+                    foreach (var (col, dir) in keys) {
+                        if (col < 0 || col >= cols) continue;
+                        double dx = v.At(x, col), dy = v.At(y, col);
+                        if (dx < dy) return -dir;
+                        if (dx > dy) return dir;
+                    }
+                    return x.CompareTo(y);   // estable
+                });
+                var r = new MValue(rows, cols);
+                for (int i = 0; i < rows; i++)
+                    for (int j = 0; j < cols; j++)
+                        r.Set(i, j, v.At(idx[i], j));
+                return r;
+            };
             _builtins["unique"] = a => {
                 var v = a[0];
                 var set = new SortedSet<double>(v.Data);
@@ -1303,7 +1338,7 @@ namespace Calcpad.Core.Matlab
             _builtins["addpath"] = a => new MValue(0);
             _builtins["rmpath"]  = a => new MValue(0);
             _builtins["pause"]   = a => new MValue(0);
-            _builtins["drawnow"] = a => new MValue(0);
+            _builtins["drawnow"] = a => { var f = MatlabPlots.RenderFrame(); if (f != null) _frameOut?.Invoke(f); return new MValue(0); };
             // ── true(...) / false(...) como funciones MATLAB que crean matrices logicas ──
             // true / false como literales ya estan resueltos en EvalIdent (consts MATLAB).
             // Aqui solo el caso de llamada con args para crear matrices de 1s o 0s.
@@ -1354,16 +1389,20 @@ namespace Calcpad.Core.Matlab
                     _output?.Invoke(sbDisp.ToString().TrimEnd());
                     return a[0];
                 }
-                // Matrix display tabular
+                // Matrix display: cada fila entre corchetes `[a  b  c]` (celdas separadas por 2
+                // espacios) para que RenderDispWithMatrices la muestre como MATRIZ rica (corchetes
+                // grandes tipo worksheet Calcpad), no como texto plano. Un valor NO es texto.
                 var sbM = new StringBuilder();
                 for (int i = 0; i < a[0].Rows; i++)
                 {
+                    sbM.Append('[');
                     for (int j = 0; j < a[0].Cols; j++)
                     {
                         if (j > 0) sbM.Append("  ");
-                        sbM.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, "{0,10:G6}", a[0].At(i, j));
+                        sbM.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, "{0:G6}", a[0].At(i, j));
                     }
-                    sbM.AppendLine();
+                    sbM.Append(']');
+                    sbM.Append('\n');   // \n (no AppendLine): el \r de CRLF rompe TryParseMatrixRow (línea debe terminar en ']')
                 }
                 _output?.Invoke(sbM.ToString().TrimEnd());
                 return a[0];
@@ -1560,6 +1599,8 @@ namespace Calcpad.Core.Matlab
                 string lineColor = specColor ?? "#1f77b4";
                 string markerFill = specColor, markerEdge = specColor;
                 double lineWidth = 1.5, markerSize = 6;
+                string dispName = null;   // DisplayName -> nombre en la leyenda
+                bool hideFromLegend = false;
                 for (int i = rest; i + 1 < a.Length; i += 2) {
                     if (!a[i].IsString) break;
                     switch (a[i].StringValue.ToLowerInvariant()) {
@@ -1569,14 +1610,19 @@ namespace Calcpad.Core.Matlab
                         case "markerfacecolor": markerFill = ColorArg(a[i+1]); break;
                         case "markeredgecolor": markerEdge = ColorArg(a[i+1]); break;
                         case "markersize": markerSize = a[i+1].Scalar; break;
+                        case "displayname": dispName = a[i+1].IsString ? a[i+1].StringValue : null; break;
+                        case "handlevisibility": hideFromLegend = a[i+1].IsString &&
+                            a[i+1].StringValue.Equals("off", StringComparison.OrdinalIgnoreCase); break;
                     }
                 }
+                if (hideFromLegend) dispName = null;
                 markerFill ??= lineColor; markerEdge ??= "black";
                 if (MatlabPlots.HasOpenFigure) {
-                    if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth);
-                    if (wantMarker) MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize);
+                    // el nombre va a UNA sola traza (la línea si hay; si no, el marcador) -> una entrada
+                    if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth, dispName);
+                    if (wantMarker) MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize, wantLine ? null : dispName);
                 } else if (wantMarker && !wantLine) {
-                    MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize);
+                    MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize, dispName);
                     _htmlOut?.Invoke(MatlabPlots.FinishFigure());
                 } else {
                     _htmlOut?.Invoke(MatlabPlots.Plot(X, Y));
@@ -1732,17 +1778,29 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["legend"] = a => {
-                if (a.Length == 0) return new MValue(0);
-                var sb = new StringBuilder("[");
+                // legend('Location','northeast')  -> posiciona la leyenda (usa los DisplayName ya puestos).
+                // legend('a','b',...)             -> asigna nombres a las trazas (orden) + muestra.
+                // legend / legend('show')         -> solo muestra la leyenda.
+                string loc = null;
+                var names = new List<string>();
                 for (int k = 0; k < a.Length; k++)
                 {
-                    if (k > 0) sb.Append(",");
-                    sb.Append("{name: \"");
-                    sb.Append(a[k].IsString ? JsonEscape(a[k].StringValue) : a[k].ToString());
-                    sb.Append("\"}");
+                    if (!a[k].IsString) continue;
+                    var s = a[k].StringValue;
+                    if (s.Equals("Location", StringComparison.OrdinalIgnoreCase) && k + 1 < a.Length)
+                    { loc = a[k + 1].IsString ? a[k + 1].StringValue : null; k++; continue; }
+                    if (s.Equals("show", StringComparison.OrdinalIgnoreCase) ||
+                        s.Equals("boxoff", StringComparison.OrdinalIgnoreCase) ||
+                        s.Equals("boxon", StringComparison.OrdinalIgnoreCase)) continue;
+                    names.Add(s);
                 }
-                sb.Append("]");
-                _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{MatlabPlots.LastPlotId}'); if(d&&window.Plotly){{Plotly.restyle(d, 'name', [{string.Join(",", a.Where(x => x.IsString).Select(x => $"\"{JsonEscape(x.StringValue)}\""))}], null); Plotly.relayout(d, {{showlegend:true}});}}}})();</script>\n");
+                MatlabPlots.SetLegend(loc);   // estado de figura -> FinishFigure lo emite (sirve para --shot)
+                // y además, por si la figura YA está renderizada, un script en vivo
+                string legPos = MatlabPlots.LegendPosJson(loc);
+                var setNames = names.Count > 0
+                    ? $"Plotly.restyle(d, 'name', [{string.Join(",", names.Select(n => $"\"{JsonEscape(n)}\""))}], null); Plotly.restyle(d, 'showlegend', [true], [{string.Join(",", Enumerable.Range(0, names.Count))}]);"
+                    : "";
+                _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{MatlabPlots.LastPlotId}'); if(d&&window.Plotly){{{setNames} Plotly.relayout(d, {{showlegend:true, legend:{legPos}}});}}}})();</script>\n");
                 return new MValue(0);
             };
             // Helper para emitir relayout sobre el último plot
@@ -2078,16 +2136,29 @@ namespace Calcpad.Core.Matlab
             _builtins["ylim"] = a => new MValue(0);
             _builtins["zlim"] = a => new MValue(0);
             _builtins["movegui"] = a => new MValue(0);
-            _builtins["drawnow"] = a => new MValue(0);
+            _builtins["drawnow"] = a => { var f = MatlabPlots.RenderFrame(); if (f != null) _frameOut?.Invoke(f); return new MValue(0); };
             _builtins["get"] = a => {
                 if (a.Length >= 2 && a[0].Fields != null && a[1].IsString
                     && a[0].Fields.TryGetValue(a[1].StringValue.ToLowerInvariant(), out var v)) return v;
                 return new MValue(0);
             };
             _builtins["set"] = a => {
-                if (a.Length >= 3 && a[0].Fields != null)
-                    for (int i = 1; i + 1 < a.Length; i += 2)
-                        if (a[i].IsString) a[0].Fields[a[i].StringValue.ToLowerInvariant()] = a[i + 1];
+                MValue newVerts = null, newCData = null;
+                for (int i = 1; i + 1 < a.Length; i += 2)
+                    if (a[i].IsString)
+                    {
+                        string k = a[i].StringValue.ToLowerInvariant();
+                        if (a[0].Fields != null) a[0].Fields[k] = a[i + 1];   // guarda en el handle si lo tiene
+                        if (k == "vertices") newVerts = a[i + 1];
+                        else if (k == "facevertexcdata") newCData = a[i + 1];
+                    }
+                // MALLA RETENIDA (modo MATLAB): set con Vertices/FaceVertexCData MUTA la malla viva;
+                // el próximo render (drawnow) la reconstruye desde ahí → animación. NO depende del handle.
+                if (MatlabPlots.RetainedActive)
+                {
+                    if (newVerts != null) MatlabPlots.UpdateRetainedVerts(ToJagged(newVerts));
+                    if (newCData != null && newCData.Data != null) MatlabPlots.UpdateRetainedCData((double[])newCData.Data.Clone());
+                }
                 return new MValue(0);
             };
             _builtins["light"] = a => new MValue(0);
@@ -3198,6 +3269,42 @@ namespace Calcpad.Core.Matlab
                 var path = a[0].StringValue;
                 if (!System.IO.File.Exists(path)) throw new MatlabRuntimeException($"load: file not found: {path}");
                 var lines = System.IO.File.ReadAllLines(path);
+                // ¿es formato nombre=valor (.mat de texto) o una MATRIZ numérica (.csv/.dat/.txt tipo MATLAB)?
+                bool hasAssign = false, hasNumericRow = false;
+                foreach (var line in lines)
+                {
+                    var t = line.Trim();
+                    if (t.Length == 0 || t.StartsWith("#") || t.StartsWith("%")) continue;
+                    int eq = t.IndexOf('=');
+                    if (eq > 0 && char.IsLetter(t[0])) { hasAssign = true; }
+                    else if (eq < 0) { hasNumericRow = true; }
+                }
+                if (hasNumericRow && !hasAssign)
+                {
+                    // MATLAB load('data.csv'): matriz numérica, delimitada por coma/espacio/tab/;
+                    var rows = new System.Collections.Generic.List<double[]>();
+                    int ncols = -1;
+                    var sep = new[] { ',', ' ', '\t', ';' };
+                    foreach (var line in lines)
+                    {
+                        var t = line.Trim();
+                        if (t.Length == 0 || t.StartsWith("#") || t.StartsWith("%")) continue;
+                        var toks = t.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                        var row = new double[toks.Length];
+                        bool ok = true;
+                        for (int k = 0; k < toks.Length; k++)
+                            if (!double.TryParse(toks[k], System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture, out row[k])) { ok = false; break; }
+                        if (!ok) continue;
+                        if (ncols < 0) ncols = row.Length;
+                        if (row.Length == ncols) rows.Add(row);
+                    }
+                    if (rows.Count == 0) throw new MatlabRuntimeException($"load: '{path}' sin datos numéricos");
+                    var mat = new MValue(rows.Count, ncols);
+                    for (int i = 0; i < rows.Count; i++)
+                        for (int j = 0; j < ncols; j++) mat.Set(i, j, rows[i][j]);
+                    return mat;
+                }
                 var st = MValue.NewStruct();
                 foreach (var line in lines)
                 {
@@ -3966,7 +4073,7 @@ namespace Calcpad.Core.Matlab
                     // simplificada renderizada en HTML CSS (Calcpad-style).
                     // Sentinels PUA () marcan el HTML para que MatlabPipeline
                     // lo deje pasar sin escapar al flushear el dispBuffer.
-                    return new MValue("" + a[0].Symbolic.Simplify().ToHtml() + "");
+                    return new MValue("" + a[0].Symbolic.ToHtml() + "");
                 }
                 // Matriz simbólica: p.ej. sol(k) de solve() es un sym 1x1. Renderizar
                 // celda a celda (1x1 = la expresión sola) para que char() dé "3", no
@@ -3982,7 +4089,7 @@ namespace Calcpad.Core.Matlab
                         for (int j = 0; j < cs; j++)
                         {
                             if (j > 0) sbc.Append("  ");
-                            var html = sc[i, j].Simplify().ToHtml();
+                            var html = (sc[i, j] ?? new SymConst(0)).ToHtml();
                             sbc.Append((char)0xE001).Append(html).Append((char)0xE002);
                         }
                     }
@@ -5916,6 +6023,14 @@ namespace Calcpad.Core.Matlab
             (a.Length > 0 && a[0].IsGfxHandle) ? a[1..] : a;
 
 
+        // Convierte una matriz MValue (Rows x Cols) a double[][] (por filas) para la malla retenida.
+        private static double[][] ToJagged(MValue m)
+        {
+            if (m == null) return null;
+            var r = new double[m.Rows][];
+            for (int i = 0; i < m.Rows; i++) { r[i] = new double[m.Cols]; for (int j = 0; j < m.Cols; j++) r[i][j] = m.At(i, j); }
+            return r;
+        }
         private static MValue EvalPatchNamed(MValue[] a)
         {
             MValue Faces = null, Vertices = null, CData = null;
@@ -5969,30 +6084,17 @@ namespace Calcpad.Core.Matlab
             // Vertices 2D (Nx2) + Faces, sin ZData -> parches 2D en _figPrims (rasterizable a PNG/SVG, SIN Plotly/JS)
             if (Faces != null && Vertices != null && Vertices.Cols == 2 && Zd == null)
             {
-                // FaceVertexCData (una valor por cara) -> color por valor (jet+caxis) + guardar valor para hover
-                bool hasC = CData != null && CData.Data.Length >= Faces.Rows;
-                double clo = 0, chi = 1;
-                if (hasC && !MatlabPlots.TryGetCAxis(out clo, out chi))
-                {
-                    clo = double.MaxValue; chi = double.MinValue;
-                    for (int f = 0; f < Faces.Rows; f++) { double v = CData.Data[f]; if (v < clo) clo = v; if (v > chi) chi = v; }
-                    if (chi <= clo) chi = clo + 1;
-                }
-                for (int f = 0; f < Faces.Rows; f++)
-                {
-                    int nv = Faces.Cols;
-                    var xs = new double[nv]; var ys = new double[nv];
-                    for (int k = 0; k < nv; k++)
-                    {
-                        int vi = (int)System.Math.Round(Faces.At(f, k)) - 1;   // 1-based -> 0-based
-                        if (vi < 0) vi = 0; else if (vi >= Vertices.Rows) vi = Vertices.Rows - 1;
-                        xs[k] = Vertices.At(vi, 0); ys[k] = Vertices.At(vi, 1);
-                    }
-                    double val = double.NaN; string fc = faceColor;
-                    if (hasC) { val = CData.Data[f]; fc = MatlabPlots.JetCss((val - clo) / (chi - clo)); }
-                    MatlabPlots.Patch2D(xs, ys, fc, edgeColor, faceAlpha, lineWidth, val);
-                }
-                return new MValue(0);
+                // MALLA RETENIDA (modo MATLAB): guardar Faces/Vertices/CData como fuente de verdad;
+                // el renderer las reconstruye en cada frame y set(...) las muta → drawnow anima.
+                double[] cd = (CData != null && CData.Data != null) ? (double[])CData.Data.Clone() : null;
+                MatlabPlots.SetRetainedMesh(ToJagged(Faces), ToJagged(Vertices), cd, edgeColor, faceColor, faceAlpha, lineWidth);
+                MatlabPlots.BuildRetainedFaces();   // dibuja el estado inicial
+                var hM = new MValue(0) { IsGfxHandle = true };
+                hM.Fields = new System.Collections.Generic.Dictionary<string, MValue>();
+                hM.Fields["faces"] = Faces; hM.Fields["vertices"] = Vertices;
+                if (CData != null) hM.Fields["facevertexcdata"] = CData;
+                hM.Fields["__mesh2d"] = new MValue(1);
+                return hM;
             }
             if (Faces == null || Vertices == null)
                 throw new MatlabRuntimeException("patch named: 'Faces' y 'Vertices' obligatorios");
@@ -6312,6 +6414,69 @@ namespace Calcpad.Core.Matlab
             double acc = init;
             for (int i = 0; i < v.Data.Length; i++) acc = f(acc, v.Data[i]);
             return new MValue(acc);
+        }
+
+        /// <summary>sum/prod respetando la DIMENSIÓN de MATLAB (crucial para código vectorizado
+        /// como <c>sum(A.^2,2)</c> = norma por fila). dim=0 → auto (vector→escalar, matriz→por columna);
+        /// dim=1 → por columna (1×Cols); dim=2 → por fila (Rows×1). Antes se ignoraba dim y todo
+        /// colapsaba a escalar, dando resultados incorrectos y luego "Linear index 0 (1..1)".</summary>
+        private static MValue ReduceNumDim(MValue v, int dim, double init, Func<double, double, double> f)
+        {
+            if (v.IsScalar) return new MValue(v.Scalar);
+            // Sparse u otro storage sin Data denso: reducir todos los valores (fallback seguro).
+            if (v.Data == null)
+            {
+                double accS = init;
+                if (v.SparseVals != null)
+                    for (int i = 0; i < v.SparseVals.Length; i++) accS = f(accS, v.SparseVals[i]);
+                return new MValue(accS);
+            }
+            bool isVec = (v.Rows == 1 || v.Cols == 1);
+            if (dim == 0 && isVec)              // vector sin dim -> escalar (reduce todo)
+            {
+                double acc0 = init;
+                for (int i = 0; i < v.Data.Length; i++) acc0 = f(acc0, v.Data[i]);
+                return new MValue(acc0);
+            }
+            if (dim == 0) dim = 1;              // matriz sin dim -> por COLUMNA (como MATLAB)
+            if (dim == 1)                       // por columna -> 1 x Cols
+            {
+                var r = new MValue(1, v.Cols);
+                for (int j = 0; j < v.Cols; j++)
+                {
+                    double acc0 = init;
+                    for (int i = 0; i < v.Rows; i++) acc0 = f(acc0, v.At(i, j));
+                    r.Set(0, j, acc0);
+                }
+                return r;
+            }
+            else                               // dim==2 -> por fila -> Rows x 1
+            {
+                var r = new MValue(v.Rows, 1);
+                for (int i = 0; i < v.Rows; i++)
+                {
+                    double acc0 = init;
+                    for (int j = 0; j < v.Cols; j++) acc0 = f(acc0, v.At(i, j));
+                    r.Set(i, 0, acc0);
+                }
+                return r;
+            }
+        }
+
+        /// <summary>sum/prod sobre valores simbólicos. Un escalar simbólico se reduce a sí
+        /// mismo; un vector/matriz simbólico (p.ej. el resultado de factor()) se colapsa
+        /// sumando/multiplicando todas sus celdas. Devuelve un escalar simbólico.</summary>
+        private static MValue ReduceSym(MValue v, bool isProd)
+        {
+            var cells = new List<SymNode>();
+            if (v.IsSymbolic) cells.Add(v.Symbolic);
+            else if (v.IsSymMatrix)
+                foreach (var c in v.SymCells) cells.Add(c ?? new SymConst(0));
+            if (cells.Count == 0) return MValue.NewSymbolic(new SymConst(isProd ? 1 : 0));
+            SymNode acc = cells[0];
+            for (int i = 1; i < cells.Count; i++)
+                acc = isProd ? new SymMul(acc, cells[i]) : new SymAdd(acc, cells[i]);
+            return MValue.NewSymbolic(acc.Simplify());
         }
 
         /// <summary>min/max de MATLAB con sus formas: min(X) reduce; min(X,Y) elementwise
@@ -6823,6 +6988,7 @@ namespace Calcpad.Core.Matlab
         private static MValue Transpose(MValue v)
         {
             if (v.IsScalar) return v;
+            if (v.IsSparseReal) return SparseTranspose(v);   // FIX: At() no funciona en sparse (Data=null) -> transpuesta CSR->CSC directa (mantiene disperso, ej. Fint=Bg'*x en FEM vectorizado)
             var r = new MValue(v.Cols, v.Rows);
             for (int i = 0; i < v.Rows; i++)
                 for (int j = 0; j < v.Cols; j++)
@@ -7114,8 +7280,7 @@ namespace Calcpad.Core.Matlab
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
-            for (int i = 0; i < def.ParamNames.Count && i < args.Length; i++)
-                local.Set(def.ParamNames[i], args[i]);
+            BindParams(def, args, local);
             // MATLAB nargin / nargout dentro de la función
             local.Set("nargin",  new MValue(args.Length));
             local.Set("nargout", new MValue(def.OutputNames.Count));
@@ -7132,14 +7297,133 @@ namespace Calcpad.Core.Matlab
                 return v;
             return new MValue(0);  // procedure void → 0
         }
+        /// <summary>Vincula los args a los parámetros formales. Soporta `varargin`
+        /// (MATLAB): si el ÚLTIMO parámetro se llama varargin, recoge todos los args
+        /// sobrantes en un cell 1×N (vacío 1×0 si no hay) — así `f(varargin)` llamado
+        /// con 0 args deja varargin = {} y `isempty(varargin)` es true.</summary>
+        private static void BindParams(FunctionDef def, MValue[] args, MatlabScope local)
+        {
+            int np = def.ParamNames.Count;
+            bool hasVar = np > 0 && def.ParamNames[np - 1] == "varargin";
+            int nfix = hasVar ? np - 1 : np;
+            var mutated = GetMutatedParams(def);   // solo se clonan los params que la función muta
+            for (int i = 0; i < nfix && i < args.Length; i++)
+                local.Set(def.ParamNames[i],
+                          mutated.Contains(def.ParamNames[i]) ? CloneArg(args[i]) : args[i]);
+            if (hasVar)
+            {
+                bool cloneVar = mutated.Contains("varargin");
+                int extra = args.Length - nfix; if (extra < 0) extra = 0;
+                var vc = new MValue[1, extra];
+                for (int k = 0; k < extra; k++) vc[0, k] = cloneVar ? CloneArg(args[nfix + k]) : args[nfix + k];
+                local.Set("varargin", MValue.NewCell(vc));
+            }
+        }
+
+        /// <summary>Params que la función muta (lazy + cacheado en FunctionDef). Bajo semántica por
+        /// valor, un param solo puede alterar los datos del llamador si esta función le ASIGNA
+        /// (directo, indexado, o campo); pasarlo a otra función es seguro (esa clona los suyos).</summary>
+        private static System.Collections.Generic.HashSet<string> GetMutatedParams(FunctionDef def)
+        {
+            if (def.MutatedParams == null)
+            {
+                var s = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+                CollectMutated(def.Body, s);
+                def.MutatedParams = s;
+            }
+            return def.MutatedParams;
+        }
+        private static void CollectMutated(System.Collections.Generic.IEnumerable<MatlabNode> body,
+                                           System.Collections.Generic.HashSet<string> outSet)
+        {
+            foreach (var st in body) CollectMutatedNode(st, outSet);
+        }
+        private static void CollectMutatedNode(MatlabNode st, System.Collections.Generic.HashSet<string> outSet)
+        {
+            switch (st)
+            {
+                case Assignment asg:
+                    foreach (var t in asg.Targets) { var r = RootIdentName(t); if (r != null) outSet.Add(r); }
+                    break;
+                case ForLoop f:  if (f.VarName != null) outSet.Add(f.VarName); CollectMutated(f.Body, outSet); break;
+                case WhileLoop w: CollectMutated(w.Body, outSet); break;
+                case IfBlock ib: foreach (var br in ib.Branches) CollectMutated(br.Body, outSet); break;
+                case SwitchBlock sb: foreach (var c in sb.Cases) CollectMutated(c.Body, outSet); break;
+                case TryCatch tc:
+                    if (!string.IsNullOrEmpty(tc.CatchVarName)) outSet.Add(tc.CatchVarName);
+                    CollectMutated(tc.TryBody, outSet); CollectMutated(tc.CatchBody, outSet); break;
+            }
+        }
+        private static string RootIdentName(MatlabNode n)
+        {
+            while (n != null)
+            {
+                switch (n)
+                {
+                    case IdentRef id: return id.Name;
+                    case FieldAccess fa: n = fa.Target; break;
+                    case CallOrIndex ci: n = ci.Target; break;
+                    case CellIndex cx: n = cx.Target; break;
+                    default: return null;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Copia por VALOR de un argumento al entrar a una función (semántica MATLAB).
+        /// Los STRUCTS, cells, struct-arrays y arrays numéricos se copian en profundidad, para que
+        /// mutar un campo/elemento del parámetro NO se filtre al llamador (antes se pasaba el mismo
+        /// MValue por referencia → un `s.k=…` dentro de la función alteraba el `s` de quien llamaba,
+        /// rompiendo p.ej. bisecciones que sondean estado sin avanzarlo). Se dejan por REFERENCIA los
+        /// tipos que en MATLAB también lo son: handles gráficos, function handles, instancias de clase
+        /// (handle), containers.Map, y símbolos (SymNode inmutable).</summary>
+        private static MValue CloneArg(MValue v)
+        {
+            if (v == null) return null;
+            // Tipos por referencia en MATLAB (o inmutables): no copiar.
+            if (v.IsGfxHandle || v.Callable != null || v.IsInstance || v.IsMap
+                || v.IsSymbolic || v.IsSymMatrix || v.Is3D || v.IsSparseReal || v.IsString)
+                return v;
+            if (v.Fields != null)                       // struct por valor
+            {
+                var nf = new Dictionary<string, MValue>(StringComparer.Ordinal);
+                foreach (var kv in v.Fields) nf[kv.Key] = CloneArg(kv.Value);
+                var s = new MValue(v.Rows, v.Cols); s.Fields = nf; return s;
+            }
+            if (v.StructArrayItems != null)             // struct-array por valor
+            {
+                var items = new System.Collections.Generic.List<MValue>(v.StructArrayItems.Count);
+                foreach (var it in v.StructArrayItems) items.Add(CloneArg(it));
+                var s = new MValue(v.Rows, v.Cols); s.StructArrayItems = items; return s;
+            }
+            if (v.CellData != null)                     // cell por valor (copia profunda)
+            {
+                int r = v.CellData.GetLength(0), c = v.CellData.GetLength(1);
+                var cd = new MValue[r, c];
+                for (int i = 0; i < r; i++) for (int j = 0; j < c; j++) cd[i, j] = CloneArg(v.CellData[i, j]);
+                return MValue.NewCell(cd);
+            }
+            if (v.StringArrayData != null)              // string-array por valor
+            {
+                var sa = (string[,])v.StringArrayData.Clone();
+                var s = new MValue(v.Rows, v.Cols) { StringArrayData = sa, IsDoubleQuoted = true };
+                return s;
+            }
+            if (v.Data != null)                         // numérico (real/complejo) por valor
+            {
+                var d = (double[])v.Data.Clone();
+                return v.Imag != null ? new MValue(v.Rows, v.Cols, d, (double[])v.Imag.Clone())
+                                      : new MValue(v.Rows, v.Cols, d);
+            }
+            return v;
+        }
         private MValue[] CallUserFunctionMulti(FunctionDef def, MValue[] args, string[] argNames = null)
         {
             var local = new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
-            for (int i = 0; i < def.ParamNames.Count && i < args.Length; i++)
-                local.Set(def.ParamNames[i], args[i]);
+            BindParams(def, args, local);
             // MATLAB nargin / nargout dentro de la función
             local.Set("nargin",  new MValue(args.Length));
             local.Set("nargout", new MValue(def.OutputNames.Count));
@@ -7206,18 +7490,13 @@ namespace Calcpad.Core.Matlab
             var val = Eval(asg.Rhs, scope);
             if (tgt is IdentRef id)
             {
-                // MATLAB-correct COPY semantics: `A = B` (alias) o `A = B + C` donde
-                // el resultado podría compartir Data con un alias (vía in-place fast
-                // paths). Clonamos Data si el RHS es un IdentRef puro — única ruta
-                // que devuelve la MISMA referencia que otra variable.
-                // Sin esto: `K = K_placa; K(g,g) = K(g,g) + ...` muta K_placa también.
-                if (asg.Rhs is IdentRef && val != null && val.Data != null && val.Data.Length > 0
-                    && !val.IsString && val.CellData == null && val.Fields == null
-                    && val.StringArrayData == null && val.Pages == null
-                    && val.Symbolic == null && val.SymCells == null)
-                {
-                    val = CloneNumericMValue(val);
-                }
+                // MATLAB-correct COPY semantics: `A = B` / `A = s.campo` / `A = c{i}` devuelven la
+                // MISMA referencia MValue que otra variable (alias). Sin copia, mutar A luego (campo,
+                // elemento o vía in-place fast paths) alteraría B/s/c también. CloneArg copia los
+                // tipos-valor (structs, arrays, cells) y deja por referencia los handles graficos /
+                // function handles / instancias / Map / simbolos (que en MATLAB tambien son por ref).
+                if ((asg.Rhs is IdentRef || asg.Rhs is FieldAccess || asg.Rhs is CellIndex) && val != null)
+                    val = CloneArg(val);
                 scope.Set(id.Name, val);
                 return new StatementResult(id.Name, val, asg.Suppressed);
             }

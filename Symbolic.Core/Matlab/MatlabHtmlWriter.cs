@@ -834,7 +834,7 @@ namespace Calcpad.Core.Matlab
             or "atan2" or "mod" or "rem" or "power"
             or "asin" or "acos" or "atan" or "sinh" or "cosh" or "tanh"
             or "sind" or "cosd" or "tand" or "deg2rad" or "rad2deg"
-            or "sort" or "unique" or "any" or "all" or "isempty" or "isscalar" or "isvector"
+            or "sort" or "sortrows" or "unique" or "any" or "all" or "isempty" or "isscalar" or "isvector"
             or "reshape" or "repmat" or "disp"
             // Plots
             or "plot" or "plot3" or "scatter" or "scatter3" or "surf" or "mesh" or "imagesc"
