@@ -1631,7 +1631,24 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["plot3"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("plot3(x, y, z)");
-                _htmlOut?.Invoke(MatlabPlots.Plot3(a[0], a[1], a[2]));
+                // Si hay una figura 3D abierta (p.ej. tras patch del sólido), COMPONER la línea en
+                // esa escena (jaula de acero embebida). Si no, plot3 autónomo como antes.
+                if (MatlabPlots.HasOpenFigure && MatlabPlots.FigureIs3D)
+                {
+                    string col = "#c81a0d"; double lw = 2.0;
+                    for (int i = 3; i + 1 < a.Length; i++)
+                    {
+                        if (!a[i].IsString) continue;
+                        string key = a[i].StringValue.ToLowerInvariant();
+                        if (key == "color")
+                            col = a[i + 1].IsString ? MatlabColorToJs(a[i + 1].StringValue)
+                                  : (a[i + 1].Rows == 1 && a[i + 1].Cols == 3 ? RgbVecToCss(a[i + 1]) : col);
+                        else if (key == "linewidth") lw = a[i + 1].Scalar;
+                    }
+                    MatlabPlots.AddLine3D(a[0].Data, a[1].Data, a[2].Data, col, lw);
+                }
+                else
+                    _htmlOut?.Invoke(MatlabPlots.Plot3(a[0], a[1], a[2]));
                 return new MValue(0);
             };
             // Viewer interactivo de la mesa: slabview3d(A, B, H, na, nb, struct_campos)
@@ -6016,6 +6033,23 @@ namespace Calcpad.Core.Matlab
                     }
                 return new[] { X, Y };
             };
+            // ndgrid(x,y): como meshgrid pero SIN transponer (convención N-D de MATLAB):
+            // X(i,j)=x(i), Y(i,j)=y(j), tamaño length(x)×length(y). [X,Y]=ndgrid(x) → ndgrid(x,x).
+            _multiOutBuiltins["ndgrid"] = a => {
+                var x = a[0];
+                var y = a.Length > 1 ? a[1] : x;
+                int Nx = Math.Max(x.Rows, x.Cols);
+                int Ny = Math.Max(y.Rows, y.Cols);
+                var X = new MValue(Nx, Ny);
+                var Y = new MValue(Nx, Ny);
+                for (int i = 0; i < Nx; i++)
+                    for (int j = 0; j < Ny; j++)
+                    {
+                        X.Set(i, j, x.Data[i]);
+                        Y.Set(i, j, y.Data[j]);
+                    }
+                return new[] { X, Y };
+            };
             // cylinder(r,n): [X,Y,Z] de un cilindro radio r (escalar -> [r,r]) o perfil
             // de radios (vector). [r 0] -> cono. n puntos en la circunferencia (def 20).
             _multiOutBuiltins["cylinder"] = a => {
@@ -6225,7 +6259,16 @@ namespace Calcpad.Core.Matlab
                 }
                 trifaces = split;
             }
-            MatlabPlots.PatchMesh(trifaces, Vertices, CData, faceColorMode,
+            // CData POR-CARA (length nF) con quads divididos: duplicar el valor a cada sub-triángulo
+            // (si es POR-VÉRTICE, length nV, se deja igual: se indexa por vértice).
+            MValue triCData = CData;
+            if (Faces.Cols == 4 && CData != null && CData.Data != null && CData.Data.Length == Faces.Rows)
+            {
+                var cd2 = new MValue(Faces.Rows * 2, 1);
+                for (int f = 0; f < Faces.Rows; f++) { cd2.Data[2 * f] = CData.Data[f]; cd2.Data[2 * f + 1] = CData.Data[f]; }
+                triCData = cd2;
+            }
+            MatlabPlots.PatchMesh(trifaces, Vertices, triCData, faceColorMode,
                                    faceColor, edgeColor, faceAlpha, lineWidth, "jet", Faces.Cols == 4);
             return new MValue(0);
         }
@@ -7384,9 +7427,19 @@ namespace Calcpad.Core.Matlab
             return names;
         }
 
+        // Pre-registra las funciones ANIDADAS del cuerpo (hoisting de MATLAB): quedan disponibles
+        // desde el inicio de la función contenedora (se pueden llamar antes de su definición textual,
+        // p.ej. callbacks de UI) y atadas al scope del padre → comparten su workspace.
+        private void HoistNestedFunctions(FunctionDef def, MatlabScope parent)
+        {
+            foreach (var s in def.Body)
+                if (s is FunctionDef nfd && !_reservedVizBuiltins.Contains(nfd.Name))
+                { nfd.ClosureScope = parent; _userFunctions[nfd.Name] = nfd; }
+        }
         private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)
         {
-            var local = new MatlabScope(Globals);
+            // función ANIDADA: corre en el scope del padre (workspace compartido); si no, scope propio.
+            var local = def.ClosureScope ?? new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
@@ -7394,6 +7447,7 @@ namespace Calcpad.Core.Matlab
             // MATLAB nargin / nargout dentro de la función
             local.Set("nargin",  new MValue(args.Length));
             local.Set("nargout", new MValue(def.OutputNames.Count));
+            HoistNestedFunctions(def, local);
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { /* early return ok */ }
             finally { _inputNameStack.Pop(); }
@@ -7529,7 +7583,7 @@ namespace Calcpad.Core.Matlab
         }
         private MValue[] CallUserFunctionMulti(FunctionDef def, MValue[] args, string[] argNames = null)
         {
-            var local = new MatlabScope(Globals);
+            var local = def.ClosureScope ?? new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
@@ -7537,6 +7591,7 @@ namespace Calcpad.Core.Matlab
             // MATLAB nargin / nargout dentro de la función
             local.Set("nargin",  new MValue(args.Length));
             local.Set("nargout", new MValue(def.OutputNames.Count));
+            HoistNestedFunctions(def, local);
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { }
             finally { _inputNameStack.Pop(); }

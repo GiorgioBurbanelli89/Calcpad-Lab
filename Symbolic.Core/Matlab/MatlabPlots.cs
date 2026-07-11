@@ -65,6 +65,24 @@ namespace Calcpad.Core.Matlab
         private static double? _figXMin, _figXMax, _figYMin, _figYMax;
         private static bool _figAxisEqual = false;   // aspecto cuadrado en 2D SOLO si el script llama axis('equal') (MATLAB default=independiente)
         public static bool HasOpenFigure => _figTraces != null;
+        public static bool FigureIs3D => _figIs3D;
+        /// <summary>plot3() COMPUESTO: agrega una polilínea 3D a la figura abierta (misma escena LAB3D
+        /// que patch/surf), para componer solido + jaula de acero (rebar) en UNA escena. Emite tanto la
+        /// traza Plotly (scatter3d lines) como la geometría del canvas (CvLine).</summary>
+        public static void AddLine3D(double[] xs, double[] ys, double[] zs, string colorCss, double lw)
+        {
+            if (_figTraces == null) BeginFigure();
+            int n = System.Math.Min(xs.Length, System.Math.Min(ys.Length, zs.Length));
+            if (n < 2) return;
+            var sb = new StringBuilder();
+            sb.Append("{type:'scatter3d',mode:'lines'");
+            sb.Append($", x:[{Csv(xs)}], y:[{Csv(ys)}], z:[{Csv(zs)}]");
+            sb.Append($", line:{{color:'{colorCss}', width:{lw.ToString(Inv)}}}, showlegend:false}}");
+            AddTrace(sb.ToString());
+            float[] c = CssToRgbF(colorCss);
+            for (int i = 0; i + 1 < n; i++) CvLine(xs[i], ys[i], zs[i], xs[i + 1], ys[i + 1], zs[i + 1], c);
+            _figIs3D = true;
+        }
 
         // ============ Renderer CANVAS/WebGL (alternativa RÁPIDA a Plotly, sin CDN) ============
         // Se captura la MISMA geometría 3D que las trazas Plotly y, en FinishFigure, se emite un
@@ -273,8 +291,8 @@ function scl(x,y,z){return new Float32Array([x,0,0,0,0,y,0,0,0,0,z,0,0,0,0,1]);}
 function sh(gl,t,src){var o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o;}
 function make(cv,op,al,ln,bb,eq){
 if(eq===undefined)eq=1;
-var gl=cv.getContext('webgl',{antialias:true});if(!gl){cv.parentNode.innerHTML='<div style=color:#a00>WebGL no disponible</div>';return;}
-gl.getExtension('OES_standard_derivatives');
+var gl=cv.getContext('webgl',{antialias:true,preserveDrawingBuffer:true});if(!gl){cv.parentNode.innerHTML='<div style=color:#a00>WebGL no disponible</div>';return;}
+var hasDeriv=!!gl.getExtension('OES_standard_derivatives');
 var vs='attribute vec3 p;attribute vec4 c;uniform mat4 m;varying vec4 v;varying vec3 w;void main(){gl_Position=m*vec4(p,1.0);v=c;w=p;}';
 var fs='#extension GL_OES_standard_derivatives:enable\nprecision mediump float;varying vec4 v;varying vec3 w;uniform float lit;void main(){vec3 col=v.rgb;if(lit>0.5){vec3 N=normalize(cross(dFdx(w),dFdy(w)));float d=0.5+0.5*abs(dot(N,normalize(vec3(0.4,0.5,0.85))));col=col*d;}gl_FragColor=vec4(col,v.a);}';
 var pr=gl.createProgram();gl.attachShader(pr,sh(gl,gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl,gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
@@ -298,7 +316,7 @@ var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul
 gl.uniformMatrix4fv(lm,false,M);
 gl.uniform1f(ll,0.0);
 if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}
-gl.uniform1f(ll,1.0);gl.disable(gl.BLEND);gl.depthMask(true);
+gl.uniform1f(ll,hasDeriv?1.0:0.0);gl.disable(gl.BLEND);gl.depthMask(true);
 if(nO>0){bind(ob,24,3);gl.drawArrays(gl.TRIANGLES,0,nO);}
 if(nA>0){bind(ab,28,4);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,nA);gl.depthMask(true);gl.disable(gl.BLEND);}
 }
