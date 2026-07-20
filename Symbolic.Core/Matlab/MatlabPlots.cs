@@ -391,7 +391,11 @@ dx=dx||1;dy=dy||1;dz=dz||1;
 var sx,sy,sz;
 if(eq){var mxs=Math.max(dx,dy,dz);sx=sy=sz=2/mxs;}else{sx=2/dx;sy=2/dy;sz=2/dz;}
 var ex=sx*dx,ey=sy*dy,ez=sz*dz;
-var st={az:-0.7,el:0.35,dist:1.7*Math.sqrt(ex*ex+ey*ey+ez*ez)||3};
+var d0=1.7*Math.sqrt(ex*ex+ey*ey+ez*ez)||3;
+// zn = pasos ENTEROS de rueda. dist se recalcula siempre desde d0 con pow(), asi
+// acercar y alejar el mismo numero de pasos devuelve el valor EXACTO de partida;
+// multiplicando de forma acumulada el error de coma flotante hacia que no regresara.
+var st={az:-0.7,el:0.35,d0:d0,zn:0,dist:d0};
 gl.enable(gl.DEPTH_TEST);
 function bind(buf,stride,csz){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,csz,gl.FLOAT,false,stride,12);}
 // --- marcas numericas de los ejes, como MATLAB: se proyectan en cada draw ---
@@ -411,7 +415,7 @@ for(var ax=0;ax<3;ax++)for(var q=0;q<=NT;q++){
   d.textContent=fmt(ax===0?(bb[0]+f*(bb[1]-bb[0])):(ax===1?(bb[2]+f*(bb[3]-bb[2])):(bb[4]+f*(bb[5]-bb[4]))));
   host.appendChild(d); TK.push({el:d,p:P});
 }
-function ticks(M){
+function ticks(M){try{
   var W=cv.clientWidth||cv.width, H=cv.clientHeight||cv.height;
   for(var i=0;i<TK.length;i++){
     var p=TK[i].p, w=M[3]*p[0]+M[7]*p[1]+M[11]*p[2]+M[15];
@@ -422,23 +426,30 @@ function ticks(M){
     TK[i].el.style.left=((xc*0.5+0.5)*W)+'px';
     TK[i].el.style.top=((1-(yc*0.5+0.5))*H)+'px';
   }
-}
+}catch(err){}}
 function draw(){
-gl.viewport(0,0,cv.width,cv.height);gl.clearColor(1.0,1.0,1.0,1.0);   // fondo BLANCO como MATLAB (antes gris muy oscuro)gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+/* fondo BLANCO como MATLAB. OJO: aqui NO se puede usar comentario de linea (//),
+   porque todo esto se emite en UNA sola linea de JavaScript y se comeria el
+   gl.clear() de abajo; sin limpiar el buffer de profundidad la escena se queda
+   congelada al girar (la geometria nueva queda detras y la descarta el depth test). */
+gl.viewport(0,0,cv.width,cv.height);gl.clearColor(1.0,1.0,1.0,1.0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul(mul(rx(st.el-1.5708),rz(st.az)),mul(scl(sx,sy,sz),tr(-cx,-cy,-cz)))));
 gl.uniformMatrix4fv(lm,false,M);
 gl.uniform1f(ll,0.0);
-ticks(M);if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}
+if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}
 gl.uniform1f(ll,hasDeriv?1.0:0.0);gl.disable(gl.BLEND);gl.depthMask(true);
 if(nO>0){bind(ob,24,3);gl.drawArrays(gl.TRIANGLES,0,nO);}
-if(nA>0){bind(ab,28,4);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,nA);gl.depthMask(true);gl.disable(gl.BLEND);}
+if(nA>0){bind(ab,28,4);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,nA);gl.depthMask(true);gl.disable(gl.BLEND);}ticks(M);
 }
 draw();
 var dr=false,mx=0,my=0;
 cv.addEventListener('mousedown',function(ev){dr=true;mx=ev.clientX;my=ev.clientY;cv.style.cursor='grabbing';});
 window.addEventListener('mouseup',function(){dr=false;cv.style.cursor='grab';});
 window.addEventListener('mousemove',function(ev){if(!dr)return;st.az+=(ev.clientX-mx)*0.01;st.el+=(ev.clientY-my)*0.01;if(st.el>1.55)st.el=1.55;if(st.el<-1.55)st.el=-1.55;mx=ev.clientX;my=ev.clientY;draw();});
-cv.addEventListener('wheel',function(ev){st.dist*=ev.deltaY>0?1.1:0.9;draw();ev.preventDefault();});
+// {passive:false} es OBLIGATORIO: en WebView2/Chromium los listeners de 'wheel' son
+// PASIVOS por defecto, se ignora el preventDefault() y la PAGINA hace scroll en vez
+// de que el modelo haga zoom. Se toca la escena tambien con touch (pinch no, pero si arrastre).
+cv.addEventListener('wheel',function(ev){ev.preventDefault();ev.stopPropagation();st.zn+=ev.deltaY>0?1:-1;if(st.zn>60)st.zn=60;if(st.zn<-60)st.zn=-60;st.dist=st.d0*Math.pow(1.1,st.zn);if(st.dist<0.05)st.dist=0.05;draw();},{passive:false});
 }
 return {make:make};
 })();</script>
