@@ -1,4 +1,4 @@
-using Calcpad.Core;
+﻿using Calcpad.Core;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using System;
@@ -49,7 +49,7 @@ namespace Calcpad.Wpf
                 Name = AppDomain.CurrentDomain.FriendlyName + ".exe";
                 FullName = System.IO.Path.Combine(Path, Name);
                 Version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
-                Title = " Calcpad Lab " + Version[0..(Version.LastIndexOf('.'))];
+                Title = " Hekatan Lab " + Version[0..(Version.LastIndexOf('.'))];
                 DocPath = Path + "doc";
                 if (!Directory.Exists(DocPath))
                     DocPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "\\CalcpadLab";
@@ -338,7 +338,7 @@ namespace Calcpad.Wpf
             var message = MainWindowResources.TryRestoreState_Recovered_SavePrompt;
             var result = MessageBox.Show(
                 message,
-                "Calcpad",
+                "Hekatan Lab",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
             if (result != MessageBoxResult.Yes) return;
@@ -361,7 +361,7 @@ namespace Calcpad.Wpf
         {
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             {
-                DocumentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\Calcpad-Lab";
+                DocumentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\Hekatan-Lab";
                 if (!Directory.Exists(DocumentPath))
                     Directory.CreateDirectory(DocumentPath);
 
@@ -482,7 +482,7 @@ namespace Calcpad.Wpf
                     Dispatcher.InvokeAsync(() =>
                     MessageBox.Show(
                         MainWindowResources.Inline_Html_elements_must_not_cross_text_lines,
-                        "Calcpad", MessageBoxButton.OK, MessageBoxImage.Stop));
+                        "Hekatan Lab", MessageBoxButton.OK, MessageBoxImage.Stop));
             }
             else if (tag.Contains('§'))
                 InsertLines(tag, "§", false);
@@ -1300,7 +1300,7 @@ namespace Calcpad.Wpf
         {
             var result = MessageBoxResult.No;
             if (!IsSaved)
-                result = MessageBox.Show(MainWindowResources.SavePrompt, "Calcpad", MessageBoxButton.YesNoCancel);
+                result = MessageBox.Show(MainWindowResources.SavePrompt, "Hekatan Lab", MessageBoxButton.YesNoCancel);
             if (result == MessageBoxResult.Yes)
             {
                 if (string.IsNullOrWhiteSpace(CurrentFileName))
@@ -1414,6 +1414,11 @@ namespace Calcpad.Wpf
             // y archivos .m usan motor MATLAB. Solo .cpd cae al parser Calcpad-puro.
             bool isMatlabFile = string.IsNullOrEmpty(CurrentFileName) ||
                 CurrentFileName.EndsWith(".m", StringComparison.OrdinalIgnoreCase);
+            // Hekatan Fortran: los .f90/.f95 corren con el motor Fortran embebido (C# puro,
+            // sin compilador externo). Reusa toda la interfaz: editor, autorun y --shot.
+            bool isFortranFile = !string.IsNullOrEmpty(CurrentFileName) &&
+                (CurrentFileName.EndsWith(".f90", StringComparison.OrdinalIgnoreCase) ||
+                 CurrentFileName.EndsWith(".f95", StringComparison.OrdinalIgnoreCase));
             if (isMatlabFile)
             {
                 if (_parser.Settings != null && _parser.Settings.Math.Degrees == 0)
@@ -1426,7 +1431,7 @@ namespace Calcpad.Wpf
             //    STREAMING: cada statement emite su HTML al WebView2 apenas se computa
             //    via ExecuteScriptAsync(__appendChunk(...)). Mientras se computa una
             //    línea larga, un banner sticky muestra "Calculando línea N..." ──
-            if (isMatlabFile && !IsWebForm && !toWebForm)
+            if ((isMatlabFile || isFortranFile) && !IsWebForm && !toWebForm)
             {
                 StartupMark("MATLAB pure pipeline: start (streaming)");
                 _isParsing = true;
@@ -1470,6 +1475,30 @@ namespace Calcpad.Wpf
                 // que el archivo (la primaria en MATLAB). Se lee en el hilo UI antes del Task.Run.
                 var entryHint = string.IsNullOrWhiteSpace(CurrentFileName)
                     ? null : Path.GetFileNameWithoutExtension(CurrentFileName);
+                if (isFortranFile)
+                {
+                    // El motor Fortran corre en milisegundos: no necesita streaming por statement.
+                    await Task.Run(() =>
+                    {
+                        var fortran = new Calcpad.Core.Fortran.FortranPipeline();
+                        var (fh, fe, fel) = fortran.RunLine(sourceCapture);
+                        pureHtml = fh; pureErr = fe; pureErrLine = fel;
+                        DiagLog($"Fortran pipeline: htmlLen={fh?.Length ?? 0}, err={fe}");
+                    });
+                    // El WebView2 se pinta con los chunks (igual que MATLAB), NO con el html
+                    // final: hay que enviarlo explicitamente o la pagina queda en blanco.
+                    if (!string.IsNullOrEmpty(pureHtml))
+                    {
+                        try
+                        {
+                            var escFortran = System.Text.Json.JsonSerializer.Serialize(pureHtml);
+                            await WebViewer.ExecuteScriptAsync(
+                                $"window.__matlabAppendChunk && window.__matlabAppendChunk({escFortran});");
+                        }
+                        catch { /* WebView2 cerrandose */ }
+                    }
+                }
+                else
                 await Task.Run(() =>
                 {
                     var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
@@ -1507,9 +1536,14 @@ namespace Calcpad.Wpf
                         {
                             try
                             {
-                                var escaped = System.Text.Json.JsonSerializer.Serialize(html);
+                                // FRAME de animación (drawnow, marcado con \x01FRAME\x01) → se repinta en
+                                // el MISMO lienzo (__matlabReplaceFrame). El resto se agrega normal.
+                                bool isFrame = html != null && html.StartsWith("@@LABFRAME@@", StringComparison.Ordinal);
+                                var payload = isFrame ? html.Substring(12) : html;
+                                var escaped = System.Text.Json.JsonSerializer.Serialize(payload);
+                                var fn = isFrame ? "__matlabReplaceFrame" : "__matlabAppendChunk";
                                 await WebViewer.ExecuteScriptAsync(
-                                    $"window.__matlabAppendChunk && window.__matlabAppendChunk({escaped});");
+                                    $"window.{fn} && window.{fn}({escaped});");
                             }
                             catch { /* idem */ }
                         }, System.Windows.Threading.DispatcherPriority.Background);
@@ -1566,6 +1600,11 @@ namespace Calcpad.Wpf
                 FreezeOutputButtons(false);
                 IsCalculated = true;
                 _autoRun = false;
+                // Modo headless --shot: capturar CUANDO el cálculo terminó de verdad (no a
+                // los 7s fijos, que para FEM pesado capturaba en blanco). +settle para que
+                // el último frame de animación (drawnow) acabe de pintarse en el WebView2.
+                if (_shotPng != null) { await Task.Delay(1200); await CaptureWebViewerAndExit(_shotPng); }
+                else if (_gifDir != null) { await Task.Delay(600); await CaptureFramesAndExit(_gifDir); }
                 return; // skip RENDER_OUTPUT — el WebView2 ya tiene todo
             }
             if (!string.IsNullOrEmpty(_htmlUnwarpedCode) && !(IsWebForm || toWebForm))
@@ -1902,6 +1941,23 @@ namespace Calcpad.Wpf
       // Auto-scroll al final si el usuario no scrolleó manualmente arriba
       var nearBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 200);
       if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    };
+    // ANIMACIÓN (drawnow): repinta el frame en el MISMO contenedor #labAnimFrame
+    // (lo crea si no existe) → se ve la carga subir y la grieta crecer en vivo.
+    window.__matlabReplaceFrame = function(html){
+      if (!output) return;
+      var host = document.getElementById('labAnimFrame');
+      if (!host) { host = document.createElement('div'); host.id = 'labAnimFrame'; output.appendChild(host); }
+      host.innerHTML = '';
+      var tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      tmp.querySelectorAll('script').forEach(function(oldScript){
+        var newScript = document.createElement('script');
+        for (var i=0;i<oldScript.attributes.length;i++) newScript.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
+        newScript.textContent = oldScript.textContent;
+        oldScript.parentNode.replaceChild(newScript, oldScript);
+      });
+      while (tmp.firstChild) host.appendChild(tmp.firstChild);
     };
     // Bindea lineLinks en cualquier `<p class=""line"">` que aún no tenga uno.
     // Replica el patrón del template.html (line 1126) pero ejecuta on-demand
@@ -2345,7 +2401,7 @@ namespace Calcpad.Wpf
                         if (logString.Length > 0)
                         {
                             string message = MainWindowResources.Error_Exporting_Docx_File;
-                            if (MessageBox.Show(message, "Calcpad", MessageBoxButton.YesNo, MessageBoxImage.Error) == MessageBoxResult.Yes)
+                            if (MessageBox.Show(message, "Hekatan Lab", MessageBoxButton.YesNo, MessageBoxImage.Error) == MessageBoxResult.Yes)
                             {
                                 var logFile = fileName + "_validation.log";
                                 WriteFile(logFile, logString);
@@ -2493,7 +2549,7 @@ namespace Calcpad.Wpf
             if (_mustPromptUnlock && IsWebForm)
             {
                 string message = MainWindowResources.Are_you_sure_you_want_to_unlock_the_source_code_for_editing;
-                if (MessageBox.Show(message, "Calcpad", MessageBoxButton.YesNo) == MessageBoxResult.No)
+                if (MessageBox.Show(message, "Hekatan Lab", MessageBoxButton.YesNo) == MessageBoxResult.No)
                     return;
 
                 _mustPromptUnlock = false;
@@ -2737,6 +2793,9 @@ namespace Calcpad.Wpf
         }
 
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
+        private string _gifDir;    // carpeta donde volcar frames PNG si se lanzó con --gif (animaciones headless)
+        private int _gifFrames = 48;
+        private int _gifIntervalMs = 100;
 
         private void TryOpenOnStartup()
         {
@@ -2744,11 +2803,21 @@ namespace Calcpad.Wpf
             var argv = Environment.GetCommandLineArgs();
             // Extraer "--shot <png>" (captura headless del WebViewer a PNG, sin abrir la
             // ventana visualmente / sin navegador) — el resto de args = el archivo.
+            // "--gif <dir> [frames] [intervalMs]" — vuelca N frames PNG numerados a <dir>
+            // (tras terminar el cálculo) para ensamblar un GIF de animaciones que corren
+            // en vivo en el WebView2 (requestAnimationFrame/setInterval).
             _shotPng = null;
+            _gifDir = null;
             var fileParts = new System.Collections.Generic.List<string>();
             for (int i = 1; i < argv.Length; i++)
             {
                 if (argv[i] == "--shot" && i + 1 < argv.Length) _shotPng = argv[++i];
+                else if (argv[i] == "--gif" && i + 1 < argv.Length)
+                {
+                    _gifDir = argv[++i];
+                    if (i + 1 < argv.Length && int.TryParse(argv[i + 1], out var nf)) { _gifFrames = nf; i++; }
+                    if (i + 1 < argv.Length && int.TryParse(argv[i + 1], out var iv)) { _gifIntervalMs = iv; i++; }
+                }
                 else fileParts.Add(argv[i]);
             }
             if (fileParts.Count > 0)
@@ -2758,14 +2827,16 @@ namespace Calcpad.Wpf
                 if (File.Exists(s))
                 {
                     var ex = Path.GetExtension(s).ToLowerInvariant();
-                    if (ex == ".cpd" || ex == ".cpdz" || ex == ".m")
+                    if (ex == ".cpd" || ex == ".cpdz" || ex == ".m" || ex == ".f90" || ex == ".f95")
                     {
                         _parser.ShowWarnings = ex != ".cpdz";
                         CurrentFileName = s;
-                        // Para .m: SIEMPRE abrir en modo Code+Output split (no input-form).
+                        // Los lenguajes de script (.m MATLAB, .f90 Fortran) SIEMPRE abren en modo
+                        // Code+Output split, nunca como input-form.
                         // Para .cpd: respetar header `\v` (form) si existe.
-                        var hasForm = ex != ".m" && (GetInputTextFromFile() || ex == ".cpdz");
-                        if (ex == ".m")
+                        var isScript = ex == ".m" || ex == ".f90" || ex == ".f95";
+                        var hasForm = !isScript && (GetInputTextFromFile() || ex == ".cpdz");
+                        if (isScript)
                             GetInputTextFromFile();   // cargar contenido al RichTextBox sin importar header
                         StartupMark("File loaded into RichTextBox");
                         if (hasForm)
@@ -2794,10 +2865,9 @@ namespace Calcpad.Wpf
                                     StartupMark("CalculateAsync: WebView2 ready");
                                 }
                                 _wv2Warper.NavigateToBlank();
+                                // La captura --shot la dispara CalculateAsync al TERMINAR el
+                                // cálculo (ver rama streaming), no aquí con un delay fijo.
                                 CalculateAsync();
-                                // Modo headless --shot: tras calcular+renderizar, captura el
-                                // WebViewer a PNG y cierra la app (sin interacción). Para tests.
-                                if (_shotPng != null) { await Task.Delay(7000); await CaptureWebViewerAndExit(_shotPng); }
                             }, DispatcherPriority.Background);
                         }
                         AddRecentFile(CurrentFileName);
@@ -2825,6 +2895,32 @@ namespace Calcpad.Wpf
                 var res = await WebViewer.CoreWebView2.CallDevToolsProtocolMethodAsync("Page.captureScreenshot", prm);
                 using var jd = System.Text.Json.JsonDocument.Parse(res);
                 File.WriteAllBytes(png, Convert.FromBase64String(jd.RootElement.GetProperty("data").GetString()));
+            }
+            catch { }
+            Application.Current.Shutdown();
+        }
+
+        // Vuelca _gifFrames capturas PNG numeradas a <dir> cada _gifIntervalMs ms, para
+        // ensamblar un GIF de animaciones que corren en vivo en el WebView2. Headless --gif.
+        private async Task CaptureFramesAndExit(string dir)
+        {
+            try
+            {
+                await WebViewer.EnsureCoreWebView2Async();
+                System.IO.Directory.CreateDirectory(dir);
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                var wStr = await WebViewer.CoreWebView2.ExecuteScriptAsync("Math.max(document.body.scrollWidth,document.documentElement.scrollWidth)");
+                var hStr = await WebViewer.CoreWebView2.ExecuteScriptAsync("Math.max(document.body.scrollHeight,document.documentElement.scrollHeight)");
+                int w = (int)double.Parse(wStr, ci), h = (int)double.Parse(hStr, ci);
+                var prm = "{\"format\":\"png\",\"captureBeyondViewport\":true,\"clip\":{\"x\":0,\"y\":0,\"width\":" + w + ",\"height\":" + h + ",\"scale\":1}}";
+                for (int k = 0; k < _gifFrames; k++)
+                {
+                    var res = await WebViewer.CoreWebView2.CallDevToolsProtocolMethodAsync("Page.captureScreenshot", prm);
+                    using var jd = System.Text.Json.JsonDocument.Parse(res);
+                    File.WriteAllBytes(System.IO.Path.Combine(dir, k.ToString("D3") + ".png"),
+                        Convert.FromBase64String(jd.RootElement.GetProperty("data").GetString()));
+                    await Task.Delay(_gifIntervalMs);
+                }
             }
             catch { }
             Application.Current.Shutdown();
@@ -3097,7 +3193,7 @@ namespace Calcpad.Wpf
             {
                 Random rand = new();
                 name = $"image_{rand.NextInt64()}";
-                InputBox.Show("Calcpad", "Image name:", ref name);
+                InputBox.Show("Hekatan Lab", "Image name:", ref name);
                 name += ".png";
             }
             string path;
@@ -4482,9 +4578,17 @@ namespace Calcpad.Wpf
         {
             StartupMark("InitializeWebViewer: start");
             var options = new CoreWebView2EnvironmentOptions("--allow-file-access-from-files");
+            // WebView2 bloquea la carpeta de datos con un único escritor: en modo headless
+            // (--shot/--gif) usamos una carpeta temporal ÚNICA por proceso para que la captura
+            // funcione aunque el usuario tenga otra instancia abierta (si no, CreateAsync falla
+            // sobre la carpeta compartida y sale ventana en blanco sin PNG).
+            bool headlessShot = Environment.GetCommandLineArgs().Any(a => a == "--shot" || a == "--gif");
+            var userDataFolder = headlessShot
+                ? Path.Combine(Path.GetTempPath(), "CalcpadLabWebView2_shot_" + Environment.ProcessId)
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CalcpadLabWebView2");
             var env = await CoreWebView2Environment.CreateAsync(
                 null,
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CalcpadLabWebView2"),
+                userDataFolder,
                 options
             );
             StartupMark("InitializeWebViewer: CoreWebView2Environment created");

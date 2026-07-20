@@ -4,7 +4,7 @@
     xmlns:wpf="clr-namespace:Calcpad.Wpf"
     xmlns:me="clr-namespace:Calcpad.Wpf.MathEditor"
     xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="Calcpad.Wpf.MainWindow"
-    Title=" Calcpad Lab 1.0.0 — MATLAB-syntax scientific worksheets"
+    Title=" Hekatan Lab 1.0.0 — MATLAB-syntax scientific worksheets"
     Height="800"
     Width="1200"
     WindowStartupLocation="CenterScreen"
