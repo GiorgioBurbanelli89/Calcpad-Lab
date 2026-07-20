@@ -34,12 +34,26 @@ namespace Calcpad.Core.Matlab
         public MatlabScope Scope;        // matrix vars + scope para function dispatch
         public MatlabEvaluator Evaluator;
 
+        /// <summary>Numero de elementos de la variable, para resolver `end` como indice
+        /// (MATLAB: v(end), v(end-1), v(end+1)). Se consulta en TIEMPO DE EJECUCION,
+        /// asi el valor es correcto aunque el arreglo haya crecido en el bucle.</summary>
+        public double MatLen(string name)
+        {
+            if (!Scope.TryGet(name, out var v)) return 0;
+            return v.Data == null ? 0 : v.Data.Length;
+        }
+
         // ─── Matrix indexing scalar ─────────────────────────────────────────
         public double GetMatElem1(string name, double i)
         {
             if (!Scope.TryGet(name, out var v))
                 throw new MatlabRuntimeException("Undefined: " + name);
             int idx = (int)i - 1;
+            // Un arreglo VACIO tiene Rows=0 y Cols=0: sin este caso se caia al
+            // reparto lineal de abajo y dividia entre cero. Pasa con el patron
+            // MATLAB `v = []` seguido de `v(end+1) = ...` dentro de un bucle.
+            if (v.Cols == 0 || v.Rows == 0)
+                throw new MatlabRuntimeException("Index exceeds matrix dimensions: " + name);
             if (v.Rows == 1) return v.At(0, idx);
             if (v.Cols == 1) return v.At(idx, 0);
             return v.At(idx / v.Cols, idx % v.Cols);
@@ -55,6 +69,21 @@ namespace Calcpad.Core.Matlab
             if (!Scope.TryGet(name, out var v))
                 throw new MatlabRuntimeException("Undefined: " + name);
             int idx = (int)i - 1;
+            // MATLAB CRECE el arreglo al asignar fuera de rango: `v(end+1) = x`.
+            // El JIT no redimensionaba: con el arreglo vacio (Rows=Cols=0) dividia
+            // entre cero, y con un vector se quedaba del tamano original. Se copia
+            // a uno mas grande conservando lo que ya habia.
+            bool vacio = v.Rows == 0 || v.Cols == 0;
+            bool esCol = !vacio && v.Cols == 1 && v.Rows > 1;
+            int largo = vacio ? 0 : v.Data.Length;
+            if (vacio || ((v.Rows == 1 || esCol) && idx >= largo))
+            {
+                var nv = esCol ? new MValue(idx + 1, 1) : new MValue(1, idx + 1);
+                for (int q = 0; q < largo; q++) nv.Data[q] = v.Data[q];
+                nv.Data[idx] = val;
+                Scope.Set(name, nv);
+                return;
+            }
             if (v.Rows == 1) v.Set(0, idx, val);
             else if (v.Cols == 1) v.Set(idx, 0, val);
             else v.Set(idx / v.Cols, idx % v.Cols, val);
@@ -90,6 +119,7 @@ namespace Calcpad.Core.Matlab
         public void SetMatrixVar(string name, MValue val) => Scope.Set(name, val);
 
         // ─── MethodInfo handles (pre-resueltos) ───────────────────────────
+        internal static readonly MethodInfo MMatLen = typeof(JitCtx).GetMethod(nameof(MatLen));
         internal static readonly MethodInfo MGetMatElem1 = typeof(JitCtx).GetMethod(nameof(GetMatElem1));
         internal static readonly MethodInfo MGetMatElem2 = typeof(JitCtx).GetMethod(nameof(GetMatElem2));
         internal static readonly MethodInfo MSetMatElem1 = typeof(JitCtx).GetMethod(nameof(SetMatElem1));
@@ -216,6 +246,9 @@ namespace Calcpad.Core.Matlab
             public MemberExpression SlotsExpr;
             // Fast path "loop completo": variables escalares como locals IL en vez de slots[].
             public bool UseLocals;
+            /// <summary>Nombre del arreglo que se esta indexando: `end` dentro de sus
+            /// argumentos se resuelve como la longitud de ESE arreglo.</summary>
+            public string EndArray;
             public Dictionary<string, ParameterExpression> Locals = new(StringComparer.Ordinal);
         }
 
@@ -225,6 +258,47 @@ namespace Calcpad.Core.Matlab
         {
             if (cc.UseLocals) return cc.Locals[name];
             return Expression.ArrayAccess(cc.SlotsExpr, Expression.Constant(cc.SlotIdx[name]));
+        }
+
+        /// <summary>true si el cuerpo asigna a `v(end+...)`, o sea hace CRECER un
+        /// arreglo. El JIT no redimensiona, asi que esos bucles no se compilan.</summary>
+        private static bool CreceArreglo(System.Collections.Generic.List<MatlabNode> body)
+        {
+            foreach (var st in body)
+            {
+                if (st is Assignment asg)
+                {
+                    foreach (var tg in asg.Targets)
+                        if (tg is CallOrIndex ci && UsaEnd(ci.Args)) return true;
+                }
+                else if (st is ForLoop fl && CreceArreglo(fl.Body)) return true;
+                else if (st is WhileLoop wl && CreceArreglo(wl.Body)) return true;
+                else if (st is IfBlock ib)
+                {
+                    foreach (var br in ib.Branches)          // el else final va con Cond = null
+                        if (br.Body != null && CreceArreglo(br.Body)) return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool UsaEnd(System.Collections.Generic.List<MatlabNode> args)
+        {
+            if (args == null) return false;
+            foreach (var a in args)
+                if (ContieneEnd(a)) return true;
+            return false;
+        }
+
+        private static bool ContieneEnd(MatlabNode n)
+        {
+            switch (n)
+            {
+                case IdentRef ir: return ir.Name == "end";
+                case BinaryOp bo: return ContieneEnd(bo.Left) || ContieneEnd(bo.Right);
+                case UnaryOp uo: return ContieneEnd(uo.Operand);
+                default: return false;
+            }
         }
 
         private static Compiled TryCompile(ForLoop loop, MatlabEvaluator ev)
@@ -340,8 +414,23 @@ namespace Calcpad.Core.Matlab
             new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
             { "fprintf", "disp", "display", "warning", "error" };
 
+        // Funciones GRAFICAS: tienen efecto lateral por iteracion (mutan la figura/
+        // malla viva). El JIT NO las compila -> bail-out al interprete, que ejecuta
+        // set/drawnow de verdad y emite cada frame (animacion en vivo, modo MATLAB
+        // retenido). Sin esto el JIT corre el loop y descarta los efectos graficos.
+        private static readonly System.Collections.Generic.HashSet<string> _gfxFuncs =
+            new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "set", "drawnow", "pause", "patch", "figure", "plot", "plot3",
+                "fill", "fill3", "surf", "mesh", "line", "text", "title",
+                "xlabel", "ylabel", "zlabel", "cla", "clf", "hold", "axis",
+                "caxis", "clim", "colormap", "colorbar", "quiver", "scatter",
+                "image", "imagesc", "contour", "contourf", "refreshdata"
+            };
+
         private static bool IsIoCall(MatlabNode expr) =>
-            expr is CallOrIndex coi && coi.Target is IdentRef ir && _ioFuncs.Contains(ir.Name);
+            expr is CallOrIndex coi && coi.Target is IdentRef ir
+            && (_ioFuncs.Contains(ir.Name) || _gfxFuncs.Contains(ir.Name));
 
         private static bool ClassifyStmt(MatlabNode stmt, CompileCtx cc)
         {
@@ -470,7 +559,9 @@ namespace Calcpad.Core.Matlab
                         if (rhs == null) return null;
                         if (tgtCall.Args.Count == 1)
                         {
+                            var prevEndW = cc.EndArray; cc.EndArray = matIdent.Name;
                             var idx1 = ConvertExprAsKind(tgtCall.Args[0], cc, TKind.Scalar);
+                            cc.EndArray = prevEndW;
                             if (idx1 == null) return null;
                             return Expression.Call(cc.CtxParam, JitCtx.MSetMatElem1,
                                 Expression.Constant(matIdent.Name), idx1, rhs);
@@ -516,6 +607,11 @@ namespace Calcpad.Core.Matlab
                     return Expression.Constant(nl.Value, typeof(double));
                 case IdentRef ir:
                     {
+                        // `end` como indice: longitud real del arreglo en ejecucion
+                        if (ir.Name == "end" && cc.EndArray != null)
+                            return Expression.Call(cc.CtxParam, JitCtx.MMatLen,
+                                                   Expression.Constant(cc.EndArray));
+                        if (!cc.VarKind.ContainsKey(ir.Name)) return null;
                         var k = cc.VarKind[ir.Name];
                         if (k == TKind.Scalar)
                         {
@@ -626,7 +722,9 @@ namespace Calcpad.Core.Matlab
             if (args.Count == 1)
             {
                 if (args[0] is ColonAll) return null;   // A(:) flatten — no soportado
+                var prevEnd = cc.EndArray; cc.EndArray = name;      // `end` = longitud de este arreglo
                 var idx1 = ConvertExprAsKind(args[0], cc, TKind.Scalar);
+                cc.EndArray = prevEnd;
                 if (idx1 == null) return null;
                 return Expression.Call(cc.CtxParam, JitCtx.MGetMatElem1,
                     Expression.Constant(name), idx1);

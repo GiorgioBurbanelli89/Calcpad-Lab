@@ -1587,6 +1587,11 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["plot"] = a => {
                 a = DropAxes(a);   // tolerar plot(ax, …)
+                // plot(G, 'XData',X, 'YData',Y, 'EdgeLabel',L) — dibujo de un objeto graph,
+                // que es como CEINCI-LAB dibuja la estructura en dibujoplano.m: cada barra
+                // es una arista y cada nudo un circulo numerado.
+                if (a.Length >= 1 && a[0].Fields != null && a[0].Fields.ContainsKey("__isgraph__"))
+                    return PlotGraphObject(a);
                 // plot(Y) | plot(X,Y) | plot(X,Y,'spec') | + name-value (Color, LineWidth,
                 // MarkerFaceColor, MarkerEdgeColor, MarkerSize). Respeta el linespec ('o','^','-',...)
                 // y, si hay figura abierta, COMPONE en los mismos ejes que patch/line/text.
@@ -1607,7 +1612,12 @@ namespace Calcpad.Core.Matlab
                 }
                 if (!wantLine && !wantMarker) wantLine = true;   // default MATLAB = línea
                 string lineColor = specColor ?? "#1f77b4";
-                string markerFill = specColor, markerEdge = specColor;
+                // MATLAB solo RELLENA el marcador si se pide MarkerFaceColor.
+                // 'ro' es un circulo rojo HUECO, no macizo. El color del linespec
+                // va al BORDE. Lab lo usaba como relleno y salian todos macizos.
+                // El punto '.' es la EXCEPCION: en MATLAB siempre va macizo.
+                string markerFill = symbol == "point" ? (specColor ?? "#1f77b4") : "none";
+                string markerEdge = specColor;
                 double lineWidth = 1.5, markerSize = 6;
                 string dispName = null;   // DisplayName -> nombre en la leyenda
                 bool hideFromLegend = false;
@@ -1877,13 +1887,14 @@ namespace Calcpad.Core.Matlab
             _builtins["view"] = a => new MValue(0);
             _builtins["grid"] = a => {
                 int id = MatlabPlots.LastPlotId;
-                if (id == 0) return new MValue(0);
                 bool on = true;
                 if (a.Length > 0)
                 {
                     if (a[0].IsString) on = a[0].StringValue == "on";
                     else if (a[0].IsScalar) on = a[0].Scalar != 0;
                 }
+                MatlabPlots.SetGrid(on);   // tambien para el renderizador SVG de primitivas
+                if (id == 0) return new MValue(0);
                 string js = on ? "{xaxis:{showgrid:true}, yaxis:{showgrid:true}}" : "{xaxis:{showgrid:false}, yaxis:{showgrid:false}}";
                 _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, {js});}})();</script>\n");
                 return new MValue(0);
@@ -1968,6 +1979,177 @@ namespace Calcpad.Core.Matlab
                 MatlabPlots.Patch2D(X.Data, Y.Data, faceColor, edgeColor, faceAlpha, lineWidth);
                 return new MValue(0);
             };
+            // graph(NI, NJ [, weights]) — objeto grafo de MATLAB. CEINCI-LAB lo usa en
+            // dibujoplano.m para dibujar la estructura con los nudos numerados y una
+            // etiqueta por elemento. Se modela como struct con la tabla Edges, de modo
+            // que G.Edges.Weight y G.Edges.EndNodes funcionen como en MATLAB.
+            _builtins["graph"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("graph(s, t [, weights])");
+                var s = a[0].Data; var tt = a[1].Data;
+                int m = System.Math.Min(s.Length, tt.Length);
+                var w = new double[m];
+                if (a.Length >= 3 && a[2].Data != null)
+                    for (int i = 0; i < m; i++) w[i] = i < a[2].Data.Length ? a[2].Data[i] : 0;
+                else
+                    for (int i = 0; i < m; i++) w[i] = 1;
+                // EndNodes: matriz m x 2 (nudo inicial, nudo final)
+                var en = new double[m * 2];
+                for (int i = 0; i < m; i++) { en[i * 2] = s[i]; en[i * 2 + 1] = tt[i]; }
+                var edges = MValue.NewStruct();
+                edges.Fields["endnodes"] = new MValue(m, 2, en);
+                edges.Fields["EndNodes"] = edges.Fields["endnodes"];
+                edges.Fields["weight"]   = new MValue(1, m, (double[])w.Clone());
+                edges.Fields["Weight"]   = edges.Fields["weight"];
+                int nNodes = 0;
+                for (int i = 0; i < m; i++)
+                {
+                    if (s[i]  > nNodes) nNodes = (int)System.Math.Round(s[i]);
+                    if (tt[i] > nNodes) nNodes = (int)System.Math.Round(tt[i]);
+                }
+                var nodes = MValue.NewStruct();
+                nodes.Fields["name"] = new MValue(nNodes, 1);
+                nodes.Fields["Name"] = nodes.Fields["name"];
+                var g = MValue.NewStruct();
+                g.Fields["edges"] = edges;
+                g.Fields["Edges"] = edges;
+                g.Fields["nodes"] = nodes;
+                g.Fields["Nodes"] = nodes;
+                g.Fields["__isgraph__"] = new MValue(1);
+                g.Fields["__nnodes__"]  = new MValue(nNodes);
+                return g;
+            };
+            _builtins["digraph"] = a => _builtins["graph"](a);
+
+            // ── API del objeto graph de MATLAB ──────────────────────────────
+            static (double[] s, double[] tt, double[] w, int n) GraphData(MValue g)
+            {
+                if (g.Fields == null || !g.Fields.ContainsKey("__isgraph__"))
+                    throw new MatlabRuntimeException("se esperaba un objeto graph");
+                var ed = g.Fields["edges"];
+                var en = ed.Fields["endnodes"].Data;
+                var wv = ed.Fields["weight"].Data;
+                int m = en.Length / 2;
+                var s = new double[m]; var tt = new double[m];
+                for (int i = 0; i < m; i++) { s[i] = en[i * 2]; tt[i] = en[i * 2 + 1]; }
+                int n = (int)g.Fields["__nnodes__"].Scalar;
+                return (s, tt, wv, n);
+            }
+            _builtins["numnodes"] = a => new MValue(GraphData(a[0]).n);
+            _builtins["numedges"] = a => new MValue(GraphData(a[0]).s.Length);
+            _builtins["degree"] = a => {
+                var (s, tt, _, n) = GraphData(a[0]);
+                var d = new double[n];
+                for (int i = 0; i < s.Length; i++)
+                {
+                    d[(int)s[i] - 1]++; d[(int)tt[i] - 1]++;      // lazo cuenta 2, como MATLAB
+                }
+                if (a.Length >= 2 && a[1].IsScalar)
+                    return new MValue(d[(int)a[1].Scalar - 1]);
+                return new MValue(n, 1, d);
+            };
+            _builtins["neighbors"] = a => {
+                var (s, tt, _, _) = GraphData(a[0]);
+                int nodo = (int)a[1].Scalar;
+                var lst = new List<double>();
+                for (int i = 0; i < s.Length; i++)
+                {
+                    if ((int)s[i] == nodo)  lst.Add(tt[i]);
+                    else if ((int)tt[i] == nodo) lst.Add(s[i]);
+                }
+                lst.Sort();
+                return new MValue(lst.Count, 1, lst.ToArray());
+            };
+            _builtins["adjacency"] = a => {
+                var (s, tt, w, n) = GraphData(a[0]);
+                var A = new MValue(n, n);
+                for (int i = 0; i < s.Length; i++)
+                {
+                    int r = (int)s[i] - 1, c = (int)tt[i] - 1;
+                    A.Set(r, c, 1); A.Set(c, r, 1);              // no dirigido
+                }
+                return A;
+            };
+            _builtins["conncomp"] = a => {
+                var (s, tt, _, n) = GraphData(a[0]);
+                var comp = new int[n];
+                int cur = 0;
+                for (int seed = 0; seed < n; seed++)
+                {
+                    if (comp[seed] != 0) continue;
+                    cur++;
+                    var stack = new Stack<int>(); stack.Push(seed);
+                    comp[seed] = cur;
+                    while (stack.Count > 0)
+                    {
+                        int u = stack.Pop();
+                        for (int i = 0; i < s.Length; i++)
+                        {
+                            int x = (int)s[i] - 1, y = (int)tt[i] - 1;
+                            int v = x == u ? y : (y == u ? x : -1);
+                            if (v >= 0 && comp[v] == 0) { comp[v] = cur; stack.Push(v); }
+                        }
+                    }
+                }
+                var r2 = new double[n];
+                for (int i = 0; i < n; i++) r2[i] = comp[i];
+                return new MValue(1, n, r2);
+            };
+            _builtins["shortestpath"] = a => {
+                var (s, tt, w, n) = GraphData(a[0]);
+                int src = (int)a[1].Scalar - 1, dst = (int)a[2].Scalar - 1;
+                var dist = new double[n]; var prev = new int[n]; var vis = new bool[n];
+                for (int i = 0; i < n; i++) { dist[i] = double.PositiveInfinity; prev[i] = -1; }
+                dist[src] = 0;
+                for (int it = 0; it < n; it++)
+                {
+                    int u = -1; double best = double.PositiveInfinity;
+                    for (int i = 0; i < n; i++) if (!vis[i] && dist[i] < best) { best = dist[i]; u = i; }
+                    if (u < 0) break;
+                    vis[u] = true;
+                    for (int i = 0; i < s.Length; i++)
+                    {
+                        int x = (int)s[i] - 1, y = (int)tt[i] - 1;
+                        int v = x == u ? y : (y == u ? x : -1);
+                        if (v < 0) continue;
+                        double nd = dist[u] + (i < w.Length ? w[i] : 1);
+                        if (nd < dist[v]) { dist[v] = nd; prev[v] = u; }
+                    }
+                }
+                var path = new List<double>();
+                for (int c = dst; c >= 0; c = prev[c]) { path.Insert(0, c + 1); if (c == src) break; }
+                if (path.Count == 0 || (int)path[0] != src + 1) return new MValue(1, 0);
+                return new MValue(1, path.Count, path.ToArray());
+            };
+
+            // error(msg) / error(fmt, args...) / assert(cond, msg): lanzan como MATLAB,
+            // para que `try ... catch e` reciba el mensaje del script y no un
+            // "Undefined: error" del propio motor.
+            _builtins["error"] = a => {
+                if (a.Length == 0) throw new MatlabRuntimeException("error");
+                string msg = a[0].IsString ? a[0].StringValue : "error";
+                if (a.Length > 1 && a[0].IsString)
+                {
+                    try { msg = MatlabSprintf.Format(a[0].StringValue, a[1..]); }
+                    catch { /* si el formato falla, se usa el texto crudo */ }
+                }
+                // error('id:sub','texto') → MATLAB usa el 2do como mensaje
+                if (a.Length > 1 && a[0].IsString && a[1].IsString &&
+                    a[0].StringValue.Contains(':') && !a[0].StringValue.Contains('%'))
+                    msg = a[1].StringValue;
+                throw new MatlabRuntimeException(msg);
+            };
+            _builtins["assert"] = a => {
+                bool ok = a.Length > 0 && a[0].Data != null && a[0].Data.Length > 0;
+                if (ok) foreach (var d in a[0].Data) if (d == 0) { ok = false; break; }
+                if (!ok)
+                {
+                    string msg = a.Length > 1 && a[1].IsString
+                               ? a[1].StringValue : "Assertion failed.";
+                    throw new MatlabRuntimeException(msg);
+                }
+                return new MValue(0);
+            };
+
             _builtins["line"] = a => {
                 a = DropAxes(a);   // tolerar line(ax, …)
                 if (a.Length < 2) throw new MatlabRuntimeException("line(x, y [, props...])");
@@ -6190,7 +6372,8 @@ namespace Calcpad.Core.Matlab
             {
                 switch (c)
                 {
-                    case 'o': case '.': symbol = "circle"; wantMarker = true; break;
+                    case 'o': symbol = "circle"; wantMarker = true; break;
+                    case '.': symbol = "point"; wantMarker = true; break;   // MATLAB: mas chico que 'o'
                     case '+': symbol = "cross"; wantMarker = true; break;
                     case '*': symbol = "star"; wantMarker = true; break;
                     case 'x': symbol = "x"; wantMarker = true; break;
@@ -6226,7 +6409,7 @@ namespace Calcpad.Core.Matlab
             switch (m)
             {
                 case "o": return "circle";
-                case ".": return "circle";
+                case ".": return "point";
                 case "+": return "cross";
                 case "*": return "star";
                 case "x": return "x";
@@ -6240,6 +6423,78 @@ namespace Calcpad.Core.Matlab
                 case "h": case "hexagram": return "hexagon";
                 default: return "circle";
             }
+        }
+
+        /// <summary>Dibuja un objeto graph como MATLAB: una linea por arista, un circulo
+        /// por nudo con su NUMERO, y la etiqueta de cada arista en su punto medio.
+        /// Es lo que hace `plot(G,'XData',X,'YData',Y,'EdgeLabel',G.Edges.Weight)` en
+        /// dibujoplano.m de CEINCI-LAB.</summary>
+        private MValue PlotGraphObject(MValue[] a)
+        {
+            var g = a[0];
+            double[] xs = null, ys = null, edgeLab = null;
+            double lw = 1.5;
+            for (int i = 1; i + 1 < a.Length; i += 2)
+            {
+                if (!a[i].IsString) break;
+                var key = a[i].StringValue.ToLowerInvariant();
+                var val = a[i + 1];
+                if (key == "xdata") xs = val.Data;
+                else if (key == "ydata") ys = val.Data;
+                else if (key == "edgelabel") edgeLab = val.Data;
+                else if (key == "linewidth") lw = val.Scalar;
+            }
+            if (xs == null || ys == null) return new MValue(0);
+
+            var edges = g.Fields.TryGetValue("edges", out var ed) ? ed : null;
+            double[] en = edges != null && edges.Fields.TryGetValue("endnodes", out var e0) ? e0.Data : null;
+            if (en == null) return new MValue(0);
+            int m = en.Length / 2;
+
+            // aristas
+            for (int k = 0; k < m; k++)
+            {
+                int ni = (int)System.Math.Round(en[k * 2]) - 1;
+                int nj = (int)System.Math.Round(en[k * 2 + 1]) - 1;
+                if (ni < 0 || nj < 0 || ni >= xs.Length || nj >= xs.Length) continue;
+                MatlabPlots.Line2D(new[] { xs[ni], xs[nj] }, new[] { ys[ni], ys[nj] }, "#4DBEEE", lw);
+                if (edgeLab != null && k < edgeLab.Length)
+                    MatlabPlots.Text2D((xs[ni] + xs[nj]) / 2, (ys[ni] + ys[nj]) / 2,
+                                       edgeLab[k].ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+                                       "#333333", 9, "center");
+            }
+            // nudos: circulo + numero
+            // MATLAB dibuja los nudos RELLENOS y pone el numero AL COSTADO, no encima.
+            MatlabPlots.Markers2D(xs, ys, "#0072BD", "#0072BD", "circle", 6);
+            double offx = 0, offy = 0;
+            for (int n = 0; n < xs.Length; n++) { offx += xs[n]; offy += ys[n]; }
+            double spanX = 0, spanY = 0;
+            if (xs.Length > 0)
+            {
+                double xmn = xs[0], xmx = xs[0], ymn = ys[0], ymx = ys[0];
+                foreach (var v in xs) { if (v < xmn) xmn = v; if (v > xmx) xmx = v; }
+                foreach (var v in ys) { if (v < ymn) ymn = v; if (v > ymx) ymx = v; }
+                spanX = xmx - xmn; spanY = ymx - ymn;
+            }
+            double dsp = 0.018 * (spanX > 0 ? spanX : 1);
+            for (int n = 0; n < xs.Length; n++)
+                MatlabPlots.Text2D(xs[n] + dsp, ys[n] + 0.012 * (spanY > 0 ? spanY : 1),
+                                   (n + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                                   "#000000", 9);
+            return new MValue(0);
+        }
+
+        /// <summary>MATLAB entrega en `catch e` un objeto MException con .message e
+        /// .identifier, no una cadena suelta. Sin esto, `e.message` fallaba con
+        /// "Reference to non-existent field".</summary>
+        private static MValue MakeMException(string msg)
+        {
+            var e = MValue.NewStruct();
+            e.Fields["message"]    = new MValue(msg ?? "");
+            e.Fields["Message"]    = e.Fields["message"];
+            e.Fields["identifier"] = new MValue("");
+            e.Fields["Identifier"] = e.Fields["identifier"];
+            return e;
         }
 
         private static string MatlabColorToJs(string c)
@@ -7599,13 +7854,13 @@ namespace Calcpad.Core.Matlab
             catch (MatlabRuntimeException ex)
             {
                 if (!string.IsNullOrEmpty(tc.CatchVarName))
-                    scope.Set(tc.CatchVarName, new MValue(ex.Message));
+                    scope.Set(tc.CatchVarName, MakeMException(ex.Message));
                 foreach (var s in tc.CatchBody) ExecuteInner(s, scope);
             }
             catch (Exception ex)
             {
                 if (!string.IsNullOrEmpty(tc.CatchVarName))
-                    scope.Set(tc.CatchVarName, new MValue(ex.Message));
+                    scope.Set(tc.CatchVarName, MakeMException(ex.Message));
                 foreach (var s in tc.CatchBody) ExecuteInner(s, scope);
             }
         }

@@ -96,6 +96,10 @@ namespace Calcpad.Core.Matlab
         // Aspecto del canvas 3D. true = 'axis equal' (proporciones reales, escena sólida IDEA);
         // false = 'axis tight'/'normal' (cada eje se estira para llenar la vista, como el surf de
         // resultados MATLAB). Default true = comportamiento previo (seguro para escenas existentes).
+        /// <summary>grid on/off del script. MATLAB lo respeta en cualquier figura;
+        /// Lab solo lo aplicaba a las de Plotly, no al renderizador SVG de primitivas.</summary>
+        private static bool _figGrid = false;
+        public static void SetGrid(bool on) { _figGrid = on; }
         private static bool _cvAxisEqual = true;
         public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; _figAxisEqual = eq; }
         /// <summary>Límites de eje fijados por el script con xlim/ylim/zlim. MATLAB los
@@ -360,6 +364,7 @@ return {make:make};
             _figTitle = "";
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
+            _figGrid = false;
             _figAxisEqual = false;
             _figShowLegend = false; _figLegendLoc = null;
             return prev;
@@ -735,8 +740,13 @@ return {make:make};
         {
             var sb = new StringBuilder();
             sb.Append("{type:'scatter', mode:'markers'");
-            sb.Append($", marker:{{symbol:'{symbol}', size:{size.ToString(Inv)}, color:'{fillColor}'");
-            sb.Append($", line:{{color:'{edgeColor}', width:1}}}}");
+            // MATLAB dibuja el marcador HUECO salvo que se pida MarkerFaceColor:
+            // sin relleno explicito va transparente y solo se ve el borde.
+            string mfP = string.IsNullOrEmpty(fillColor) || fillColor == "none"
+                         ? "rgba(0,0,0,0)" : fillColor;
+            string meP = string.IsNullOrEmpty(edgeColor) ? "#1f77b4" : edgeColor;
+            sb.Append($", marker:{{symbol:'{symbol}', size:{size.ToString(Inv)}, color:'{mfP}'");
+            sb.Append($", line:{{color:'{meP}', width:1.2}}}}");
             sb.Append($", x:[{Csv(xs)}], y:[{Csv(ys)}]");
             if (!string.IsNullOrEmpty(name))
                 sb.Append($", name:'{EscapeJs(name)}', showlegend:true, hoverinfo:'skip'}}");
@@ -796,6 +806,20 @@ return {make:make};
             int marginL = 60, marginR = 30, marginT = 50, marginB = 60;
             int plotW = width - marginL - marginR;
             int plotH = height - marginT - marginB;
+            // axis equal: MATLAB usa la MISMA escala en los dos ejes (un metro en X mide
+            // igual que un metro en Y). Se expande el rango del eje que sobra, centrado,
+            // para no recortar nada de lo dibujado.
+            if (_figAxisEqual && dx > 0 && dy > 0)
+            {
+                // Se achica la CAJA, no el rango: MATLAB respeta los xlim/ylim pedidos y
+                // deja el recuadro con la proporcion real. Expandir el rango en su lugar
+                // pisaria el ylim del script.
+                double s = System.Math.Min(plotW / dx, plotH / dy);
+                plotW = (int)System.Math.Round(dx * s);
+                plotH = (int)System.Math.Round(dy * s);
+                height = marginT + plotH + marginB;    // el SVG se ajusta a la caja
+                width  = marginL + plotW + marginR;
+            }
             double sx = plotW / dx, sy = plotH / dy;
             double TX(double x) => marginL + (x - xmin) * sx;
             double TY(double y) => height - marginB - (y - ymin) * sy;   // Y invertida (SVG top-left)
@@ -822,6 +846,11 @@ return {make:make};
                 double tx = TX(xv); double ty = TY(yv);
                 svg.AppendLine($"  <text x='{tx}' y='{height-marginB+15}' text-anchor='middle' font-family='sans-serif' font-size='10'>{xv.ToString("G3", Inv)}</text>");
                 svg.AppendLine($"  <text x='{marginL-5}' y='{ty+4}' text-anchor='end' font-family='sans-serif' font-size='10'>{yv.ToString("G3", Inv)}</text>");
+                if (_figGrid)   // grid on
+                {
+                    svg.AppendLine($"  <line x1='{tx}' y1='{marginT}' x2='{tx}' y2='{height-marginB}' stroke='#d0d0d0' stroke-width='0.7'/>");
+                    svg.AppendLine($"  <line x1='{marginL}' y1='{ty}' x2='{width-marginR}' y2='{ty}' stroke='#d0d0d0' stroke-width='0.7'/>");
+                }
             }
             // Clip path para plot area
             svg.AppendLine($"  <defs><clipPath id='plot'><rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}'/></clipPath></defs>");
@@ -857,21 +886,58 @@ return {make:make};
                 {
                     double r = Math.Max(2.0, p.FontSize / 2.0);
                     string sym = p.Text ?? "circle";
+                    // MATLAB dibuja los marcadores HUECOS salvo que se pida
+                    // MarkerFaceColor. Sin esto salian macizos.
+                    string mf = string.IsNullOrEmpty(p.FaceColor) ? "none" : p.FaceColor;
+                    string me = string.IsNullOrEmpty(p.EdgeColor) ? "#1f77b4" : p.EdgeColor;
                     for (int i = 0; i < p.Xs.Length; i++)
                     {
                         double cx = TX(p.Xs[i]); double cy = TY(p.Ys[i]);
-                        if (sym.StartsWith("triangle"))
+                        // MATLAB dibuja el punto '.' MUCHO mas chico que el circulo 'o'
+                        // para el mismo MarkerSize; por eso se separa como simbolo propio.
+                        if (sym == "point")
+                        {
+                            double rp = Math.Max(1.5, p.FontSize / 6.0);
+                            svg.AppendLine($"    <circle cx='{cx.ToString("F2", Inv)}' cy='{cy.ToString("F2", Inv)}' r='{rp.ToString("F2", Inv)}' fill='{mf}' stroke='none'/>");
+                        }
+                        else if (sym == "square")
+                        {
+                            svg.AppendLine($"    <rect x='{(cx-r).ToString("F2",Inv)}' y='{(cy-r).ToString("F2",Inv)}' width='{(2*r).ToString("F2",Inv)}' height='{(2*r).ToString("F2",Inv)}' fill='{mf}' stroke='{me}' stroke-width='1'/>");
+                        }
+                        else if (sym == "diamond")
+                        {
+                            string dpts = $"{cx.ToString("F2",Inv)},{(cy-r).ToString("F2",Inv)} " +
+                                          $"{(cx+r).ToString("F2",Inv)},{cy.ToString("F2",Inv)} " +
+                                          $"{cx.ToString("F2",Inv)},{(cy+r).ToString("F2",Inv)} " +
+                                          $"{(cx-r).ToString("F2",Inv)},{cy.ToString("F2",Inv)}";
+                            svg.AppendLine($"    <polygon points='{dpts}' fill='{mf}' stroke='{me}' stroke-width='1'/>");
+                        }
+                        else if (sym == "cross" || sym == "x" || sym == "star")
+                        {
+                            double d = sym == "cross" ? 0 : r * 0.7071;   // '+' recto, 'x' girado
+                            if (sym == "cross")
+                            {
+                                svg.AppendLine($"    <line x1='{(cx-r).ToString("F2",Inv)}' y1='{cy.ToString("F2",Inv)}' x2='{(cx+r).ToString("F2",Inv)}' y2='{cy.ToString("F2",Inv)}' stroke='{me}' stroke-width='1.2'/>");
+                                svg.AppendLine($"    <line x1='{cx.ToString("F2",Inv)}' y1='{(cy-r).ToString("F2",Inv)}' x2='{cx.ToString("F2",Inv)}' y2='{(cy+r).ToString("F2",Inv)}' stroke='{me}' stroke-width='1.2'/>");
+                            }
+                            else
+                            {
+                                svg.AppendLine($"    <line x1='{(cx-d).ToString("F2",Inv)}' y1='{(cy-d).ToString("F2",Inv)}' x2='{(cx+d).ToString("F2",Inv)}' y2='{(cy+d).ToString("F2",Inv)}' stroke='{me}' stroke-width='1.2'/>");
+                                svg.AppendLine($"    <line x1='{(cx-d).ToString("F2",Inv)}' y1='{(cy+d).ToString("F2",Inv)}' x2='{(cx+d).ToString("F2",Inv)}' y2='{(cy-d).ToString("F2",Inv)}' stroke='{me}' stroke-width='1.2'/>");
+                            }
+                        }
+                        else if (sym.StartsWith("triangle"))
                         {
                             // triángulo equilátero (apuntando arriba)
                             double h = r * 1.3;
                             string pts = $"{cx.ToString("F2",Inv)},{(cy-h).ToString("F2",Inv)} " +
                                          $"{(cx-h).ToString("F2",Inv)},{(cy+h*0.7).ToString("F2",Inv)} " +
                                          $"{(cx+h).ToString("F2",Inv)},{(cy+h*0.7).ToString("F2",Inv)}";
-                            svg.AppendLine($"    <polygon points='{pts}' fill='{p.FaceColor}' stroke='{p.EdgeColor}' stroke-width='1'/>");
+                            svg.AppendLine($"    <polygon points='{pts}' fill='{mf}' stroke='{me}' stroke-width='1'/>");
                         }
                         else
                         {
-                            svg.AppendLine($"    <circle cx='{cx.ToString("F2", Inv)}' cy='{cy.ToString("F2", Inv)}' r='{r.ToString("F2", Inv)}' fill='{p.FaceColor}' stroke='{p.EdgeColor}' stroke-width='1'/>");
+                            svg.AppendLine($"    <circle cx='{cx.ToString("F2", Inv)}' cy='{cy.ToString("F2", Inv)}' r='{r.ToString("F2", Inv)}' fill='{mf}' stroke='{me}' stroke-width='1'/>");
                         }
                     }
                 }
@@ -973,9 +1039,38 @@ return {make:make};
                     }
                     else if (p.Kind == "markers2d" && p.Xs != null)
                     {
-                        fill.Color = ParseColor(p.FaceColor);
+                        // MATLAB: marcador HUECO salvo que se pida MarkerFaceColor, y con
+                        // la forma que pidio el script (no siempre circulo).
+                        string symK = p.Text ?? "circle";
+                        bool relleno = !string.IsNullOrEmpty(p.FaceColor) && p.FaceColor != "none";
                         float r = (float)Math.Max(2.0, p.FontSize / 2.0);
-                        for (int i = 0; i < p.Xs.Length; i++) canvas.DrawCircle(TX(p.Xs[i]), TY(p.Ys[i]), r, fill);
+                        if (symK == "point") { r = (float)Math.Max(1.5, p.FontSize / 6.0); relleno = true; }
+                        var mk = new SKPaint {
+                            IsAntialias = true,
+                            Style = relleno ? SKPaintStyle.Fill : SKPaintStyle.Stroke,
+                            StrokeWidth = 1.2f,
+                            Color = ParseColor(relleno ? p.FaceColor : (string.IsNullOrEmpty(p.EdgeColor) ? "#1f77b4" : p.EdgeColor))
+                        };
+                        for (int i = 0; i < p.Xs.Length; i++)
+                        {
+                            float cxK = TX(p.Xs[i]), cyK = TY(p.Ys[i]);
+                            if (symK == "square")
+                                canvas.DrawRect(cxK - r, cyK - r, 2 * r, 2 * r, mk);
+                            else if (symK == "diamond")
+                            {
+                                using var pa = new SKPath();
+                                pa.MoveTo(cxK, cyK - r); pa.LineTo(cxK + r, cyK);
+                                pa.LineTo(cxK, cyK + r); pa.LineTo(cxK - r, cyK); pa.Close();
+                                canvas.DrawPath(pa, mk);
+                            }
+                            else if (symK == "cross")
+                            { canvas.DrawLine(cxK - r, cyK, cxK + r, cyK, mk); canvas.DrawLine(cxK, cyK - r, cxK, cyK + r, mk); }
+                            else if (symK == "x")
+                            { float d = r * 0.7071f; canvas.DrawLine(cxK - d, cyK - d, cxK + d, cyK + d, mk); canvas.DrawLine(cxK - d, cyK + d, cxK + d, cyK - d, mk); }
+                            else
+                                canvas.DrawCircle(cxK, cyK, r, mk);
+                        }
+                        mk.Dispose();
                     }
                     else if (p.Kind == "text2d" && p.Xs != null && p.Xs.Length > 0)
                     {
