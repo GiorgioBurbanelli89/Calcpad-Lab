@@ -6497,6 +6497,38 @@ namespace Calcpad.Core.Matlab
             return e;
         }
 
+        /// <summary>Comandos de dibujo/estado que en MATLAB NO devuelven nada cuando se
+        /// llaman sueltos: `figure`, `plot(...)`, `title(...)`… Sin esto Lab mostraba
+        /// "figure = 0" donde MATLAB no muestra nada.</summary>
+        private static readonly HashSet<string> _sinSalida = new(StringComparer.Ordinal)
+        {
+            "figure", "plot", "plot3", "line", "patch", "fill", "scatter", "scatter3",
+            "surf", "mesh", "contour", "contourf", "imagesc", "bar", "stem", "hist",
+            "histogram", "quiver", "quiver3", "text", "title", "xlabel", "ylabel",
+            "zlabel", "legend", "grid", "axis", "hold", "xlim", "ylim", "zlim", "caxis",
+            "colorbar", "colormap", "subplot", "drawnow", "clf", "cla", "close",
+            "shading", "lighting", "material", "camlight", "view", "rotate3d", "box",
+            "set", "disp", "fprintf", "printf", "warning", "error", "pause", "clc",
+            "clear", "format", "hoverdata", "datacursormode", "print", "saveas"
+        };
+
+        /// <summary>true si la expresion es una llamada que no produce salida visible:
+        /// un builtin de la lista, o una funcion de usuario declarada sin outputs.</summary>
+        private bool EsLlamadaSinSalida(MatlabNode e, MatlabScope scope)
+        {
+            string nombre = e switch
+            {
+                CallOrIndex ci when ci.Target is IdentRef id => id.Name,
+                IdentRef ir => ir.Name,
+                _ => null
+            };
+            if (nombre == null) return false;
+            // una variable con ese nombre manda: `figure` podria ser un dato del usuario
+            if (scope.TryGet(nombre, out _)) return false;
+            if (_sinSalida.Contains(nombre)) return true;
+            return _userFunctions.TryGetValue(nombre, out var fd) && fd.OutputNames.Count == 0;
+        }
+
         private static string MatlabColorToJs(string c)
         {
             // MATLAB color shortcuts: 'r','g','b','c','m','y','k','w'
@@ -7642,12 +7674,16 @@ namespace Calcpad.Core.Matlab
                     // asigna (`t = toc`) o va dentro de otra expresión, nargout ≥ 1 → silencioso.
                     // (Se omite si el usuario sombreó `toc` con una variable propia.)
                     bool tocCmd = IsTocCommand(es.Expr) && !scope.TryGet("toc", out _) && v != null && v.IsScalar;
+                    // MATLAB: una llamada a funcion SIN argumentos de salida no muestra
+                    // nada, aunque no lleve punto y coma. Lab imprimia "figure = 0" o
+                    // "dibujoplano(...) = 0" donde MATLAB no imprime nada.
+                    bool sinSalida = EsLlamadaSinSalida(es.Expr, scope);
                     if (tocCmd)
                         _output?.Invoke($"Elapsed time is {v.Scalar:F6} seconds.");
                     // MATLAB convención: expresión sin asignar → variable `ans`
                     scope.Set("ans", v);
                     // El comando toc ya mostró su línea; MATLAB no renderiza además "toc = valor".
-                    return new StatementResult("ans", v, es.Suppressed || tocCmd);
+                    return new StatementResult("ans", v, es.Suppressed || tocCmd || sinSalida);
                 case ForLoop fl:
                     ExecuteFor(fl, scope);
                     return new StatementResult(null, null, true);
