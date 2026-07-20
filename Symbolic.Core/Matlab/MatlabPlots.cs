@@ -312,13 +312,24 @@ namespace Calcpad.Core.Matlab
                     if (q > 0) stops.Append(", ");
                     stops.Append($"rgb({c.Item1},{c.Item2},{c.Item3})");
                 }
-                cbar = "<div style=\"display:inline-block;vertical-align:top;margin-left:12px\">"
-                     + $"<div style=\"font:11px sans-serif;text-align:center\">{_figCHi.ToString("G4", Inv)}</div>"
+                // marcas intermedias: MATLAB rotula toda la barra, no solo los extremos
+                var ticks = new StringBuilder();
+                const int NT = 8;
+                for (int q = 0; q <= NT; q++)
+                {
+                    double val = _figCHi - (_figCHi - _figCLo) * q / (double)NT;
+                    double top = 500.0 * q / NT;
+                    ticks.Append($"<div style=\"position:absolute;left:24px;top:{(top - 7).ToString("F0", Inv)}px;"
+                               + $"font:10px sans-serif;color:#333;white-space:nowrap\">&ndash; {val.ToString("G3", Inv)}</div>");
+                }
+                cbar = "<div style=\"display:inline-block;vertical-align:top;margin-left:12px;position:relative;height:500px;width:80px\">"
                      + $"<div style=\"width:18px;height:500px;border:1px solid #888;background:linear-gradient(to bottom, {stops})\"></div>"
-                     + $"<div style=\"font:11px sans-serif;text-align:center\">{_figCLo.ToString("G4", Inv)}</div></div>";
+                     + ticks + "</div>";
             }
-            sb.Append("<div class=\"matlab-plot\" style=\"width:780px\">");
-            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:720px;height:560px;border:1px solid #333;background:#15171c;cursor:grab;display:inline-block\"></canvas>");
+            sb.Append("<div class=\"matlab-plot\" style=\"width:860px\">");
+            if (!string.IsNullOrEmpty(_figTitle))   // MATLAB muestra el title() sobre la figura
+                sb.Append($"<div style=\"font:bold 13px sans-serif;text-align:center;width:720px;margin-bottom:4px\">{EscapeXml(_figTitle)}</div>");
+            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:720px;height:560px;border:1px solid #333;background:#ffffff;cursor:grab;display:inline-block\"></canvas>");
             sb.Append(cbar);
             sb.Append($"<div style=\"font:11px sans-serif;color:#333;margin-top:4px\">{ejes}</div>");
             sb.Append("</div>\n");
@@ -361,7 +372,7 @@ var st={az:-0.7,el:0.35,dist:1.7*Math.sqrt(ex*ex+ey*ey+ez*ez)||3};
 gl.enable(gl.DEPTH_TEST);
 function bind(buf,stride,csz){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,csz,gl.FLOAT,false,stride,12);}
 function draw(){
-gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0.08,0.09,0.11,1.0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+gl.viewport(0,0,cv.width,cv.height);gl.clearColor(1.0,1.0,1.0,1.0);   // fondo BLANCO como MATLAB (antes gris muy oscuro)gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul(mul(rx(st.el-1.5708),rz(st.az)),mul(scl(sx,sy,sz),tr(-cx,-cy,-cz)))));
 gl.uniformMatrix4fv(lm,false,M);
 gl.uniform1f(ll,0.0);
