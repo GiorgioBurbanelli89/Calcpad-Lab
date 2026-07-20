@@ -113,7 +113,9 @@ namespace Calcpad.Core
                 // de módulo NO deben renderizarse como worksheet. Por eso se quitan
                 // las líneas-comentario completas antes de anexar (sino el header
                 // `%` de p.ej. calcpad_lab_lib.m se volcaba al output).
-                sb.AppendLine(StripFullLineComments(content).TrimEnd());
+                // Cerrar las funciones de estilo clasico ANTES de concatenar: si no,
+                // la ultima se traga el codigo del archivo que venga despues.
+                sb.AppendLine(CloseClassicFunctions(StripFullLineComments(content).TrimEnd()));
                 sb.AppendLine();
             }
 
@@ -164,6 +166,39 @@ namespace Calcpad.Core
                 return true;
             }
             catch { return false; }
+        }
+
+        /// <summary>Cierra con <c>end</c> las funciones escritas al estilo CLASICO de
+        /// MATLAB (las que no se cierran, como casi todo CEINCI-LAB).
+        /// Hace falta porque aqui los archivos se CONCATENAN: sin el <c>end</c>, el
+        /// cuerpo de la ultima funcion se traga el script principal que va despues
+        /// y no se ejecuta nada. En un archivo suelto MATLAB no tiene este problema.
+        /// Los archivos ya cerrados con <c>end</c> se devuelven intactos.</summary>
+        private static string CloseClassicFunctions(string content)
+        {
+            List<int> fnLines = new();
+            try
+            {
+                var toks = Calcpad.Core.Matlab.MatlabTokenizer.Tokenize(content);
+                var parser = new Calcpad.Core.Matlab.MatlabParser(toks);
+                var stmts = parser.ParseAllStatements();
+                if (!parser.ClassicFunctionStyle) return content;      // ya cierra: no tocar
+                foreach (var s in stmts)
+                    if (s is Calcpad.Core.Matlab.FunctionDef fd) fnLines.Add(fd.Line);
+            }
+            catch { return content; }
+            if (fnLines.Count == 0) return content;
+            fnLines.Sort();
+
+            var lines = new List<string>(content.Replace("\r\n", "\n").Split('\n'));
+            lines.Add("end");                                          // cierra la ultima
+            // De atras hacia adelante para no desplazar los indices que faltan.
+            for (int i = fnLines.Count - 1; i >= 1; i--)
+            {
+                var idx = fnLines[i] - 1;                              // FunctionDef.Line es 1-based
+                if (idx >= 0 && idx <= lines.Count) lines.Insert(idx, "end");
+            }
+            return string.Join("\n", lines);
         }
 
         public static bool ReferencesIdentifier(string script, string name)

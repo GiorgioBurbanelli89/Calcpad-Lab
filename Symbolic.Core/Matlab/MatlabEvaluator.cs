@@ -265,6 +265,7 @@ namespace Calcpad.Core.Matlab
         /// <summary>Callback opcional para HTML inline (plots, etc.). Si null, los plots se descartan.</summary>
         private Action<string> _htmlOut;
         public Action<string> HtmlOut { get => _htmlOut; set => _htmlOut = value; }
+        private int _vizCounter = 0;   // ids unicos para visores 3D interactivos (solidmesh)
         // Canal para FRAMES de animación (drawnow): se emite EN VIVO por iteración y el host
         // lo repinta en el mismo lienzo. Distinto de HtmlOut (que se bufferiza por statement).
         private Action<string> _frameOut;
@@ -354,7 +355,7 @@ namespace Calcpad.Core.Matlab
         /// <summary>Para tic/toc.</summary>
         private System.Diagnostics.Stopwatch _ticStopwatch;
         /// <summary>RNG estable (seed determinístico para repetibilidad).</summary>
-        private readonly Random _rng = new(42);
+        private Random _rng = new(42);   // reseed via rng(seed) (MATLAB)
 
         private void RegisterBuiltins()
         {
@@ -982,6 +983,17 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i < r.Data.Length; i++) r.Data[i] = _rng.NextDouble();
                 return r;
             };
+            // rng(seed) / rng('default') / rng('shuffle') — re-siembra el RNG (MATLAB): reproducible.
+            _builtins["rng"] = a => {
+                if (a.Length >= 1 && a[0] != null && !a[0].IsString)
+                    _rng = new Random((int)a[0].Scalar);
+                else if (a.Length >= 1 && a[0] != null && a[0].IsString &&
+                         a[0].StringValue.Equals("shuffle", StringComparison.OrdinalIgnoreCase))
+                    _rng = new Random();
+                else
+                    _rng = new Random(42);   // 'default'
+                return new MValue(0);
+            };
             _builtins["randn"] = a => {
                 int nR = a.Length >= 1 ? (int)a[0].Scalar : 1;
                 int nC = a.Length >= 2 ? (int)a[1].Scalar : nR;
@@ -1497,26 +1509,24 @@ namespace Calcpad.Core.Matlab
             {
                 var name = cm;
                 _builtins[name] = _a => {
-                    // MATLAB: jet(n) -> matriz n x 3 RGB (0..1). Sin arg numerico ->
-                    // nombre (string) para colormap('jet'). La placa hace flipud(jet(256)).
-                    if (_a.Length >= 1 && _a[0].IsScalar && !_a[0].IsString)
+                    // MATLAB: jet / jet(n) -> SIEMPRE matriz n×3 RGB (0..1). Sin arg -> 256×3.
+                    // (ANTES devolvia el string "jet" sin arg, lo que rompia flipud(jet) y
+                    //  colormap(flipud(jet)); ahora es identico a MATLAB 2017a: jet es una matriz.)
+                    bool rev = name.EndsWith("_r");
+                    int nn = (_a.Length >= 1 && _a[0].IsScalar && !_a[0].IsString)
+                             ? Math.Max(1, (int)_a[0].Scalar) : 256;
+                    var M = new MValue(nn, 3);
+                    for (int k = 0; k < nn; k++)
                     {
-                        int nn = Math.Max(1, (int)_a[0].Scalar);
-                        bool rev = name.EndsWith("_r");
-                        var M = new MValue(nn, 3);
-                        for (int k = 0; k < nn; k++)
-                        {
-                            double tt = nn == 1 ? 0.5 : (double)k / (nn - 1);
-                            if (rev) tt = 1 - tt;
-                            // formula jet (base; la placa usa jet/jet_r)
-                            double r = Math.Max(0, Math.Min(1, Math.Min(4*tt - 1.5, -4*tt + 4.5)));
-                            double g = Math.Max(0, Math.Min(1, Math.Min(4*tt - 0.5, -4*tt + 3.5)));
-                            double b = Math.Max(0, Math.Min(1, Math.Min(4*tt + 0.5, -4*tt + 2.5)));
-                            M.Set(k, 0, r); M.Set(k, 1, g); M.Set(k, 2, b);
-                        }
-                        return M;
+                        double tt = nn == 1 ? 0.5 : (double)k / (nn - 1);
+                        if (rev) tt = 1 - tt;
+                        // formula jet (base; la placa usa jet/jet_r)
+                        double r = Math.Max(0, Math.Min(1, Math.Min(4*tt - 1.5, -4*tt + 4.5)));
+                        double g = Math.Max(0, Math.Min(1, Math.Min(4*tt - 0.5, -4*tt + 3.5)));
+                        double b = Math.Max(0, Math.Min(1, Math.Min(4*tt + 0.5, -4*tt + 2.5)));
+                        M.Set(k, 0, r); M.Set(k, 1, g); M.Set(k, 2, b);
                     }
-                    return new MValue(name);
+                    return M;
                 };
             }
             _builtins["surf"] = a => {
@@ -1964,6 +1974,8 @@ namespace Calcpad.Core.Matlab
                 MValue X = a[0], Y = a[1];
                 string color = "black";
                 double lineWidth = 1;
+                string lineStyle = "-", marker = null, markerFace = null, markerEdge = null;
+                double markerSize = 6;
                 int start = 2;
                 if (a.Length >= 3 && !a[2].IsString && a[2].Rows == 1) start = 3;  // line(x,y,z)
                 for (int i = start; i + 1 < a.Length; i += 2)
@@ -1978,9 +1990,31 @@ namespace Calcpad.Core.Matlab
                                     (val.Rows == 1 && val.Cols == 3 ? RgbVecToCss(val) : color);
                             break;
                         case "linewidth": lineWidth = val.Scalar; break;
+                        // MATLAB permite pedirle a line() que NO trace la linea y solo
+                        // ponga marcadores: line(x,y,'LineStyle','none','Marker','s').
+                        // Asi dibuja CEINCI-LAB los nudos. Lab lo ignoraba y trazaba la
+                        // linea que los une, sin marcadores.
+                        case "linestyle": lineStyle = val.IsString ? val.StringValue.ToLowerInvariant() : lineStyle; break;
+                        case "marker": marker = val.IsString ? val.StringValue.ToLowerInvariant() : marker; break;
+                        case "markersize": markerSize = val.Scalar; break;
+                        case "markerfacecolor":
+                            markerFace = val.IsString ? MatlabColorToJs(val.StringValue) :
+                                         (val.Rows == 1 && val.Cols == 3 ? RgbVecToCss(val) : markerFace);
+                            break;
+                        case "markeredgecolor":
+                            markerEdge = val.IsString ? MatlabColorToJs(val.StringValue) :
+                                         (val.Rows == 1 && val.Cols == 3 ? RgbVecToCss(val) : markerEdge);
+                            break;
                     }
                 }
-                MatlabPlots.Line2D(X.Data, Y.Data, color, lineWidth);
+                bool sinLinea = lineStyle == "none";
+                bool conMarcador = marker != null && marker != "none";
+                if (!sinLinea) MatlabPlots.Line2D(X.Data, Y.Data, color, lineWidth);
+                if (conMarcador)
+                    MatlabPlots.Markers2D(X.Data, Y.Data,
+                                          markerFace ?? "none",              // MATLAB: sin relleno por defecto
+                                          markerEdge ?? color,
+                                          MatlabMarkerToPlotly(marker), markerSize);
                 return new MValue(0);
             };
             _builtins["text"] = a => {
@@ -2051,6 +2085,27 @@ namespace Calcpad.Core.Matlab
                 MValue cdata = a.Length >= 5 ? a[4] : a[3];
                 MatlabPlots.PatchMesh(tri, verts, cdata, "interp", "lightblue", "black", 1, 0.5, "jet");
                 MatlabPlots.SetFigure3D(true);
+                return new MValue(0);
+            };
+            // SÓLIDOS 3D MACIZOS: da elementos de VOLUMEN (tetraedros Mx4 o hexaedros Mx8) y
+            // extrae automaticamente la PIEL exterior (caras que aparecen 1 sola vez) -> cuerpo
+            // solido cerrado. Al filtrar elementos (ej. tetramesh(T(keep,:),X,C)) el CORTE queda
+            // RELLENO con la seccion interna (sin huecos). tetramesh = compatible MATLAB 2017a (tets).
+            _builtins["tetramesh"] = a => SolidVolMesh(a);   // tetraedros (4 col) - compatible MATLAB (estatico)
+            _builtins["solidmesh"] = a => {                  // tets(4)/hexaedros(8) - visor con CORTE interactivo
+                if (a.Length < 2) throw new MatlabRuntimeException("solidmesh(E, X[, C]) — E: elementos Mx4/Mx8, X: nodos Nx3");
+                var E = a[0]; var X = a[1];
+                if (X.Cols < 3) throw new MatlabRuntimeException("solidmesh: X debe ser Nx3");
+                var nodes = new double[X.Rows][];
+                for (int i = 0; i < X.Rows; i++) nodes[i] = new[] { X.At(i, 0), X.At(i, 1), X.At(i, 2) };
+                var elems = new int[E.Rows][];
+                for (int e = 0; e < E.Rows; e++) { elems[e] = new int[E.Cols]; for (int c = 0; c < E.Cols; c++) elems[e][c] = (int)E.At(e, c) - 1; }  // 1-based MATLAB -> 0-based JS
+                double[] fld = new double[X.Rows];
+                if (a.Length >= 3 && a[2] != null && a[2].Data != null && a[2].Data.Length == X.Rows)
+                    fld = (double[])a[2].Data.Clone();
+                else for (int i = 0; i < X.Rows; i++) fld[i] = X.At(i, 2);   // sin C valido -> color por z
+                _htmlOut?.Invoke(MatlabPlots.SolidClipViewer(nodes, elems, new[] { "campo" }, new[] { fld },
+                    "Sólido 3D — corta con el slider", "sc" + (++_vizCounter)));
                 return new MValue(0);
             };
             _builtins["fill"] = a => {
@@ -2149,9 +2204,20 @@ namespace Calcpad.Core.Matlab
                 }
                 return new MValue(2.220446049250313e-16);
             };
-            _builtins["xlim"] = a => new MValue(0);   // Lab auto-escala los ejes
-            _builtins["ylim"] = a => new MValue(0);
-            _builtins["zlim"] = a => new MValue(0);
+            // xlim/ylim/zlim: MATLAB fija el rango del eje y ahi se queda. Antes eran
+            // no-ops ("Lab auto-escala"), asi que una figura con zoom salia igual que la
+            // vista completa. Aceptan xlim([lo hi]) y xlim(lo, hi).
+            static bool TryLim(MValue[] a, out double lo, out double hi)
+            {
+                lo = hi = 0;
+                if (a.Length >= 2 && a[0].IsScalar && a[1].IsScalar) { lo = a[0].Scalar; hi = a[1].Scalar; }
+                else if (a.Length >= 1 && a[0].Data != null && a[0].Data.Length >= 2) { lo = a[0].Data[0]; hi = a[0].Data[1]; }
+                else return false;
+                return hi > lo;
+            }
+            _builtins["xlim"] = a => { if (TryLim(a, out var lo, out var hi)) MatlabPlots.SetXLim(lo, hi); return new MValue(0); };
+            _builtins["ylim"] = a => { if (TryLim(a, out var lo, out var hi)) MatlabPlots.SetYLim(lo, hi); return new MValue(0); };
+            _builtins["zlim"] = a => { if (TryLim(a, out var lo, out var hi)) MatlabPlots.SetZLim(lo, hi); return new MValue(0); };
             _builtins["movegui"] = a => new MValue(0);
             _builtins["drawnow"] = a => { var f = MatlabPlots.RenderFrame(); if (f != null) _frameOut?.Invoke(f); return new MValue(0); };
             _builtins["get"] = a => {
@@ -6023,6 +6089,19 @@ namespace Calcpad.Core.Matlab
                 var y = a.Length > 1 ? a[1] : x;
                 int Nx = Math.Max(x.Rows, x.Cols);
                 int Ny = Math.Max(y.Rows, y.Cols);
+                if (a.Length >= 3)   // 3D: X,Y,Z de tamaño [Ny,Nx,Nz]. X=x(col), Y=y(fila), Z=z(pag)
+                {
+                    var z = a[2]; int Nz = Math.Max(z.Rows, z.Cols);
+                    var Xp = new MValue[Nz]; var Yp = new MValue[Nz]; var Zp = new MValue[Nz];
+                    for (int k = 0; k < Nz; k++)
+                    {
+                        var PX = new MValue(Ny, Nx); var PY = new MValue(Ny, Nx); var PZ = new MValue(Ny, Nx);
+                        for (int i = 0; i < Ny; i++) for (int j = 0; j < Nx; j++)
+                        { PX.Set(i, j, x.Data[j]); PY.Set(i, j, y.Data[i]); PZ.Set(i, j, z.Data[k]); }
+                        Xp[k] = PX; Yp[k] = PY; Zp[k] = PZ;
+                    }
+                    return new[] { MValue.New3D(Xp), MValue.New3D(Yp), MValue.New3D(Zp) };
+                }
                 var X = new MValue(Ny, Nx);
                 var Y = new MValue(Ny, Nx);
                 for (int i = 0; i < Ny; i++)
@@ -6033,13 +6112,26 @@ namespace Calcpad.Core.Matlab
                     }
                 return new[] { X, Y };
             };
-            // ndgrid(x,y): como meshgrid pero SIN transponer (convención N-D de MATLAB):
-            // X(i,j)=x(i), Y(i,j)=y(j), tamaño length(x)×length(y). [X,Y]=ndgrid(x) → ndgrid(x,x).
+            // ndgrid(x,y[,z]): como meshgrid pero SIN transponer (convención N-D de MATLAB):
+            // X(i,j)=x(i), Y(i,j)=y(j). 3 args -> arrays 3D [Nx,Ny,Nz]. [X,Y]=ndgrid(x) → ndgrid(x,x).
             _multiOutBuiltins["ndgrid"] = a => {
                 var x = a[0];
                 var y = a.Length > 1 ? a[1] : x;
                 int Nx = Math.Max(x.Rows, x.Cols);
                 int Ny = Math.Max(y.Rows, y.Cols);
+                if (a.Length >= 3)   // 3D: X,Y,Z de tamaño [Nx,Ny,Nz]. X=x(fila), Y=y(col), Z=z(pag)
+                {
+                    var z = a[2]; int Nz = Math.Max(z.Rows, z.Cols);
+                    var Xp = new MValue[Nz]; var Yp = new MValue[Nz]; var Zp = new MValue[Nz];
+                    for (int k = 0; k < Nz; k++)
+                    {
+                        var PX = new MValue(Nx, Ny); var PY = new MValue(Nx, Ny); var PZ = new MValue(Nx, Ny);
+                        for (int i = 0; i < Nx; i++) for (int j = 0; j < Ny; j++)
+                        { PX.Set(i, j, x.Data[i]); PY.Set(i, j, y.Data[j]); PZ.Set(i, j, z.Data[k]); }
+                        Xp[k] = PX; Yp[k] = PY; Zp[k] = PZ;
+                    }
+                    return new[] { MValue.New3D(Xp), MValue.New3D(Yp), MValue.New3D(Zp) };
+                }
                 var X = new MValue(Nx, Ny);
                 var Y = new MValue(Nx, Ny);
                 for (int i = 0; i < Nx; i++)
@@ -6125,6 +6217,31 @@ namespace Calcpad.Core.Matlab
             if (val.IsScalar) return ScalarToColorJs(val.Scalar);
             return "black";
         }
+        /// <summary>Traduce el nombre de marcador de MATLAB ('o','s','^'...) al simbolo
+        /// de Plotly. Misma tabla que usa el parser de estilos de plot(), para que
+        /// line(...,'Marker','s') y plot(...,'s') dibujen igual.</summary>
+        private static string MatlabMarkerToPlotly(string m)
+        {
+            if (string.IsNullOrEmpty(m)) return "circle";
+            switch (m)
+            {
+                case "o": return "circle";
+                case ".": return "circle";
+                case "+": return "cross";
+                case "*": return "star";
+                case "x": return "x";
+                case "s": case "square": return "square";
+                case "d": case "diamond": return "diamond";
+                case "^": return "triangle-up";
+                case "v": return "triangle-down";
+                case ">": return "triangle-right";
+                case "<": return "triangle-left";
+                case "p": case "pentagram": return "pentagon";
+                case "h": case "hexagram": return "hexagon";
+                default: return "circle";
+            }
+        }
+
         private static string MatlabColorToJs(string c)
         {
             // MATLAB color shortcuts: 'r','g','b','c','m','y','k','w'
@@ -6271,6 +6388,92 @@ namespace Calcpad.Core.Matlab
             MatlabPlots.PatchMesh(trifaces, Vertices, triCData, faceColorMode,
                                    faceColor, edgeColor, faceAlpha, lineWidth, "jet", Faces.Cols == 4);
             return new MValue(0);
+        }
+
+        // Renderiza un SÓLIDO 3D macizo desde elementos de VOLUMEN (tets/hexaedros): extrae la
+        // piel exterior y la dibuja opaca. tetramesh(T,X) / tetramesh(T,X,C) / solidmesh(E,X,C).
+        private static MValue SolidVolMesh(MValue[] a)
+        {
+            if (a.Length < 2) throw new MatlabRuntimeException("tetramesh(T, X[, C]) — T: tets Mx4 (o hexaedros Mx8), X: nodos Nx3");
+            var T = a[0]; var X = a[1];
+            if (X.Cols < 3) throw new MatlabRuntimeException("tetramesh: X debe ser Nx3 (coordenadas 3D)");
+            var (tris, triElem) = ExtractSolidBoundary(T);
+            MValue cdata; string mode;
+            if (a.Length >= 3 && a[2] != null && a[2].Data != null && a[2].Data.Length > 0)
+            {
+                var C = a[2];
+                if (C.Data.Length == X.Rows) { cdata = C; mode = "interp"; }              // color por NODO
+                else if (C.Data.Length == T.Rows)                                          // color por ELEMENTO
+                {
+                    var cf = new MValue(tris.Rows, 1);
+                    for (int i = 0; i < tris.Rows; i++) cf.Data[i] = C.Data[triElem[i]];
+                    cdata = cf; mode = "flat";
+                }
+                else { cdata = C; mode = "interp"; }
+            }
+            else                                                                           // sin C -> color por z
+            {
+                var cz = new MValue(X.Rows, 1);
+                for (int i = 0; i < X.Rows; i++) cz.Data[i] = X.At(i, 2);
+                cdata = cz; mode = "interp";
+            }
+            MatlabPlots.PatchMesh(tris, X, cdata, mode, "lightblue", "none", 1, 0.5, "jet");
+            MatlabPlots.SetFigure3D(true);
+            return new MValue(0);
+        }
+
+        // Extrae la PIEL (contorno) de una malla de volumen: caras compartidas por 2 elementos
+        // se descartan (internas); las que aparecen 1 vez son la superficie exterior. Al cortar
+        // el volumen, las caras de la seccion quedan expuestas -> corte RELLENO (sin huecos).
+        private static (MValue, int[]) ExtractSolidBoundary(MValue elems)
+        {
+            int ne = elems.Rows, nc = elems.Cols;
+            int[][] faceDefs;
+            if (nc == 4) faceDefs = new[] { new[] { 0, 1, 2 }, new[] { 0, 1, 3 }, new[] { 0, 2, 3 }, new[] { 1, 2, 3 } };
+            else if (nc == 8) faceDefs = new[] { new[] { 0, 1, 2, 3 }, new[] { 4, 5, 6, 7 }, new[] { 0, 1, 5, 4 }, new[] { 1, 2, 6, 5 }, new[] { 2, 3, 7, 6 }, new[] { 3, 0, 4, 7 } };
+            else throw new MatlabRuntimeException("tetramesh/solidmesh: elementos deben ser tetraedros (4 col) o hexaedros (8 col)");
+            var count = new System.Collections.Generic.Dictionary<string, int>();
+            var repr = new System.Collections.Generic.Dictionary<string, int[]>();
+            var reprElem = new System.Collections.Generic.Dictionary<string, int>();
+            for (int e = 0; e < ne; e++)
+                foreach (var fd in faceDefs)
+                {
+                    var nodes = new int[fd.Length];
+                    for (int k = 0; k < fd.Length; k++) nodes[k] = (int)elems.At(e, fd[k]);
+                    var sorted = (int[])nodes.Clone(); System.Array.Sort(sorted);
+                    string key = string.Join("_", sorted);
+                    if (count.ContainsKey(key)) count[key]++;
+                    else { count[key] = 1; repr[key] = nodes; reprElem[key] = e; }
+                }
+            var trisL = new System.Collections.Generic.List<int[]>();
+            var elemL = new System.Collections.Generic.List<int>();
+            foreach (var kv in count)
+                if (kv.Value == 1)
+                {
+                    var nd = repr[kv.Key]; int el = reprElem[kv.Key];
+                    trisL.Add(new[] { nd[0], nd[1], nd[2] }); elemL.Add(el);
+                    if (nd.Length == 4) { trisL.Add(new[] { nd[0], nd[2], nd[3] }); elemL.Add(el); }  // quad -> 2 tris
+                }
+            var res = new MValue(trisL.Count, 3);
+            for (int i = 0; i < trisL.Count; i++) { res.Set(i, 0, trisL[i][0]); res.Set(i, 1, trisL[i][1]); res.Set(i, 2, trisL[i][2]); }
+            return (res, elemL.ToArray());
+        }
+
+        // Aplana un MValue 3D (Pages) a un arreglo column-major como MATLAB X(:):
+        // recorre paginas, dentro de cada pagina columnas, dentro de cada columna filas.
+        private static double[] Flatten3DColMajor(MValue m)
+        {
+            int R = m.Pages[0].Rows, C = m.Pages[0].Cols, P = m.Pages.Length;
+            var flat = new double[R * C * P];
+            int idx = 0;
+            for (int k = 0; k < P; k++)
+            {
+                var pg = m.Pages[k];
+                for (int j = 0; j < C; j++)
+                    for (int i = 0; i < R; i++)
+                        flat[idx++] = pg.Data[i * C + j];
+            }
+            return flat;
         }
 
         private static MValue MapUnary(MValue v, Func<double, double> f)
@@ -7604,6 +7807,16 @@ namespace Calcpad.Core.Matlab
                 outs[i] = local.TryGet(def.OutputNames[i], out var v) ? v : new MValue(0);
             return outs;
         }
+        /// <summary>true si el nodo es el literal `[]` (matriz vacía). MATLAB solo trata
+        /// `v(idx) = []` como BORRADO cuando el lado derecho es ese literal.</summary>
+        private static bool IsEmptyMatrixLiteral(MatlabNode n)
+        {
+            if (n is not MatrixLit ml) return false;
+            if (ml.Rows.Count == 0) return true;
+            foreach (var row in ml.Rows) if (row.Count > 0) return false;
+            return true;
+        }
+
         private StatementResult ExecuteAssignment(Assignment asg, MatlabScope scope)
         {
             // Multi-output: [a, b] = func(...)
@@ -7627,6 +7840,38 @@ namespace Calcpad.Core.Matlab
             }
             // Single target
             var tgt = asg.Targets[0];
+
+            // ──────────────────────────────────────────────────────────────
+            // MATLAB: `v(idx) = []` BORRA esos elementos, no asigna. Es la forma
+            // canónica de eliminar elementos de un vector y CEINCI-LAB la usa por
+            // todos lados (`X(sort(Nodos)) = []`, `NI(Elem) = []`). Sin esto el
+            // motor tiraba "Index was outside the bounds of the array" o
+            // "Assign: LHS n elements, RHS 0".
+            // ──────────────────────────────────────────────────────────────
+            if (tgt is CallOrIndex delTgt && delTgt.Target is IdentRef delId &&
+                delTgt.Args.Count == 1 && IsEmptyMatrixLiteral(asg.Rhs) &&
+                scope.TryGet(delId.Name, out var delSrc) && !delSrc.IsString)
+            {
+                var idxVal = Eval(delTgt.Args[0], scope);
+                var n = delSrc.Data.Length;
+                var drop = new bool[n];
+                foreach (var d in idxVal.Data)
+                {
+                    var k = (int)Math.Round(d) - 1;              // MATLAB es 1-based
+                    if (k < 0 || k >= n)
+                        throw new MatlabRuntimeException(
+                            $"Index exceeds matrix dimensions: {delId.Name}({(int)Math.Round(d)})");
+                    drop[k] = true;
+                }
+                var kept = new List<double>(n);
+                for (int k = 0; k < n; k++) if (!drop[k]) kept.Add(delSrc.Data[k]);
+                // MATLAB conserva la orientación: si era columna, sigue siendo columna.
+                var isCol = delSrc.Cols == 1 && delSrc.Rows > 1;
+                var res = isCol ? new MValue(kept.Count, 1, kept.ToArray())
+                                : new MValue(1, kept.Count, kept.ToArray());
+                scope.Set(delId.Name, res);
+                return new StatementResult(delId.Name, res, asg.Suppressed);
+            }
             // ──────────────────────────────────────────────────────────────
             // FAST-PATH: K(rows, cols) = K(rows, cols) + expr   (FEM hot loop)
             // Detecta patrón: target(args) = target(args) +/- expr (mismo target, mismos args)
@@ -9047,6 +9292,25 @@ namespace Calcpad.Core.Matlab
             if (nDims == 1)
             {
                 var lin = indices[0];
+                // 3D: aplanar column-major (paginas × columnas × filas) e indexar linealmente. X(:) / X(k).
+                if (m.Is3D)
+                {
+                    var flat3 = Flatten3DColMajor(m);
+                    if (lin.Length == 1)
+                    {
+                        int i0 = lin[0];
+                        if (i0 < 0 || i0 >= flat3.Length) throw new MatlabRuntimeException($"Index {i0 + 1} out of bounds (1..{flat3.Length})");
+                        return new MValue(flat3[i0]);
+                    }
+                    var col3 = new MValue(lin.Length, 1);   // 3D flatten -> column vector
+                    for (int k = 0; k < lin.Length; k++)
+                    {
+                        int li = lin[k];
+                        if (li < 0 || li >= flat3.Length) throw new MatlabRuntimeException($"Index {li + 1} out of bounds (1..{flat3.Length})");
+                        col3.Data[k] = flat3[li];
+                    }
+                    return col3;
+                }
                 if (lin.Length == 1)
                 {
                     int i = lin[0];
@@ -9150,9 +9414,9 @@ namespace Calcpad.Core.Matlab
         /// </summary>
         private int[] ResolveIndexArg(MatlabNode arg, MValue target, int dim, int nDims, MatlabScope scope)
         {
-            int dimSize = nDims == 1 ? target.Rows * target.Cols
-                        : dim == 0 ? target.Rows
-                        : target.Cols;
+            int dimSize = nDims == 1 ? (target.Is3D ? target.Pages[0].Rows * target.Pages[0].Cols * target.Pages.Length : target.Rows * target.Cols)
+                        : dim == 0 ? (target.Is3D ? target.Pages[0].Rows : target.Rows)
+                        : (target.Is3D && dim == 1 ? target.Pages[0].Cols : target.Cols);
             if (arg is ColonAll)
             {
                 var r = new int[dimSize];

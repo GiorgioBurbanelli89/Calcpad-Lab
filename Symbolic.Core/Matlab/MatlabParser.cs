@@ -14,6 +14,14 @@ namespace Calcpad.Core.Matlab
         private readonly List<MatlabToken> _tokens;
         private int _pos;
         private readonly bool _octave;
+        /// <summary>true = el archivo usa el estilo CLASICO de MATLAB, en el que las
+        /// funciones no se cierran con `end` (CEINCI-LAB y casi todo el codigo antiguo).
+        /// Se detecta al parsear la primera funcion y se recuerda, para no reintentar
+        /// en cada una (seria cuadratico).</summary>
+        private bool _classicFnStyle;
+        /// <summary>true si al parsear se detectó el estilo CLASICO (funciones sin `end`).
+        /// El folder loader lo consulta para cerrarlas antes de concatenar archivos.</summary>
+        public bool ClassicFunctionStyle => _classicFnStyle;
 
         public MatlabParser(List<MatlabToken> tokens)
         {
@@ -47,7 +55,8 @@ namespace Calcpad.Core.Matlab
             "syms", "clear", "close", "hold", "format",
             "load", "save", "disp", "warning", "error", "echo", "pkg",
             "grid", "axis", "legend", "box",   // plotting on/off commands
-            "lighting", "material", "shading", "colormap"   // 3D: lighting gouraud, material dull, shading interp
+            "lighting", "material", "shading", "colormap",   // 3D: lighting gouraud, material dull, shading interp
+            "rotate3d", "colorbar", "camlight", "view"   // 3D: rotate3d on, colorbar off, camlight left, view(3)
         };
 
         public MatlabNode ParseStatement()
@@ -360,9 +369,40 @@ namespace Calcpad.Core.Matlab
                 Consume(); // )
             }
             ConsumeStatementTerminator();
-            def.Body = ParseBlockUntil("end");
-            ExpectKeyword("end");
-            ConsumeStatementTerminator();
+
+            // MATLAB acepta DOS estilos de archivo de funciones, y hay que soportar
+            // los dos porque conviven:
+            //   moderno : cada `function` se cierra con `end` (permite anidadas)
+            //   clásico : el `function` NO se cierra; el cuerpo llega hasta el
+            //             siguiente `function` o el fin del archivo (así está escrito
+            //             casi todo CEINCI-LAB)
+            // Se intenta primero el moderno, que es el único que permite funciones
+            // anidadas. Si no aparece el `end`, se rebobina y se reparsea al estilo
+            // clásico. Probar en este orden es lo que evita romper las anidadas.
+            // El estilo se decide UNA sola vez por archivo y se recuerda: reintentar en
+            // cada función haría el parseo cuadrático (y con librerías grandes, eterno).
+            if (!_classicFnStyle)
+            {
+                var save = _pos;
+                try
+                {
+                    def.Body = ParseBlockUntil("end");
+                    ExpectKeyword("end");
+                    ConsumeStatementTerminator();
+                    return def;
+                }
+                catch (MatlabParseException)
+                {
+                    _pos = save;                   // rebobinar: el archivo es estilo clásico
+                    _classicFnStyle = true;
+                }
+            }
+            def.Body = ParseBlockUntil("end", "function");
+            if (!IsEof() && Peek().Kind == MatlabTokenKind.Identifier && Peek().Text == "end")
+            {
+                Consume();
+                ConsumeStatementTerminator();
+            }
             return def;
         }
 
