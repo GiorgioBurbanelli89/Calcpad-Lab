@@ -1588,12 +1588,9 @@ namespace Calcpad.Wpf
                 {
                     var logPath = Path.Combine(Path.GetTempPath(), "calcpad_lab_log.html");
                     File.WriteAllText(logPath, htmlResult, Encoding.UTF8);
-                    if (!string.IsNullOrEmpty(CurrentFileName))
-                    {
-                        var sidecar = Path.ChangeExtension(CurrentFileName, ".html");
-                        try { File.WriteAllText(sidecar, htmlResult, Encoding.UTF8); }
-                        catch { /* read-only folder */ }
-                    }
+                    // NO se escribe un .html junto al .m: cada calculo dejaba ~5 MB al
+                    // lado del ejemplo (143 MB solo en Examples-Lab). El log de arriba,
+                    // en %TEMP%, ya sirve para depurar el render.
                 }
                 catch { /* log secundario */ }
                 _isParsing = false;
@@ -1665,12 +1662,7 @@ namespace Calcpad.Wpf
                     {
                         var logPath = Path.Combine(Path.GetTempPath(), "calcpad_lab_log.html");
                         File.WriteAllText(logPath, htmlResult, Encoding.UTF8);
-                        if (!string.IsNullOrEmpty(CurrentFileName))
-                        {
-                            var sidecar = Path.ChangeExtension(CurrentFileName, ".html");
-                            try { File.WriteAllText(sidecar, htmlResult, Encoding.UTF8); }
-                            catch { /* ignore — read-only folder etc. */ }
-                        }
+                        // sin sidecar .html junto al .m (ver nota mas arriba)
                     }
                     catch { /* ignore — log es secundario */ }
 
