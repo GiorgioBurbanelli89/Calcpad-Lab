@@ -1,7 +1,7 @@
 %% Finite Element Analysis of Rectangular Slab
-%-- Replica del "Rectangular Slab FEA.cpd" de Calcpad, en MATLAB (Calcpad Lab).
+%-- Replica del "Rectangular Slab FEA.cpd" de Hekatan, en MATLAB (Hekatan Lab).
 %-- Placa Kirchhoff, elemento rectangular BFS de 16 GDL (w, theta_x, theta_y, psi).
-%-- Mismo codigo corre en MATLAB 2017a y Calcpad Lab; las directivas Calcpad van
+%-- Mismo codigo corre en MATLAB 2017a y Hekatan Lab; las directivas Hekatan van
 %-- escondidas en comentarios (% #noc / % #val) -> MATLAB las ignora, Lab typografia.
 
 %% Input data
