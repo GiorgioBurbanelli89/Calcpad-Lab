@@ -361,7 +361,7 @@ var lp=gl.getAttribLocation(pr,'p'),lc=gl.getAttribLocation(pr,'c'),lm=gl.getUni
 function B(a){var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(a),gl.STATIC_DRAW);return b;}
 var ob=B(op),ab=B(al),lb=B(ln),nO=op.length/6,nA=al.length/7,nL=ln.length/6;
 var box=[],e=[[0,0,0,1,0,0],[1,0,0,1,1,0],[1,1,0,0,1,0],[0,1,0,0,0,0],[0,0,1,1,0,1],[1,0,1,1,1,1],[1,1,1,0,1,1],[0,1,1,0,0,1],[0,0,0,0,0,1],[1,0,0,1,0,1],[1,1,0,1,1,1],[0,1,0,0,1,1]];
-for(var q=0;q<e.length;q++){var s=e[q];box.push(bb[0]+s[0]*(bb[1]-bb[0]),bb[2]+s[1]*(bb[3]-bb[2]),bb[4]+s[2]*(bb[5]-bb[4]),0.30,0.32,0.36,bb[0]+s[3]*(bb[1]-bb[0]),bb[2]+s[4]*(bb[3]-bb[2]),bb[4]+s[5]*(bb[5]-bb[4]),0.30,0.32,0.36);}
+for(var q=0;q<e.length;q++){var s=e[q];box.push(bb[0]+s[0]*(bb[1]-bb[0]),bb[2]+s[1]*(bb[3]-bb[2]),bb[4]+s[2]*(bb[5]-bb[4]),0.20,0.20,0.20,bb[0]+s[3]*(bb[1]-bb[0]),bb[2]+s[4]*(bb[3]-bb[2]),bb[4]+s[5]*(bb[5]-bb[4]),0.20,0.20,0.20);}
 var bxb=B(box),nB=box.length/6;
 var cx=(bb[0]+bb[1])/2,cy=(bb[2]+bb[3])/2,cz=(bb[4]+bb[5])/2,dx=bb[1]-bb[0],dy=bb[3]-bb[2],dz=bb[5]-bb[4];
 dx=dx||1;dy=dy||1;dz=dz||1;
@@ -371,12 +371,41 @@ var ex=sx*dx,ey=sy*dy,ez=sz*dz;
 var st={az:-0.7,el:0.35,dist:1.7*Math.sqrt(ex*ex+ey*ey+ez*ez)||3};
 gl.enable(gl.DEPTH_TEST);
 function bind(buf,stride,csz){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,csz,gl.FLOAT,false,stride,12);}
+// --- marcas numericas de los ejes, como MATLAB: se proyectan en cada draw ---
+var host=cv.parentNode; if(getComputedStyle(host).position==='static')host.style.position='relative';
+var TK=[],NT=4;
+function fmt(v){return Math.abs(v)<1e-9?'0':(Math.abs(v)>=100||Math.abs(v)<0.01?v.toExponential(1):(''+(Math.round(v*100)/100)));}
+for(var ax=0;ax<3;ax++)for(var q=0;q<=NT;q++){
+  var f=q/NT,P=[bb[0],bb[2],bb[4]];
+  // se separan HACIA AFUERA de la caja para que el solido no los tape,
+  // igual que MATLAB, que rotula por fuera de los ejes
+  var ox=0.22*(bb[1]-bb[0]),oy=0.22*(bb[3]-bb[2]),oz=0.22*(bb[5]-bb[4]);
+  if(ax===0){P[0]=bb[0]+f*(bb[1]-bb[0]); P[1]-=oy; P[2]-=oz;}
+  else if(ax===1){P[1]=bb[2]+f*(bb[3]-bb[2]); P[0]-=ox; P[2]-=oz;}
+  else {P[2]=bb[4]+f*(bb[5]-bb[4]); P[0]-=ox; P[1]-=oy;}
+  var d=document.createElement('div');
+  d.style.cssText='position:absolute;font:10px sans-serif;color:#333;pointer-events:none;transform:translate(-50%,-50%)';
+  d.textContent=fmt(ax===0?(bb[0]+f*(bb[1]-bb[0])):(ax===1?(bb[2]+f*(bb[3]-bb[2])):(bb[4]+f*(bb[5]-bb[4]))));
+  host.appendChild(d); TK.push({el:d,p:P});
+}
+function ticks(M){
+  var W=cv.clientWidth||cv.width, H=cv.clientHeight||cv.height;
+  for(var i=0;i<TK.length;i++){
+    var p=TK[i].p, w=M[3]*p[0]+M[7]*p[1]+M[11]*p[2]+M[15];
+    if(w<=0){TK[i].el.style.display='none';continue;}
+    var xc=(M[0]*p[0]+M[4]*p[1]+M[8]*p[2]+M[12])/w;
+    var yc=(M[1]*p[0]+M[5]*p[1]+M[9]*p[2]+M[13])/w;
+    TK[i].el.style.display='';
+    TK[i].el.style.left=((xc*0.5+0.5)*W)+'px';
+    TK[i].el.style.top=((1-(yc*0.5+0.5))*H)+'px';
+  }
+}
 function draw(){
 gl.viewport(0,0,cv.width,cv.height);gl.clearColor(1.0,1.0,1.0,1.0);   // fondo BLANCO como MATLAB (antes gris muy oscuro)gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 var M=mul(persp(0.6,cv.width/cv.height,0.01,st.dist*12),mul(tr(0,0,-st.dist),mul(mul(rx(st.el-1.5708),rz(st.az)),mul(scl(sx,sy,sz),tr(-cx,-cy,-cz)))));
 gl.uniformMatrix4fv(lm,false,M);
 gl.uniform1f(ll,0.0);
-if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}
+ticks(M);if(nL>0){bind(lb,24,3);gl.drawArrays(gl.LINES,0,nL);}
 gl.uniform1f(ll,hasDeriv?1.0:0.0);gl.disable(gl.BLEND);gl.depthMask(true);
 if(nO>0){bind(ob,24,3);gl.drawArrays(gl.TRIANGLES,0,nO);}
 if(nA>0){bind(ab,28,4);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,nA);gl.depthMask(true);gl.disable(gl.BLEND);}
