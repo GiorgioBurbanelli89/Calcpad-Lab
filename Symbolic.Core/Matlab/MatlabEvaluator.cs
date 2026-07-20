@@ -1848,7 +1848,7 @@ namespace Calcpad.Core.Matlab
                 _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, '{property}', \"{jsonValue}\");}})();</script>\n");
             }
             string JsonEscape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
-            _builtins["colorbar"] = a => new MValue(0);
+            _builtins["colorbar"] = a => { MatlabPlots.SetColorbar(true); return new MValue(0); };
             _builtins["shading"] = a => new MValue(0);
             _builtins["axis"] = a => {
                 // axis('equal'|'square'|'tight'|'normal') o axis([xmin xmax ymin ymax])
@@ -6672,6 +6672,13 @@ namespace Calcpad.Core.Matlab
                 for (int f = 0; f < Faces.Rows; f++) { cd2.Data[2 * f] = CData.Data[f]; cd2.Data[2 * f + 1] = CData.Data[f]; }
                 triCData = cd2;
             }
+            // rango real del campo, para poder rotular la colorbar
+            if (triCData != null && triCData.Data != null && triCData.Data.Length > 0)
+            {
+                double clo2 = triCData.Data[0], chi2 = triCData.Data[0];
+                foreach (var dv in triCData.Data) { if (dv < clo2) clo2 = dv; if (dv > chi2) chi2 = dv; }
+                MatlabPlots.SetColorRange(clo2, chi2);
+            }
             MatlabPlots.PatchMesh(trifaces, Vertices, triCData, faceColorMode,
                                    faceColor, edgeColor, faceAlpha, lineWidth, "jet", Faces.Cols == 4);
             return new MValue(0);
@@ -6703,6 +6710,13 @@ namespace Calcpad.Core.Matlab
                 var cz = new MValue(X.Rows, 1);
                 for (int i = 0; i < X.Rows; i++) cz.Data[i] = X.At(i, 2);
                 cdata = cz; mode = "interp";
+            }
+            // rango real del campo, para poder rotular la colorbar
+            if (cdata != null && cdata.Data != null && cdata.Data.Length > 0)
+            {
+                double clo = cdata.Data[0], chi = cdata.Data[0];
+                foreach (var d in cdata.Data) { if (d < clo) clo = d; if (d > chi) chi = d; }
+                MatlabPlots.SetColorRange(clo, chi);
             }
             MatlabPlots.PatchMesh(tris, X, cdata, mode, "lightblue", "none", 1, 0.5, "jet");
             MatlabPlots.SetFigure3D(true);

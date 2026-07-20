@@ -99,6 +99,12 @@ namespace Calcpad.Core.Matlab
         /// <summary>grid on/off del script. MATLAB lo respeta en cualquier figura;
         /// Lab solo lo aplicaba a las de Plotly, no al renderizador SVG de primitivas.</summary>
         private static bool _figGrid = false;
+        /// <summary>colorbar y ejes rotulados del canvas 3D: MATLAB los dibuja y Lab los
+        /// ignoraba, asi que no se podia leer la escala ni saber que valor era cada color.</summary>
+        private static bool _figColorbar = false;
+        private static double _figCLo = 0, _figCHi = 1;
+        public static void SetColorbar(bool on) { _figColorbar = on; }
+        public static void SetColorRange(double lo, double hi) { _figCLo = lo; _figCHi = hi; }
         public static void SetGrid(bool on) { _figGrid = on; }
         private static bool _cvAxisEqual = true;
         public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; _figAxisEqual = eq; }
@@ -290,7 +296,32 @@ namespace Calcpad.Core.Matlab
             if (z1 - z0 < 1e-9) { z0 -= 0.5; z1 += 0.5; }
             var sb = new StringBuilder();
             sb.Append(Lab3dRenderer);
-            sb.Append($"<div class=\"matlab-plot\" style=\"width:720px;height:560px\"><canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:720px;height:560px;border:1px solid #333;background:#15171c;cursor:grab\"></canvas></div>\n");
+            // Ejes rotulados y colorbar como capa HTML junto al canvas: dentro de un
+            // canvas WebGL no se puede dibujar texto 2D, y MATLAB si los muestra.
+            // si el script puso xlabel/ylabel/zlabel se usa esa etiqueta; si no, la letra
+            string ejes = $"<b>{_figXLabel ?? "X"}</b>: {x0.ToString("G3", Inv)} … {x1.ToString("G3", Inv)}"
+                        + $" &nbsp;&nbsp; <b>{_figYLabel ?? "Y"}</b>: {y0.ToString("G3", Inv)} … {y1.ToString("G3", Inv)}"
+                        + $" &nbsp;&nbsp; <b>{_figZLabel ?? "Z"}</b>: {z0.ToString("G3", Inv)} … {z1.ToString("G3", Inv)}";
+            string cbar = "";
+            if (_figColorbar)
+            {
+                var stops = new StringBuilder();
+                for (int q = 0; q <= 10; q++)
+                {
+                    var c = JetRgb(1.0 - q / 10.0);      // jet_r: el valor alto arriba
+                    if (q > 0) stops.Append(", ");
+                    stops.Append($"rgb({c.Item1},{c.Item2},{c.Item3})");
+                }
+                cbar = "<div style=\"display:inline-block;vertical-align:top;margin-left:12px\">"
+                     + $"<div style=\"font:11px sans-serif;text-align:center\">{_figCHi.ToString("G4", Inv)}</div>"
+                     + $"<div style=\"width:18px;height:500px;border:1px solid #888;background:linear-gradient(to bottom, {stops})\"></div>"
+                     + $"<div style=\"font:11px sans-serif;text-align:center\">{_figCLo.ToString("G4", Inv)}</div></div>";
+            }
+            sb.Append("<div class=\"matlab-plot\" style=\"width:780px\">");
+            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:720px;height:560px;border:1px solid #333;background:#15171c;cursor:grab;display:inline-block\"></canvas>");
+            sb.Append(cbar);
+            sb.Append($"<div style=\"font:11px sans-serif;color:#333;margin-top:4px\">{ejes}</div>");
+            sb.Append("</div>\n");
             sb.Append("<script>(function(){LAB3D.make(document.getElementById('lab3d_").Append(id).Append("'),[");
             sb.Append(FloatCsv(_cvOpaque)).Append("],[").Append(FloatCsv(_cvAlpha)).Append("],[").Append(FloatCsv(_cvLines)).Append("],[");
             sb.Append(x0.ToString(Inv)).Append(',').Append(x1.ToString(Inv)).Append(',')
@@ -365,6 +396,7 @@ return {make:make};
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
             _figGrid = false;
+            _figColorbar = false;
             _figAxisEqual = false;
             _figShowLegend = false; _figLegendLoc = null;
             return prev;
