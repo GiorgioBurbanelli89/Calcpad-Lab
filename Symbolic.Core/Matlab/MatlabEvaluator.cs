@@ -278,7 +278,10 @@ namespace Calcpad.Core.Matlab
         private Action<MatlabNode, StatementResult> _innerStmtOut;
         public Action<MatlabNode, StatementResult> InnerStmtOut { get => _innerStmtOut; set => _innerStmtOut = value; }
         /// <summary>Colormap activo. Cambiado por <c>colormap('jet')</c> y consumido por surf/contourf.</summary>
-        private string _activeColormap = "jet";   // default = JET (azul=bajo, rojo=alto) como IDEA StatiCa / CSI
+        /// <summary>Colormap activo. Por defecto PARULA, que es el de MATLAB: asi una
+        /// misma malla sale del mismo color en los dos. Si el script llama a
+        /// colormap('jet') se respeta lo que pida.</summary>
+        private static string _activeColormap = "parula";
         /// <summary>Subplot grid activo (m, n) si subplot(m, n, p) fue llamado.</summary>
         internal (int m, int n)? _subplotGrid;
         /// <summary>Posición 1-based del subplot activo.</summary>
@@ -2265,7 +2268,7 @@ namespace Calcpad.Core.Matlab
                 var verts = new MValue(n, 3);
                 for (int i = 0; i < n; i++) { verts.Set(i,0,x.Data[i]); verts.Set(i,1,y.Data[i]); verts.Set(i,2,z.Data[i]); }
                 MValue cdata = a.Length >= 5 ? a[4] : a[3];
-                MatlabPlots.PatchMesh(tri, verts, cdata, "interp", "lightblue", "black", 1, 0.5, "jet");
+                MatlabPlots.PatchMesh(tri, verts, cdata, "interp", "lightblue", "black", 1, 0.5, _activeColormap ?? "parula");
                 MatlabPlots.SetFigure3D(true);
                 return new MValue(0);
             };
@@ -2306,7 +2309,7 @@ namespace Calcpad.Core.Matlab
                 var faces = new MValue(n - 2, 3);
                 for (int i = 0; i < n - 2; i++) { faces.Set(i,0,1); faces.Set(i,1,i+2); faces.Set(i,2,i+3); }
                 string fc = a[3].IsString ? MatlabColorToJs(a[3].StringValue) : "lightblue";
-                MatlabPlots.PatchMesh(faces, verts, null, "uniform", fc, "black", 1, 0.5, "jet");
+                MatlabPlots.PatchMesh(faces, verts, null, "uniform", fc, "black", 1, 0.5, _activeColormap ?? "parula");
                 MatlabPlots.SetFigure3D(true);
                 return new MValue(0);
             };
@@ -6680,7 +6683,7 @@ namespace Calcpad.Core.Matlab
                 MatlabPlots.SetColorRange(clo2, chi2);
             }
             MatlabPlots.PatchMesh(trifaces, Vertices, triCData, faceColorMode,
-                                   faceColor, edgeColor, faceAlpha, lineWidth, "jet", Faces.Cols == 4);
+                                   faceColor, edgeColor, faceAlpha, lineWidth, _activeColormap ?? "parula", Faces.Cols == 4);
             return new MValue(0);
         }
 
@@ -6718,7 +6721,7 @@ namespace Calcpad.Core.Matlab
                 foreach (var d in cdata.Data) { if (d < clo) clo = d; if (d > chi) chi = d; }
                 MatlabPlots.SetColorRange(clo, chi);
             }
-            MatlabPlots.PatchMesh(tris, X, cdata, mode, "lightblue", "none", 1, 0.5, "jet");
+            MatlabPlots.PatchMesh(tris, X, cdata, mode, "lightblue", "none", 1, 0.5, _activeColormap ?? "parula");
             MatlabPlots.SetFigure3D(true);
             return new MValue(0);
         }

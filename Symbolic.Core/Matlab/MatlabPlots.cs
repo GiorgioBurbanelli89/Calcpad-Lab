@@ -104,6 +104,8 @@ namespace Calcpad.Core.Matlab
         private static bool _figColorbar = false;
         private static double _figCLo = 0, _figCHi = 1;
         public static void SetColorbar(bool on) { _figColorbar = on; }
+        private static string _figCmapName = "parula";
+        public static void SetCmapName(string n) { _figCmapName = n ?? "parula"; }
         public static void SetColorRange(double lo, double hi) { _figCLo = lo; _figCHi = hi; }
         public static void SetGrid(bool on) { _figGrid = on; }
         private static bool _cvAxisEqual = true;
@@ -224,14 +226,34 @@ namespace Calcpad.Core.Matlab
                            (float)(mm[i0][2]*(1-a)+mm[i0+1][2]*a) };
         }
 
+        /// <summary>parula: el colormap por DEFECTO de MATLAB. Sin esto Lab pintaba
+        /// todo con jet_r y una misma malla salia roja arriba en Lab y amarilla en
+        /// MATLAB. Anclas muestreadas de la parula de MATLAB.</summary>
+        private static (int, int, int) ParulaRgb(double t)
+        {
+            double[][] A = {
+                new double[]{ 53, 42,135}, new double[]{ 15, 92,221}, new double[]{ 18,125,216},
+                new double[]{  7,156,207}, new double[]{ 21,177,180}, new double[]{ 89,189,140},
+                new double[]{165,190,107}, new double[]{225,185, 82}, new double[]{248,230, 33}
+            };
+            t = Math.Max(0, Math.Min(1, t));
+            double f = t * (A.Length - 1);
+            int i = (int)Math.Floor(f); if (i >= A.Length - 1) i = A.Length - 2;
+            double u = f - i;
+            return ((int)Math.Round(A[i][0] + u * (A[i + 1][0] - A[i][0])),
+                    (int)Math.Round(A[i][1] + u * (A[i + 1][1] - A[i][1])),
+                    (int)Math.Round(A[i][2] + u * (A[i + 1][2] - A[i][2])));
+        }
+
         private static float[] CmapF(string name, double t)
         {
             t = Math.Max(0, Math.Min(1, t));
-            var nm = (name ?? "jet").ToLowerInvariant();
+            var nm = (name ?? "parula").ToLowerInvariant();   // MATLAB: parula por defecto
             if (nm == "custom" && _customCmapRgb != null) return SampleCustom(t);
             if (nm.EndsWith("_r")) { nm = nm.Substring(0, nm.Length - 2); t = 1 - t; }   // jet_r etc.
             switch (nm)
             {
+                case "parula": { var cp = ParulaRgb(t); return new[] { cp.Item1 / 255f, cp.Item2 / 255f, cp.Item3 / 255f }; }
                 case "jet": { var c = JetRgb(t); return new[] { c.Item1 / 255f, c.Item2 / 255f, c.Item3 / 255f }; }
                 default: { var c = ViridisRgb(t); return new[] { c.Item1 / 255f, c.Item2 / 255f, c.Item3 / 255f }; }
             }
@@ -308,7 +330,8 @@ namespace Calcpad.Core.Matlab
                 var stops = new StringBuilder();
                 for (int q = 0; q <= 10; q++)
                 {
-                    var c = JetRgb(1.0 - q / 10.0);      // jet_r: el valor alto arriba
+                    var f3 = CmapF(_figCmapName, 1.0 - q / 10.0);   // el MISMO colormap del solido
+                    var c = ((int)(f3[0] * 255), (int)(f3[1] * 255), (int)(f3[2] * 255));
                     if (q > 0) stops.Append(", ");
                     stops.Append($"rgb({c.Item1},{c.Item2},{c.Item3})");
                 }
@@ -586,6 +609,7 @@ return {make:make};
                                       string faceColor, string edgeColor, double faceAlpha, double lineWidth,
                                       string colormap, bool quadSplit = false)
         {
+            SetCmapName(colormap);   // la colorbar debe usar el MISMO colormap
             int nF = faces.Rows;
             int nV = verts.Rows;
             bool is3D = verts.Cols >= 3;
