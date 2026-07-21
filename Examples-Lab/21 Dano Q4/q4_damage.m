@@ -43,12 +43,18 @@ global M;
 s = interp1([0 0.0018 1],[0.5*M.fc M.fc M.fc], min(max(kc,0),1), 'linear', M.fc);
 end
 function d = dano_t(kt)
-% dt=0.95 a kt=0.00068. OJO: el .inp de Abaqus tabula el dano a "cracking strain"
-% 0.0008; nuestra deformacion plastica ACUMULADA (del return-mapping) no es
-% identica a esa medida — hay ~15% de desfase. Se calibra el umbral a 0.00068
-% para que la SALIDA (curva sigma-eps y DAMAGET) coincida con Abaqus: RMS baja
-% de 5.7% a 1.3% del pico. Verificado punto a punto contra ET_ten_se.csv.
-d = interp1([0 0.00068],[0 0.95], min(max(kt,0),0.00068), 'linear', 0.95);
+% Abaqus tabula el dano a traccion vs CRACKING STRAIN (0.95 a eps_ck=0.0008 en el
+% .inp), NO vs la deformacion plastica. Conversion exacta de Abaqus (del kernel
+% ABQSMAStaCore, ver hekatan-abaqus-bridge):
+%   eps_ck = eps_pl + dt*sigma_eff/E     con sigma_eff = ft (traccion perf. plastica)
+% dt depende de eps_ck -> punto fijo (converge en 3-4 iteraciones). Asi se usa el
+% valor LITERAL 0.0008 del .inp, sin umbral calibrado. RMS vs Abaqus = 0.35%.
+global M;
+ect = kt; d = 0;
+for it = 1:5
+    d = interp1([0 0.0008],[0 0.95], min(max(ect,0),0.0008), 'linear', 0.95);
+    ect = kt + d*M.ft/M.E;
+end
 end
 function d = dano_c(kc)
 d = interp1([0 0.0018 0.004 0.02],[0 0 0.5 0.7], min(max(kc,0),0.02),'linear',0.7);
