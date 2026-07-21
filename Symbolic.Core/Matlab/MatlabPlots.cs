@@ -66,6 +66,9 @@ namespace Calcpad.Core.Matlab
         private static string _figXLabel = null, _figYLabel = null, _figZLabel = null;
         private static bool _figShowLegend = false;
         private static string _figLegendLoc = null;
+        /// <summary>Nombres de legend('a','b','c') — se aplican a las trazas en orden al cerrar la
+        /// figura. Necesario porque la figura se difiere (compone) y no hay DOM al llamar legend().</summary>
+        private static string[] _figLegendNames = null;
         private static double? _figXMin, _figXMax, _figYMin, _figYMax;
         private static bool _figAxisEqual = false;   // aspecto cuadrado en 2D SOLO si el script llama axis('equal') (MATLAB default=independiente)
         public static bool HasOpenFigure => _figTraces != null;
@@ -493,7 +496,7 @@ return {make:make};
             _figGrid = false;
             _figColorbar = false;
             _figAxisEqual = false;
-            _figShowLegend = false; _figLegendLoc = null;
+            _figShowLegend = false; _figLegendLoc = null; _figLegendNames = null;
             return prev;
         }
         /// <summary>Cierra figura abierta y devuelve su HTML.</summary>
@@ -573,7 +576,25 @@ return {make:make};
                 sb.Append("]");
             }
             sb.Append(" };\n  Plotly.newPlot('matlab_plot_").Append(_figId)
-              .Append("', data, layout, {responsive:true});\n})();</script>\n");
+              .Append("', data, layout, {responsive:true});\n");
+            // legend('a','b','c'): asigna los nombres a las primeras trazas y las muestra
+            // (las trazas se crean sin nombre; los nombres llegan después con legend()).
+            if (_figLegendNames != null && _figLegendNames.Length > 0)
+            {
+                int nn = Math.Min(_figLegendNames.Length, _figTraces.Count);
+                var names = new StringBuilder();
+                var idxs = new StringBuilder();
+                for (int i = 0; i < nn; i++)
+                {
+                    if (i > 0) { names.Append(","); idxs.Append(","); }
+                    names.Append($"'{EscapeJs(_figLegendNames[i])}'");
+                    idxs.Append(i);
+                }
+                sb.Append($"  Plotly.restyle('matlab_plot_{_figId}', {{name:[{names}], showlegend:[")
+                  .Append(string.Join(",", System.Linq.Enumerable.Repeat("true", nn)))
+                  .Append($"]}}, [{idxs}]);\n");
+            }
+            sb.Append("})();</script>\n");
             _figTraces = null; _figAnnotations = null;
             return sb.ToString();
         }
@@ -586,7 +607,11 @@ return {make:make};
             _figAnnotations.Add(annJson);
         }
         public static void SetFigure3D(bool is3d) { if (_figTraces != null) _figIs3D = is3d; }
-        public static void SetLegend(string loc) { _figShowLegend = true; if (loc != null) _figLegendLoc = loc; }
+        public static void SetLegend(string loc, string[] names = null) {
+            _figShowLegend = true;
+            if (loc != null) _figLegendLoc = loc;
+            if (names != null && names.Length > 0) _figLegendNames = names;
+        }
         /// <summary>Ubicación MATLAB de la leyenda -> posición Plotly (dentro de los ejes).</summary>
         public static string LegendPosJson(string loc)
         {

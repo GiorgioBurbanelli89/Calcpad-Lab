@@ -282,6 +282,16 @@ namespace Calcpad.Core.Matlab
         /// misma malla sale del mismo color en los dos. Si el script llama a
         /// colormap('jet') se respeta lo que pida.</summary>
         private static string _activeColormap = "parula";
+        /// <summary>hold on activo: los siguientes plot/scatter/text COMPONEN en los mismos ejes
+        /// (abre la figura acumulada). hold off la cierra. Sin esto cada plot abría un gráfico nuevo.</summary>
+        private bool _holdOn = false;
+        /// <summary>Índice del ciclo de colores de MATLAB (ColorOrder): cada plot sin color
+        /// explícito toma el siguiente. Se reinicia al abrir ejes nuevos. Sin esto, varias
+        /// curvas sin color salían todas del mismo azul.</summary>
+        private int _colorCycleIdx = 0;
+        private static readonly string[] _matlabColorOrder = {
+            "#0072BD", "#D95319", "#EDB120", "#7E2F8E", "#77AC30", "#4DBEEE", "#A2142F"
+        };
         /// <summary>Subplot grid activo (m, n) si subplot(m, n, p) fue llamado.</summary>
         internal (int m, int n)? _subplotGrid;
         /// <summary>Posición 1-based del subplot activo.</summary>
@@ -1615,6 +1625,7 @@ namespace Calcpad.Core.Matlab
                     rest++;
                 }
                 if (!wantLine && !wantMarker) wantLine = true;   // default MATLAB = línea
+                bool autoColor = specColor == null;   // sin color explícito -> ciclar ColorOrder
                 string lineColor = specColor ?? "#1f77b4";
                 // MATLAB solo RELLENA el marcador si se pide MarkerFaceColor.
                 // 'ro' es un circulo rojo HUECO, no macizo. El color del linespec
@@ -1628,7 +1639,7 @@ namespace Calcpad.Core.Matlab
                 for (int i = rest; i + 1 < a.Length; i += 2) {
                     if (!a[i].IsString) break;
                     switch (a[i].StringValue.ToLowerInvariant()) {
-                        case "color": lineColor = ColorArg(a[i+1]);
+                        case "color": lineColor = ColorArg(a[i+1]); autoColor = false;
                             if (specColor == null) { markerFill = lineColor; markerEdge = lineColor; } break;
                         case "linewidth": lineWidth = a[i+1].Scalar; break;
                         case "markerfacecolor": markerFill = ColorArg(a[i+1]); break;
@@ -1641,16 +1652,28 @@ namespace Calcpad.Core.Matlab
                 }
                 if (hideFromLegend) dispName = null;
                 markerFill ??= lineColor; markerEdge ??= "black";
-                if (MatlabPlots.HasOpenFigure) {
-                    // el nombre va a UNA sola traza (la línea si hay; si no, el marcador) -> una entrada
-                    if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth, dispName);
-                    if (wantMarker) MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize, wantLine ? null : dispName);
-                } else if (wantMarker && !wantLine) {
-                    MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize, dispName);
-                    _htmlOut?.Invoke(MatlabPlots.FinishFigure());
-                } else {
-                    _htmlOut?.Invoke(MatlabPlots.Plot(X, Y));
+                // MATLAB: todo plot va a los EJES ACTUALES. Componemos SIEMPRE en una figura.
+                // Sin hold, cada plot es su propia figura: cerrar la anterior (si la hay) y abrir
+                // una nueva -> así `plot(a); hold on; plot(b)` compone a+b en los mismos ejes
+                // (antes 'a' se emitía suelto y quedaba en un gráfico aparte).
+                if (!_holdOn && MatlabPlots.HasOpenFigure) {
+                    string prevh = MatlabPlots.FinishFigure();
+                    if (!string.IsNullOrEmpty(prevh)) _htmlOut?.Invoke(prevh);
                 }
+                if (!MatlabPlots.HasOpenFigure) {
+                    string prev = MatlabPlots.BeginFigure();
+                    if (!string.IsNullOrEmpty(prev)) _htmlOut?.Invoke(prev);
+                    _colorCycleIdx = 0;   // ejes nuevos -> reiniciar el ciclo de colores
+                }
+                // Color automático (MATLAB ColorOrder): curvas sucesivas sin color explícito.
+                if (autoColor) {
+                    lineColor = _matlabColorOrder[_colorCycleIdx % _matlabColorOrder.Length];
+                    _colorCycleIdx++;
+                    if (symbol != "point") markerEdge ??= lineColor;
+                }
+                // el nombre va a UNA sola traza (la línea si hay; si no, el marcador) -> una entrada
+                if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth, dispName);
+                if (wantMarker) MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize, wantLine ? null : dispName);
                 return new MValue(0);
             };
             _builtins["plot3"] = a => {
@@ -1850,7 +1873,7 @@ namespace Calcpad.Core.Matlab
                         s.Equals("boxon", StringComparison.OrdinalIgnoreCase)) continue;
                     names.Add(s);
                 }
-                MatlabPlots.SetLegend(loc);   // estado de figura -> FinishFigure lo emite (sirve para --shot)
+                MatlabPlots.SetLegend(loc, names.Count > 0 ? names.ToArray() : null);   // estado de figura -> FinishFigure lo emite (sirve para --shot)
                 // y además, por si la figura YA está renderizada, un script en vivo
                 string legPos = MatlabPlots.LegendPosJson(loc);
                 var setNames = names.Count > 0
@@ -1924,7 +1947,27 @@ namespace Calcpad.Core.Matlab
                 _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, {js});}})();</script>\n");
                 return new MValue(0);
             };
-            _builtins["hold"] = a => new MValue(0);
+            _builtins["hold"] = a => {
+                // hold on  -> abrir la figura compuesta: plot/scatter/text SIGUIENTES se
+                //             superponen en los mismos ejes (antes cada plot abría uno nuevo).
+                // hold off -> cerrar/emitir la figura actual: el próximo plot empieza otra.
+                // hold     -> alterna.
+                string mode = a.Length > 0 && a[0].IsString
+                    ? a[0].StringValue.Trim().ToLowerInvariant()
+                    : (_holdOn ? "off" : "on");
+                if (mode == "off") {
+                    _holdOn = false;
+                    string html = MatlabPlots.FinishFigure();
+                    if (!string.IsNullOrEmpty(html)) _htmlOut?.Invoke(html);
+                } else {   // "on" (o cualquier otra cosa la tratamos como on)
+                    _holdOn = true;
+                    if (!MatlabPlots.HasOpenFigure) {
+                        string prev = MatlabPlots.BeginFigure();
+                        if (!string.IsNullOrEmpty(prev)) _htmlOut?.Invoke(prev);
+                    }
+                }
+                return new MValue(0);
+            };
             // Modos interactivos de figura de MATLAB 2017a — en Calcpad Lab los plots
             // (plotly + canvas WebView2) YA traen hover/datatip/zoom/pan nativos, así que
             // estos son no-op para que el MISMO script con hover cursor no falle (Undefined).
