@@ -1077,6 +1077,10 @@ namespace Calcpad.Core.Matlab
                     continue;
                 }
                 if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
+                // Comentario DENTRO de una matriz multilínea (MATLAB lo permite:
+                // `[1 2;% Eje A` \n `3 4]`). Se ignora; el Newline que sigue separa fila.
+                if (Peek().Kind == MatlabTokenKind.Comment || Peek().Kind == MatlabTokenKind.SectionHeading)
+                { Consume(); continue; }
                 currentRow.Add(ParseExpression());
             }
             if (currentRow.Count > 0) lit.Rows.Add(currentRow);
@@ -1101,6 +1105,8 @@ namespace Calcpad.Core.Matlab
                     continue;
                 }
                 if (Peek().Kind == MatlabTokenKind.Comma) { Consume(); continue; }
+                if (Peek().Kind == MatlabTokenKind.Comment || Peek().Kind == MatlabTokenKind.SectionHeading)
+                { Consume(); continue; }   // comentario dentro de un cell multilínea
                 currentRow.Add(ParseExpression());
             }
             if (currentRow.Count > 0) lit.Rows.Add(currentRow);
