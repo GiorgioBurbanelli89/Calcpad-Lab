@@ -144,6 +144,19 @@ namespace Calcpad.Core.Matlab
                                                     //          name(args)         → [] (procedure)
         public List<string> ParamNames = new();
         public List<MatlabNode> Body = new();
+        /// <summary>Cache (lazy): nombres de parámetros que la función MUTA (aparecen como destino
+        /// de asignación directa/indexada/campo, var de for, o var de catch). Solo esos se clonan
+        /// al enlazar (semántica por valor de MATLAB) — los de solo-lectura se pasan por referencia
+        /// para no clonar en cada llamada. null = aún no computado.</summary>
+        public System.Collections.Generic.HashSet<string> MutatedParams;
+        /// <summary>Scope del padre para funciones ANIDADAS (definidas dentro de otra función).
+        /// null = subfunción/función de archivo (scope propio). Si != null, el cuerpo se ejecuta
+        /// en ESE scope (workspace compartido con el padre, como las nested functions de MATLAB).</summary>
+        public MatlabScope ClosureScope;
+        /// <summary>Cache (lazy): flags de rasgos del cuerpo para evitar re-escanearlo en CADA
+        /// llamada (crítico en bucles cerrados con funciones anidadas). null = aún no computado.
+        /// Bit0 = tiene FunctionDef anidada; Bit1 = referencia nargin; Bit2 = referencia nargout.</summary>
+        public int? BodyFlags;
     }
 
     // ─── Class definitions ──────────────────────────────────────────────────

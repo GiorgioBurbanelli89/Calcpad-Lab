@@ -6193,8 +6193,19 @@ namespace Calcpad.Core.Matlab
                 for (int j = 0; j < src.Cols; j++)
                     for (int i = 0; i < src.Rows; i++)
                         if (src.At(i, j) != 0) hits.Add(j * src.Rows + i + 1);  // column-major 1-based
-                if (hits.Count == 0) return new MValue(0, 0);
-                return new MValue(1, hits.Count, hits.ToArray());
+                // find(X,k): limitar a los primeros k (MATLAB). 'last' no soportado aún.
+                if (a.Length >= 2 && a[1].IsScalar)
+                {
+                    int k = (int)a[1].Scalar;
+                    if (k >= 0 && k < hits.Count) hits = hits.GetRange(0, k);
+                }
+                // Orientación como MATLAB: FILA solo si el input es un vector fila (1×n, n>1);
+                // en cualquier otro caso (vector columna o matriz) devuelve COLUMNA. Antes SIEMPRE
+                // devolvía fila, lo que rompía `a.'` y horzcat en código FEM (find de una columna).
+                bool rowOut = src.Rows == 1 && src.Cols > 1;
+                if (hits.Count == 0) return rowOut ? new MValue(1, 0) : new MValue(0, 1);
+                var arr = hits.ToArray();
+                return rowOut ? new MValue(1, arr.Length, arr) : new MValue(arr.Length, 1, arr);
             };
 
             // Multi-output builtins extras
@@ -7947,25 +7958,81 @@ namespace Calcpad.Core.Matlab
                 if (s is FunctionDef nfd && !_reservedVizBuiltins.Contains(nfd.Name))
                 { nfd.ClosureScope = parent; _userFunctions[nfd.Name] = nfd; }
         }
+        /// <summary>Rasgos del cuerpo de una función, computados UNA vez y cacheados en
+        /// <c>def.BodyFlags</c>. Evita re-escanear el AST en cada llamada — decisivo en bucles
+        /// cerrados con funciones anidadas (un FEM no lineal hace millones de llamadas).
+        /// Bit0 = tiene FunctionDef anidada (top-level, la que hoistea HoistNestedFunctions);
+        /// Bit1 = referencia nargin; Bit2 = referencia nargout. Los bits nargin/nargout se
+        /// SOBRE-aproximan (se escanean incluso cuerpos anidados): setear de más es inofensivo,
+        /// no setear cuando se usa sería un bug — por eso se prefiere el falso positivo.</summary>
+        private static int ComputeBodyFlags(FunctionDef def)
+        {
+            int flags = 0;
+            foreach (var s in def.Body)
+                if (s is FunctionDef) { flags |= 1; break; }       // hoisting mira solo top-level
+            foreach (var s in def.Body) ScanBodyFlags(s, ref flags);
+            return flags;
+        }
+        private static void ScanBodyFlags(MatlabNode n, ref int flags)
+        {
+            if (n == null || (flags & 6) == 6) return;             // nargin+nargout ya hallados → corta
+            switch (n)
+            {
+                case IdentRef id:
+                    if (id.Name == "nargin") flags |= 2;
+                    else if (id.Name == "nargout") flags |= 4;
+                    break;
+                case UnaryOp u: ScanBodyFlags(u.Operand, ref flags); break;
+                case BinaryOp b: ScanBodyFlags(b.Left, ref flags); ScanBodyFlags(b.Right, ref flags); break;
+                case CallOrIndex c: ScanBodyFlags(c.Target, ref flags); ScanBodyList(c.Args, ref flags); break;
+                case Range r: ScanBodyFlags(r.Start, ref flags); ScanBodyFlags(r.Step, ref flags); ScanBodyFlags(r.End, ref flags); break;
+                case MatrixLit ml: foreach (var row in ml.Rows) ScanBodyList(row, ref flags); break;
+                case CellLit cl: foreach (var row in cl.Rows) ScanBodyList(row, ref flags); break;
+                case FieldAccess fa: ScanBodyFlags(fa.Target, ref flags); break;
+                case CellIndex ci: ScanBodyFlags(ci.Target, ref flags); ScanBodyList(ci.Args, ref flags); break;
+                case AnonFunction af: ScanBodyFlags(af.Body, ref flags); break;
+                case Assignment asg: ScanBodyList(asg.Targets, ref flags); ScanBodyFlags(asg.Rhs, ref flags); break;
+                case ExprStmt es: ScanBodyFlags(es.Expr, ref flags); break;
+                case ForLoop f: ScanBodyFlags(f.Iter, ref flags); ScanBodyList(f.Body, ref flags); break;
+                case WhileLoop w: ScanBodyFlags(w.Cond, ref flags); ScanBodyList(w.Body, ref flags); break;
+                case IfBlock ib: foreach (var br in ib.Branches) { ScanBodyFlags(br.Cond, ref flags); ScanBodyList(br.Body, ref flags); } break;
+                case SwitchBlock sb:
+                    ScanBodyFlags(sb.Discriminant, ref flags);
+                    foreach (var cs in sb.Cases) { if (cs.Values != null) ScanBodyList(cs.Values, ref flags); ScanBodyList(cs.Body, ref flags); }
+                    break;
+                case TryCatch tc: ScanBodyList(tc.TryBody, ref flags); ScanBodyList(tc.CatchBody, ref flags); break;
+                case FunctionDef fd: ScanBodyList(fd.Body, ref flags); break;   // over-approx
+                // NumberLit, StringLit, ColonAll, EndKeyword, Break/Continue/Return, Comment,
+                // GlobalDecl, PersistentDecl: hojas sin nargin/nargout.
+            }
+        }
+        private static void ScanBodyList(List<MatlabNode> list, ref int flags)
+        {
+            if (list == null) return;
+            for (int i = 0; i < list.Count && (flags & 6) != 6; i++) ScanBodyFlags(list[i], ref flags);
+        }
+
         private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)
         {
             // función ANIDADA: corre en el scope del padre (workspace compartido); si no, scope propio.
             var local = def.ClosureScope ?? new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
+            int bf = def.BodyFlags ??= ComputeBodyFlags(def);
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
             BindParams(def, args, local);
-            // MATLAB nargin / nargout dentro de la función
-            local.Set("nargin",  new MValue(args.Length));
-            local.Set("nargout", new MValue(def.OutputNames.Count));
-            HoistNestedFunctions(def, local);
+            // MATLAB nargin / nargout: solo se crean si la función los usa (sobre-aprox segura).
+            if ((bf & 2) != 0) local.Set("nargin",  new MValue(args.Length));
+            if ((bf & 4) != 0) local.Set("nargout", new MValue(def.OutputNames.Count));
+            if ((bf & 1) != 0) HoistNestedFunctions(def, local);
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { /* early return ok */ }
             finally { _inputNameStack.Pop(); }
-            // Flush persistent vars de vuelta a storage
-            foreach (var kv in local.Vars)
-                if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
-                    _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
+            // Flush persistent vars de vuelta a storage (solo si hay alguna registrada)
+            if (_persistentVars.Count > 0)
+                foreach (var kv in local.Vars)
+                    if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
+                        _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
             _currentFunctionName = savedFn;
             // Output principal: primer nombre de output
             if (def.OutputNames.Count > 0 && local.TryGet(def.OutputNames[0], out var v))
@@ -8097,18 +8164,20 @@ namespace Calcpad.Core.Matlab
             var local = def.ClosureScope ?? new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
+            int bf = def.BodyFlags ??= ComputeBodyFlags(def);
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
             BindParams(def, args, local);
-            // MATLAB nargin / nargout dentro de la función
-            local.Set("nargin",  new MValue(args.Length));
-            local.Set("nargout", new MValue(def.OutputNames.Count));
-            HoistNestedFunctions(def, local);
+            // MATLAB nargin / nargout: solo se crean si la función los usa (sobre-aprox segura).
+            if ((bf & 2) != 0) local.Set("nargin",  new MValue(args.Length));
+            if ((bf & 4) != 0) local.Set("nargout", new MValue(def.OutputNames.Count));
+            if ((bf & 1) != 0) HoistNestedFunctions(def, local);
             try { foreach (var s in def.Body) ExecuteOne(s, local); }
             catch (ReturnSignal) { }
             finally { _inputNameStack.Pop(); }
-            foreach (var kv in local.Vars)
-                if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
-                    _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
+            if (_persistentVars.Count > 0)
+                foreach (var kv in local.Vars)
+                    if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
+                        _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
             _currentFunctionName = savedFn;
             var outs = new MValue[def.OutputNames.Count];
             for (int i = 0; i < outs.Length; i++)
