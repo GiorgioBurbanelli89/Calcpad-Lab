@@ -19,6 +19,10 @@ namespace Calcpad.Core.Matlab
         /// <summary>ID del último plot emitido (para title/xlabel/etc. post-hoc).</summary>
         public static int LastPlotId => _plotCounter;
         private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+        /// <summary>El ultimo plot emitido colorea por VALOR en el marker (scatter con c-vector).
+        /// Si es true, colormap()/colorbar() deben re-estilar marker.colorscale/marker.showscale,
+        /// no el colorscale de la traza (que en un scatter no hace nada).</summary>
+        private static bool _lastIsMarkerColored = false;
 
         // ── Acumulador de figura ─────────────────────────────────────────────
         // Permite acumular múltiples patch/line/text en UN solo plot Plotly,
@@ -104,6 +108,7 @@ namespace Calcpad.Core.Matlab
         private static bool _figColorbar = false;
         private static double _figCLo = 0, _figCHi = 1;
         public static void SetColorbar(bool on) { _figColorbar = on; }
+        public static bool ColorbarState => _figColorbar;
         private static string _figCmapName = "parula";
         public static void SetCmapName(string n) { _figCmapName = n ?? "parula"; }
         public static void SetColorRange(double lo, double hi) { _figCLo = lo; _figCHi = hi; }
@@ -210,8 +215,24 @@ namespace Calcpad.Core.Matlab
         {
             if (_plotCounter <= 0) return null;
             string rev = ColormapReversed(colormap) ? "true" : "false";
+            // Un scatter colorea bajo marker.* ; una superficie/heatmap a nivel de traza.
+            string body = _lastIsMarkerColored
+                ? $"{{'marker.colorscale':[{ColorscaleJs(colormap)}],'marker.reversescale':[{rev}]}}"
+                : $"{{colorscale:[{ColorscaleJs(colormap)}],reversescale:[{rev}]}}";
             return $"<script>setTimeout(function(){{try{{Plotly.restyle('matlab_plot_{_plotCounter}'," +
-                   $"{{colorscale:[{ColorscaleJs(colormap)}],reversescale:[{rev}]}});}}catch(e){{}}}},60);</script>\n";
+                   $"{body});}}catch(e){{}}}},60);</script>\n";
+        }
+        /// <summary>colorbar tras el plot: enciende la barra de escala en el ULTIMO plot.
+        /// En un scatter la escala vive en marker.showscale; en superficie/heatmap en showscale.</summary>
+        public static string RestyleLastColorbar(bool on)
+        {
+            if (_plotCounter <= 0) return null;
+            string v = on ? "true" : "false";
+            string body = _lastIsMarkerColored
+                ? $"{{'marker.showscale':[{v}]}}"
+                : $"{{showscale:[{v}]}}";
+            return $"<script>setTimeout(function(){{try{{Plotly.restyle('matlab_plot_{_plotCounter}'," +
+                   $"{body});}}catch(e){{}}}},60);</script>\n";
         }
 
         private static float[] SampleCustom(double t)
@@ -1763,18 +1784,70 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             sb.Append("})();</script>\n");
             return sb.ToString();
         }
-        public static string Scatter(MValue X, MValue Y)
+        public static string Scatter(MValue X, MValue Y, MValue Size = null, MValue C = null,
+                                     string colormap = "parula", bool filled = false, bool showColorbar = false)
         {
             int id = ++_plotCounter;
+            int n = X.Data?.Length ?? 0;
+            _lastIsMarkerColored = false;
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:400px\"></div>\n");
             sb.Append("<script>(function() {\n");
+
+            // --- marker ---
+            var mk = new StringBuilder("{ ");
+            // tamaño: MATLAB da el AREA en puntos^2 -> plotly usa diametro en px (aprox sqrt).
+            if (Size != null && Size.Data != null && Size.Data.Length > 1)
+                mk.Append($"size: {EmitVecJs(Size)}, ");
+            else
+            {
+                double sArea = (Size != null && Size.Data != null && Size.Data.Length >= 1) ? Size.Data[0] : 36;
+                double px = Math.Max(4, Math.Sqrt(Math.Max(1, sArea)));
+                mk.Append($"size: {px.ToString("0.##", Inv)}, ");
+            }
+            // color
+            if (C != null && C.Data != null && C.Data.Length == n && n > 1)
+            {
+                // color POR VALOR -> colorscale + (opcional) barra
+                mk.Append($"color: {EmitVecJs(C)}, colorscale: {ColorscaleJs(colormap)}, " +
+                          $"reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, " +
+                          $"showscale: {(showColorbar ? "true" : "false")}, ");
+                _lastIsMarkerColored = true;
+            }
+            else if (C != null && C.IsString)
+                mk.Append($"color: '{JsColor(C.StringValue)}', ");
+            else if (C != null && C.Data != null && C.Data.Length == 3)
+            {
+                int r = (int)Math.Round(Math.Max(0, Math.Min(1, C.Data[0])) * 255);
+                int g = (int)Math.Round(Math.Max(0, Math.Min(1, C.Data[1])) * 255);
+                int b = (int)Math.Round(Math.Max(0, Math.Min(1, C.Data[2])) * 255);
+                mk.Append($"color: 'rgb({r},{g},{b})', ");
+            }
+            if (!filled) mk.Append("symbol: 'circle-open', ");
+            mk.Append("}");
+
             sb.Append($"  var data = [{{ type: 'scatter', mode: 'markers',\n");
-            sb.Append($"    x: {EmitVecJs(X)}, y: {EmitVecJs(Y)} }}];\n");
+            sb.Append($"    x: {EmitVecJs(X)}, y: {EmitVecJs(Y)}, marker: {mk} }}];\n");
             sb.Append($"  var layout = {{ title: 'scatter', margin:{{l:50,r:30,t:40,b:50}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
             return sb.ToString();
+        }
+        /// <summary>Colores MATLAB de una letra ('r','g','b','k','y','m','c','w') o nombre a CSS.</summary>
+        private static string JsColor(string s)
+        {
+            switch ((s ?? "").Trim().ToLowerInvariant())
+            {
+                case "r": case "red":     return "red";
+                case "g": case "green":   return "green";
+                case "b": case "blue":    return "blue";
+                case "k": case "black":   return "black";
+                case "y": case "yellow":  return "gold";
+                case "m": case "magenta": return "magenta";
+                case "c": case "cyan":    return "cyan";
+                case "w": case "white":   return "white";
+                default: return s;
+            }
         }
         public static string Scatter3(MValue X, MValue Y, MValue Z)
         {

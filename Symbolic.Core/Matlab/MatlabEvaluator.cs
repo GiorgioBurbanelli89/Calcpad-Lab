@@ -1729,8 +1729,23 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["scatter"] = a => {
-                if (a.Length < 2) throw new MatlabRuntimeException("scatter(x, y)");
-                _htmlOut?.Invoke(MatlabPlots.Scatter(a[0], a[1]));
+                a = DropAxes(a);   // tolerar scatter(ax, …)
+                if (a.Length < 2) throw new MatlabRuntimeException("scatter(x, y[, sz, c, 'filled'])");
+                // scatter(x, y, sz, c, 'filled') — sz y c son POSICIONALES; 'filled' es flag string.
+                MValue sz = null, c = null;
+                bool filled = false;
+                int pos = 2;
+                if (pos < a.Length && !a[pos].IsString) { sz = a[pos]; pos++; }        // 3º = tamaño
+                if (pos < a.Length && !a[pos].IsString) { c = a[pos]; pos++; }         // 4º = color (vector/RGB)
+                for (int k = pos; k < a.Length; k++)                                   // flags: 'filled', o color string
+                {
+                    if (!a[k].IsString) continue;
+                    var s = a[k].StringValue;
+                    if (s.Equals("filled", StringComparison.OrdinalIgnoreCase)) filled = true;
+                    else if (c == null) c = a[k];                                      // scatter(x,y,'r')
+                }
+                _htmlOut?.Invoke(MatlabPlots.Scatter(a[0], a[1], sz, c, _activeColormap, filled,
+                                                     MatlabPlots.ColorbarState));
                 return new MValue(0);
             };
             _builtins["scatter3"] = a => {
@@ -1852,7 +1867,13 @@ namespace Calcpad.Core.Matlab
                 _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, '{property}', \"{jsonValue}\");}})();</script>\n");
             }
             string JsonEscape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
-            _builtins["colorbar"] = a => { MatlabPlots.SetColorbar(true); return new MValue(0); };
+            _builtins["colorbar"] = a => {
+                MatlabPlots.SetColorbar(true);
+                // MATLAB: colorbar tras el plot enciende la barra en el plot YA dibujado.
+                var r = MatlabPlots.RestyleLastColorbar(true);
+                if (r != null) _htmlOut?.Invoke(r);
+                return new MValue(0);
+            };
             _builtins["shading"] = a => new MValue(0);
             _builtins["axis"] = a => {
                 // axis('equal'|'square'|'tight'|'normal') o axis([xmin xmax ymin ymax])
