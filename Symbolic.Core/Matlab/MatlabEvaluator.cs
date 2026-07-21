@@ -1350,6 +1350,7 @@ namespace Calcpad.Core.Matlab
             _builtins["clf"]     = a => new MValue(0);
             _builtins["cla"]     = a => new MValue(0);
             _builtins["clear"]   = a => new MValue(0);
+            _builtins["format"]  = a => new MValue(0);   // format bank/long/short/... : no-op (no cambia el render)
             _builtins["addpath"] = a => new MValue(0);
             _builtins["rmpath"]  = a => new MValue(0);
             _builtins["pause"]   = a => new MValue(0);
@@ -6471,7 +6472,7 @@ namespace Calcpad.Core.Matlab
                 int ni = (int)System.Math.Round(en[k * 2]) - 1;
                 int nj = (int)System.Math.Round(en[k * 2 + 1]) - 1;
                 if (ni < 0 || nj < 0 || ni >= xs.Length || nj >= xs.Length) continue;
-                MatlabPlots.Line2D(new[] { xs[ni], xs[nj] }, new[] { ys[ni], ys[nj] }, "#4DBEEE", lw);
+                MatlabPlots.Line2D(new[] { xs[ni], xs[nj] }, new[] { ys[ni], ys[nj] }, "#0072BD", lw);
                 if (edgeLab != null && k < edgeLab.Length)
                     MatlabPlots.Text2D((xs[ni] + xs[nj]) / 2, (ys[ni] + ys[nj]) / 2,
                                        edgeLab[k].ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),

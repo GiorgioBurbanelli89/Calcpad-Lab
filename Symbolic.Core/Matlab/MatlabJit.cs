@@ -182,8 +182,17 @@ namespace Calcpad.Core.Matlab
             for (int k = 0; k < c.ScalarNames.Length; k++)
             {
                 if (k == c.IterIdx) continue;
-                if (scope.TryGet(c.ScalarNames[k], out var v) && v.IsScalar)
+                if (scope.TryGet(c.ScalarNames[k], out var v))
+                {
+                    // Si la variable EXISTE como MATRIZ pero el clasificador la tomó como
+                    // escalar (p.ej. `C = A*B` sin indexar el resultado, donde no hay nada
+                    // que fuerce el tipo matriz), la clasificación es incorrecta: correr el
+                    // JIT inicializaria su slot en 0 y al terminar lo commitearia como
+                    // escalar 0, DESTRUYENDO la matriz del workspace. Se aborta el JIT y se
+                    // deja que el intérprete ejecute el loop (resultado correcto).
+                    if (!v.IsScalar) { Skips++; return false; }
                     slots[k] = v.Scalar;
+                }
             }
             int iStart = (int)startVal;
             int iEnd   = (int)endVal;
