@@ -6443,6 +6443,42 @@ namespace Calcpad.Core.Matlab
                 new MValue(a[0].Rows),
                 new MValue(a[0].Cols)
             };
+            // sub2ind(sz, i1, i2, ...) -> indice lineal (column-major, como MATLAB).
+            // idx = i1 + (i2-1)*s1 + (i3-1)*s1*s2 + ...  (element-wise sobre los subindices)
+            _builtins["sub2ind"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("sub2ind(sz, i1, i2, ...)");
+                var sz = a[0]; int nsub = a.Length - 1;
+                int n = a[1].Data.Length;
+                var res = new MValue(a[1].Rows, a[1].Cols);
+                for (int e = 0; e < n; e++) {
+                    double idx = 0, stride = 1;
+                    for (int d = 0; d < nsub; d++) {
+                        var sd = a[1 + d];
+                        double sub = sd.Data[sd.Data.Length == 1 ? 0 : e];
+                        idx += (sub - 1) * stride;
+                        stride *= (d < sz.Data.Length) ? sz.Data[d] : 1;
+                    }
+                    res.Data[e] = idx + 1;
+                }
+                return res;
+            };
+            // [i,j,...] = ind2sub(sz, idx) -> subindices desde el indice lineal (column-major).
+            _multiOutBuiltins["ind2sub"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("[i,j]=ind2sub(sz, idx)");
+                var sz = a[0]; int ndim = Math.Max(2, sz.Data.Length);
+                var iv = a[1]; int n = iv.Data.Length;
+                var outs = new MValue[ndim];
+                for (int d = 0; d < ndim; d++) outs[d] = new MValue(iv.Rows, iv.Cols);
+                for (int e = 0; e < n; e++) {
+                    long rem = (long)Math.Round(iv.Data[e]) - 1;
+                    for (int d = 0; d < ndim; d++) {
+                        long dimsz = (d < sz.Data.Length) ? (long)sz.Data[d] : 1;
+                        if (d == ndim - 1) outs[d].Data[e] = rem + 1;
+                        else { outs[d].Data[e] = (rem % dimsz) + 1; rem /= dimsz; }
+                    }
+                }
+                return outs;
+            };
         }
 
         // ── Helpers para patch/line/text ──────────────────────────────────────
@@ -9807,9 +9843,19 @@ namespace Calcpad.Core.Matlab
                     }
                     return MValue.NewSymMatrix(cellsS);
                 }
+                // Si el INDICE es una matriz 2D, el resultado toma SU forma (MATLAB:
+                // A(M) tiene el size de M). Sin esto, newid(elems) con elems ne×4
+                // aplanaba la conectividad -> rompia el ensamblaje FEM.
+                int idxR = 0, idxC = 0;
+                if (!isFullColon && lin.Length > 1)
+                {
+                    try { var idxM = Eval(idxNodes[0], scope); idxR = idxM.Rows; idxC = idxM.Cols; } catch { }
+                }
                 MValue r;
                 if (isFullColon)
                     r = new MValue(lin.Length, 1);   // column vector
+                else if (idxR > 1 && idxC > 1)
+                    r = new MValue(idxR, idxC);      // indice matriz 2D -> forma del indice
                 else if (sourceIsRow)
                     r = new MValue(1, lin.Length);   // mantener row si source es row
                 else
