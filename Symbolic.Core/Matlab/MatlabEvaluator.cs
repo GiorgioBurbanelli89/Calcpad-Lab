@@ -2367,8 +2367,12 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["fill"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("fill(x, y, color)");
-                string fc = a[2].IsString ? MatlabColorToJs(a[2].StringValue) :
-                            (a[2].IsScalar ? ScalarToColorJs(a[2].Scalar) : "lightblue");
+                // color: string ('r','tan'), triplete RGB [r g b] (0..1), o escalar (colormap).
+                string fc;
+                if (a[2].IsString) fc = MatlabColorToJs(a[2].StringValue);
+                else if (a[2].Rows * a[2].Cols == 3) fc = RgbVecToCss(a[2]);   // [r g b] -> antes caia a lightblue
+                else if (a[2].IsScalar) fc = ScalarToColorJs(a[2].Scalar);
+                else fc = "lightblue";
                 MatlabPlots.Patch2D(a[0].Data, a[1].Data, fc, "black", 1, 1);
                 return new MValue(0);
             };
@@ -2380,7 +2384,8 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i < n; i++) { verts.Set(i,0,a[0].Data[i]); verts.Set(i,1,a[1].Data[i]); verts.Set(i,2,a[2].Data[i]); }
                 var faces = new MValue(n - 2, 3);
                 for (int i = 0; i < n - 2; i++) { faces.Set(i,0,1); faces.Set(i,1,i+2); faces.Set(i,2,i+3); }
-                string fc = a[3].IsString ? MatlabColorToJs(a[3].StringValue) : "lightblue";
+                string fc = a[3].IsString ? MatlabColorToJs(a[3].StringValue) :
+                            (a[3].Rows * a[3].Cols == 3 ? RgbVecToCss(a[3]) : "lightblue");
                 MatlabPlots.PatchMesh(faces, verts, null, "uniform", fc, "black", 1, 0.5, _activeColormap ?? "parula");
                 MatlabPlots.SetFigure3D(true);
                 return new MValue(0);
