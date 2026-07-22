@@ -931,6 +931,7 @@ return {make:make};
         public static void TriMesh3D(MValue faces, double[] x, double[] y, double[] z, string colormap)
         {
             if (_figTraces == null) BeginFigure();
+            SetAxisEqual(false);   // superficie: caja estirada por eje (como MATLAB), NO proporción real
             SetCmapName(colormap);
             int nF = faces.Rows;
             double zmin = double.MaxValue, zmax = double.MinValue;
