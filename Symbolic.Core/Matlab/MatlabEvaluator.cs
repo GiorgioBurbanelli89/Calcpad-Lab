@@ -7835,6 +7835,9 @@ namespace Calcpad.Core.Matlab
         /// <summary>Verdadero si `name` resuelve a función (user-def o builtin).</summary>
         public bool JitIsFunction(string name) =>
             _userFunctions.ContainsKey(name) || _builtins.ContainsKey(name);
+        /// <summary>true si el nombre es una función DEFINIDA POR EL USUARIO (no un builtin).
+        /// El JIT lo usa para no inlinear una función math si el usuario la redefinió.</summary>
+        public bool JitIsUserFunction(string name) => _userFunctions.ContainsKey(name);
         /// <summary>Dispatch de single-output call para el JIT (user fn → builtin → undefined).</summary>
         public MValue JitCall(string name, MValue[] args)
         {

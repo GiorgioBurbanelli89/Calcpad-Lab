@@ -109,6 +109,17 @@ namespace Calcpad.Core.Matlab
             return Evaluator.JitCall(name, mArgs);
         }
 
+        // ─── Funciones matematicas INLINE (sin MValue ni dispatch) ─────────
+        // MATLAB mod(a,b) = a - b*floor(a/b);  mod(a,0) = a.
+        public static double JMod(double a, double b) => b == 0 ? a : a - b * Math.Floor(a / b);
+        // MATLAB rem(a,b) = a - b*fix(a/b);  rem(a,0) = NaN.
+        public static double JRem(double a, double b) => b == 0 ? double.NaN : a - b * Math.Truncate(a / b);
+        // MATLAB round: mitad HACIA AFUERA (2.5->3), no banquero.
+        public static double JRound(double a) => Math.Round(a, MidpointRounding.AwayFromZero);
+        public static double JSign(double a) => Math.Sign(a);
+        public static double JFix(double a) => Math.Truncate(a);
+        public static double JLog2(double a) => Math.Log(a) / 0.6931471805599453;
+
         // ─── Matrix variable access ────────────────────────────────────────
         public MValue GetMatrixVar(string name)
         {
@@ -143,6 +154,26 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
         internal static readonly ConstructorInfo CMValueScalar = typeof(MValue).GetConstructor(new[] { typeof(double) });
+
+        // ─── Mapa de funciones matematicas escalares que el JIT INLINEA como
+        // llamada estatica nativa (Math.* o JitCtx.J*), evitando el dispatch
+        // generico con MValue+diccionario (mod() en un loop FEM pasa de ~2us a ~ns).
+        private static MethodInfo M1(string n) => typeof(Math).GetMethod(n, new[] { typeof(double) });
+        private static MethodInfo M2(string n) => typeof(Math).GetMethod(n, new[] { typeof(double), typeof(double) });
+        private static MethodInfo J(string n) => typeof(JitCtx).GetMethod(n);
+        internal static readonly Dictionary<string, (int Argc, MethodInfo M)> InlineMath = new(StringComparer.Ordinal)
+        {
+            ["sqrt"]=(1,M1("Sqrt")), ["abs"]=(1,M1("Abs")), ["floor"]=(1,M1("Floor")),
+            ["ceil"]=(1,M1("Ceiling")), ["sin"]=(1,M1("Sin")), ["cos"]=(1,M1("Cos")),
+            ["tan"]=(1,M1("Tan")), ["asin"]=(1,M1("Asin")), ["acos"]=(1,M1("Acos")),
+            ["atan"]=(1,M1("Atan")), ["sinh"]=(1,M1("Sinh")), ["cosh"]=(1,M1("Cosh")),
+            ["tanh"]=(1,M1("Tanh")), ["exp"]=(1,M1("Exp")), ["log"]=(1,M1("Log")),
+            ["log10"]=(1,M1("Log10")), ["log2"]=(1,J(nameof(JLog2))), ["round"]=(1,J(nameof(JRound))),
+            ["sign"]=(1,J(nameof(JSign))), ["fix"]=(1,J(nameof(JFix))),
+            ["mod"]=(2,J(nameof(JMod))), ["rem"]=(2,J(nameof(JRem))),
+            ["power"]=(2,M2("Pow")), ["atan2"]=(2,M2("Atan2")),
+            ["min"]=(2,M2("Min")), ["max"]=(2,M2("Max")),
+        };
     }
 
     public static class MatlabJit
@@ -504,11 +535,13 @@ namespace Calcpad.Core.Matlab
                 case CallOrIndex coi when coi.Target is IdentRef ident:
                     if (cc.Evaluator.JitIsFunction(ident.Name))
                     {
-                        // Función: heurística — si retorna matrix detectaremos a runtime.
-                        // Para clasificacion, miramos al primer arg / uso. Default: scalar
-                        // si se asigna a un scalar slot conocido; matrix si vemos matrix lit
-                        // o B_mat / N_vec naming. Para simplicidad: matrix si el nombre
-                        // empieza con mayuscula O contiene "mat"/"vec"/"_vec". Sino scalar.
+                        // Clasificar los ARGUMENTOS (registra las vars que usan). Sin esto,
+                        // mod(a*7+e, n) con a,e,n de loops EXTERNOS no las registraba y el emit
+                        // no las podia resolver -> el loop anidado con mod() bailaba al interprete.
+                        foreach (var arg in coi.Args)
+                            if (InferKind(arg, cc) == null) return null;
+                        // Función: heurística — matrix si el nombre empieza con mayuscula O
+                        // contiene "mat"/"vec"/"_vec"; si no, scalar.
                         return GuessFnKind(ident.Name);
                     }
                     // Indexing de matriz
@@ -712,6 +745,21 @@ namespace Calcpad.Core.Matlab
         private static Expression ConvertCallOrIndex(string name, List<MatlabNode> args, CompileCtx cc)
         {
             bool isFn = cc.Evaluator.JitIsFunction(name);
+            // FAST-PATH: funcion matematica escalar builtin (mod, floor, sqrt, sin, ...) que el
+            // usuario NO redefinio -> llamada estatica nativa, sin MValue ni diccionario.
+            // Sin esto, un mod() dentro de un loop FEM tiraba TODO el loop al dispatch lento.
+            if (isFn && JitCtx.InlineMath.TryGetValue(name, out var im)
+                     && im.Argc == args.Count && !cc.Evaluator.JitIsUserFunction(name))
+            {
+                var iargs = new Expression[args.Count];
+                for (int i = 0; i < args.Count; i++)
+                {
+                    var e = ConvertExprAsKind(args[i], cc, TKind.Scalar);
+                    if (e == null) return null;
+                    iargs[i] = e;
+                }
+                return Expression.Call(im.M, iargs);
+            }
             if (isFn)
             {
                 // Function call. Decidir scalar/matrix por heurística (= GuessFnKind).
