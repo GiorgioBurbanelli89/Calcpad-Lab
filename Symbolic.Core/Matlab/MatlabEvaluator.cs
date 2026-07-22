@@ -1619,9 +1619,9 @@ namespace Calcpad.Core.Matlab
                     rest = 1;
                 }
                 bool wantLine = false, wantMarker = false;
-                string specColor = null, symbol = "circle";
+                string specColor = null, symbol = "circle", dash = "solid";
                 if (rest < a.Length && a[rest].IsString) {
-                    ParseLineSpec(a[rest].StringValue, out wantLine, out wantMarker, out specColor, out symbol);
+                    ParseLineSpec(a[rest].StringValue, out wantLine, out wantMarker, out specColor, out symbol, out dash);
                     rest++;
                 }
                 if (!wantLine && !wantMarker) wantLine = true;   // default MATLAB = línea
@@ -1645,6 +1645,13 @@ namespace Calcpad.Core.Matlab
                         case "markerfacecolor": markerFill = ColorArg(a[i+1]); break;
                         case "markeredgecolor": markerEdge = ColorArg(a[i+1]); break;
                         case "markersize": markerSize = a[i+1].Scalar; break;
+                        case "linestyle":   // plot(...,'LineStyle','--')
+                            if (a[i+1].IsString) {
+                                var ls = a[i+1].StringValue;
+                                dash = ls == "--" ? "dash" : ls == ":" ? "dot" : ls == "-." ? "dashdot" : "solid";
+                                if (ls != "none") wantLine = true; else wantLine = false;
+                            }
+                            break;
                         case "displayname": dispName = a[i+1].IsString ? a[i+1].StringValue : null; break;
                         case "handlevisibility": hideFromLegend = a[i+1].IsString &&
                             a[i+1].StringValue.Equals("off", StringComparison.OrdinalIgnoreCase); break;
@@ -1672,7 +1679,7 @@ namespace Calcpad.Core.Matlab
                     if (symbol != "point") markerEdge ??= lineColor;
                 }
                 // el nombre va a UNA sola traza (la línea si hay; si no, el marcador) -> una entrada
-                if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth, dispName);
+                if (wantLine) MatlabPlots.Line2D(X.Data, Y.Data, lineColor, lineWidth, dispName, dash);
                 if (wantMarker) MatlabPlots.Markers2D(X.Data, Y.Data, markerFill, markerEdge, symbol, markerSize, wantLine ? null : dispName);
                 return new MValue(0);
             };
@@ -6437,11 +6444,15 @@ namespace Calcpad.Core.Matlab
         /// <summary>Parsea un linespec MATLAB ('o','^','r-','--', etc.):
         /// detecta si pide línea, marcadores, color y símbolo Plotly.</summary>
         private static void ParseLineSpec(string spec, out bool wantLine, out bool wantMarker,
-                                           out string color, out string symbol)
+                                           out string color, out string symbol, out string dash)
         {
-            wantLine = false; wantMarker = false; color = null; symbol = "circle";
+            wantLine = false; wantMarker = false; color = null; symbol = "circle"; dash = "solid";
             if (string.IsNullOrEmpty(spec)) return;
-            // Estilos de línea primero (más largos antes), y se quitan para no confundir '.' de '-.'
+            // Estilo de línea de MATLAB -> dash de Plotly. Se detecta del spec ORIGINAL
+            // (los más largos priman) y luego se quitan para no confundir '.' de '-.'.
+            if (spec.Contains("--"))      dash = "dash";      // --  guiones
+            else if (spec.Contains("-.")) dash = "dashdot";   // -.  guion-punto
+            else if (spec.Contains(":"))  dash = "dot";       // :   puntos
             string s = spec;
             if (s.Contains("--")) { wantLine = true; s = s.Replace("--", ""); }
             if (s.Contains("-.")) { wantLine = true; s = s.Replace("-.", ""); }
@@ -6614,14 +6625,15 @@ namespace Calcpad.Core.Matlab
             // O nombres CSS standard: 'red','blue', etc.
             switch (c?.ToLowerInvariant())
             {
-                case "r": return "red";
-                case "g": return "green";
-                case "b": return "blue";
-                case "c": return "cyan";
-                case "m": return "magenta";
-                case "y": return "yellow";
-                case "k": return "black";
-                case "w": return "white";
+                // RGB EXACTO de MATLAB (no CSS: 'g' de MATLAB es [0 1 0], no el "green" #008000).
+                case "r": return "#FF0000";   // [1 0 0]
+                case "g": return "#00FF00";   // [0 1 0]  (CSS "green" seria oscuro -> mal)
+                case "b": return "#0000FF";   // [0 0 1]
+                case "c": return "#00FFFF";   // [0 1 1]
+                case "m": return "#FF00FF";   // [1 0 1]
+                case "y": return "#FFFF00";   // [1 1 0]
+                case "k": return "#000000";   // [0 0 0]
+                case "w": return "#FFFFFF";   // [1 1 1]
                 default: return c ?? "black";
             }
         }

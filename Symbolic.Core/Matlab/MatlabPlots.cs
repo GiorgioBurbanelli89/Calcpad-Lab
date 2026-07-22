@@ -40,6 +40,7 @@ namespace Calcpad.Core.Matlab
             public int Rgb_R, Rgb_G, Rgb_B;
             public double Val = double.NaN;   // valor por-cara (para hover interactivo)
             public string Name;               // DisplayName (para la leyenda del SVG)
+            public string Dash = "solid";     // estilo de linea: solid/dash/dot/dashdot
         }
         /// <summary>Color CSS 'rgb(r,g,b)' del colormap jet para t en [0,1].</summary>
         public static string JetCss(double t)
@@ -870,11 +871,12 @@ return {make:make};
                 FaceColor=faceColor, EdgeColor=edgeColor, FaceAlpha=faceAlpha, LineWidth=lineWidth, Val=val
             });
         }
-        public static void Line2D(double[] xs, double[] ys, string color, double lineWidth, string name = null)
+        public static void Line2D(double[] xs, double[] ys, string color, double lineWidth, string name = null, string dash = "solid")
         {
             var sb = new StringBuilder();
             sb.Append("{type:'scatter', mode:'lines'");
-            sb.Append($", line:{{color:'{color}', width:{lineWidth.ToString(Inv)}}}");
+            string dashJs = (dash != null && dash != "solid") ? $", dash:'{dash}'" : "";
+            sb.Append($", line:{{color:'{color}', width:{lineWidth.ToString(Inv)}{dashJs}}}");
             sb.Append($", x:[{Csv(xs)}], y:[{Csv(ys)}]");
             if (!string.IsNullOrEmpty(name))
                 sb.Append($", name:'{EscapeJs(name)}', showlegend:true, hoverinfo:'skip'}}");
@@ -883,7 +885,7 @@ return {make:make};
             AddTrace(sb.ToString());
             if (_figPrims != null) _figPrims.Add(new FigPrim{
                 Kind="line2d", Xs=(double[])xs.Clone(), Ys=(double[])ys.Clone(),
-                Color=color, LineWidth=lineWidth, Name=name
+                Color=color, LineWidth=lineWidth, Name=name, Dash=dash
             });
         }
         /// <summary>Markers 2D — puntos (scatter mode:markers) que se ACUMULAN en la figura.
@@ -1033,7 +1035,12 @@ return {make:make};
                         pts.Append(",");
                         pts.Append(TY(p.Ys[i]).ToString("F2", Inv));
                     }
-                    svg.AppendLine($"    <polyline points='{pts}' fill='none' stroke='{p.Color}' stroke-width='{p.LineWidth.ToString(Inv)}'/>");
+                    string da = p.Dash switch {
+                        "dash" => " stroke-dasharray='8,4'",
+                        "dot" => " stroke-dasharray='2,3'",
+                        "dashdot" => " stroke-dasharray='8,3,2,3'",
+                        _ => "" };
+                    svg.AppendLine($"    <polyline points='{pts}' fill='none' stroke='{p.Color}' stroke-width='{p.LineWidth.ToString(Inv)}'{da}/>");
                 }
                 else if (p.Kind == "markers2d" && p.Xs.Length > 0)
                 {
@@ -1863,14 +1870,15 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             switch ((s ?? "").Trim().ToLowerInvariant())
             {
-                case "r": case "red":     return "red";
-                case "g": case "green":   return "green";
-                case "b": case "blue":    return "blue";
-                case "k": case "black":   return "black";
-                case "y": case "yellow":  return "gold";
-                case "m": case "magenta": return "magenta";
-                case "c": case "cyan":    return "cyan";
-                case "w": case "white":   return "white";
+                // RGB EXACTO de MATLAB (igual que MatlabColorToJs del evaluador).
+                case "r": case "red":     return "#FF0000";
+                case "g": case "green":   return "#00FF00";   // MATLAB 'g' = [0 1 0], no CSS green
+                case "b": case "blue":    return "#0000FF";
+                case "k": case "black":   return "#000000";
+                case "y": case "yellow":  return "#FFFF00";
+                case "m": case "magenta": return "#FF00FF";
+                case "c": case "cyan":    return "#00FFFF";
+                case "w": case "white":   return "#FFFFFF";
                 default: return s;
             }
         }
