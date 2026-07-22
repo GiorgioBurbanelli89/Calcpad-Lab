@@ -1269,9 +1269,31 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["sort"] = a => {
                 var v = a[0];
-                var data = (double[])v.Data.Clone();
-                Array.Sort(data);
-                return new MValue(v.Rows, v.Cols, data);
+                // sort(X) | sort(X,dim) | sort(X,'ascend'|'descend') | sort(X,dim,dir)
+                bool descend = false; int dim = 0;
+                for (int i = 1; i < a.Length; i++)
+                {
+                    if (a[i].IsString) { var s = a[i].StringValue.ToLowerInvariant(); descend = (s == "descend"); }
+                    else dim = (int)Math.Round(a[i].Data[0]);
+                }
+                int R = v.Rows, C = v.Cols;
+                if (dim == 0) dim = (R == 1) ? 2 : 1;        // vector fila → filas(dim2); si no, columnas(dim1)
+                var outp = new MValue(R, C);
+                if (dim == 2)
+                    for (int r = 0; r < R; r++)
+                    {
+                        var row = new double[C]; for (int c = 0; c < C; c++) row[c] = v.At(r, c);
+                        Array.Sort(row); if (descend) Array.Reverse(row);
+                        for (int c = 0; c < C; c++) outp.Set(r, c, row[c]);
+                    }
+                else
+                    for (int c = 0; c < C; c++)
+                    {
+                        var col = new double[R]; for (int r = 0; r < R; r++) col[r] = v.At(r, c);
+                        Array.Sort(col); if (descend) Array.Reverse(col);
+                        for (int r = 0; r < R; r++) outp.Set(r, c, col[r]);
+                    }
+                return outp;
             };
             // sortrows(A) / sortrows(A, col): ordena FILAS por columna(s). col negativo = descendente.
             _builtins["sortrows"] = a => {
@@ -1302,10 +1324,28 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["unique"] = a => {
                 var v = a[0];
+                bool byRows = false;
+                for (int i = 1; i < a.Length; i++)
+                    if (a[i].IsString && a[i].StringValue.ToLowerInvariant() == "rows") byRows = true;
+                if (byRows)
+                {
+                    // filas únicas, ordenadas lexicográficamente (como MATLAB unique(A,'rows'))
+                    int R = v.Rows, C = v.Cols;
+                    var rows = new List<double[]>();
+                    for (int r = 0; r < R; r++) { var row = new double[C]; for (int c = 0; c < C; c++) row[c] = v.At(r, c); rows.Add(row); }
+                    Comparison<double[]> lex = (x, y) => { for (int c = 0; c < C; c++) { int cmp = x[c].CompareTo(y[c]); if (cmp != 0) return cmp; } return 0; };
+                    rows.Sort(lex);
+                    var uniq = new List<double[]>();
+                    foreach (var row in rows) if (uniq.Count == 0 || lex(uniq[uniq.Count - 1], row) != 0) uniq.Add(row);
+                    var outp = new MValue(uniq.Count, C);
+                    for (int r = 0; r < uniq.Count; r++) for (int c = 0; c < C; c++) outp.Set(r, c, uniq[r][c]);
+                    return outp;
+                }
                 var set = new SortedSet<double>(v.Data);
                 var data = new double[set.Count];
                 int k = 0; foreach (var x in set) data[k++] = x;
-                return new MValue(1, data.Length, data);
+                bool col = v.Cols == 1 && v.Rows > 1;                 // orientación como MATLAB
+                return col ? new MValue(data.Length, 1, data) : new MValue(1, data.Length, data);
             };
             // setdiff(A, B) — elementos en A que NO estan en B (set ordenado)
             _builtins["setdiff"] = a => {
@@ -6396,24 +6436,73 @@ namespace Calcpad.Core.Matlab
                 var tf = new MValue(K, 1);
                 MValue Cm = DT.Fields.ContainsKey("Constraints") ? DT.Fields["Constraints"] : null;
                 if (Cm == null || Cm.Cols != 2 || Cm.Rows < 1) { for (int k = 0; k < K; k++) tf.Set(k, 0, 1); return tf; }
+                // ── FLOOD-FILL topológico (idéntico a MATLAB isInterior) ──────────────────
+                // Un triángulo es EXTERIOR si se alcanza desde fuera del casco convexo sin
+                // cruzar una arista restringida. Robusto a contornos cóncavos y colineales;
+                // reemplaza el ray-cast del centroide (frágil con aristas horizontales).
+                int np = P.Rows; var pts = new double[np, 2];
+                for (int i = 0; i < np; i++) { pts[i, 0] = P.At(i, 0); pts[i, 1] = P.At(i, 1); }
+                long Key(int i, int j) { int lo = Math.Min(i, j), hi = Math.Max(i, j); return ((long)lo << 32) | (uint)hi; }
+                // aristas bloqueadas = restricciones partidas en sus puntos colineales
+                var blocked = new HashSet<long>();
+                var segs = new List<int[]>();   // segmentos de contorno (para bloqueo geométrico)
+                for (int e = 0; e < Cm.Rows; e++)
+                {
+                    int u = (int)Math.Round(Cm.At(e, 0)) - 1, v = (int)Math.Round(Cm.At(e, 1)) - 1;
+                    if (u < 0 || v < 0 || u == v) continue;
+                    segs.Add(new[] { u, v });
+                    var chain = SplitConstraintCollinear(pts, u, v);
+                    for (int s = 0; s + 1 < chain.Count; s++) blocked.Add(Key(chain[s], chain[s + 1]));
+                }
+                // una arista de malla (p,q) bloquea el flood si es restricción O si cruza
+                // geométricamente algún segmento del contorno (robusto a restricciones no
+                // recuperadas en interfaces casi-colineales: el hueco igual detiene la fuga).
+                bool EdgeBlocked(int p, int q)
+                {
+                    if (blocked.Contains(Key(p, q))) return true;
+                    foreach (var sg in segs)
+                    {
+                        if (p == sg[0] || p == sg[1] || q == sg[0] || q == sg[1]) continue;
+                        if (SegProperCross(pts, p, q, sg[0], sg[1])) return true;
+                    }
+                    return false;
+                }
+                // arista → triángulos que la comparten
+                var tv = new int[K][];
+                var edgeTris = new Dictionary<long, List<int>>();
                 for (int k = 0; k < K; k++)
                 {
                     int i0 = (int)Math.Round(CL.At(k, 0)) - 1, i1 = (int)Math.Round(CL.At(k, 1)) - 1, i2 = (int)Math.Round(CL.At(k, 2)) - 1;
-                    double cx = (P.At(i0, 0) + P.At(i1, 0) + P.At(i2, 0)) / 3.0;
-                    double cy = (P.At(i0, 1) + P.At(i1, 1) + P.At(i2, 1)) / 3.0;
-                    bool inside = false;
-                    for (int e = 0; e < Cm.Rows; e++)   // even-odd ray cast contra las aristas restringidas (maneja huecos)
+                    tv[k] = new[] { i0, i1, i2 };
+                    foreach (var ky in new[] { Key(i0, i1), Key(i1, i2), Key(i2, i0) })
                     {
-                        int u = (int)Math.Round(Cm.At(e, 0)) - 1, v = (int)Math.Round(Cm.At(e, 1)) - 1;
-                        double xi = P.At(u, 0), yi = P.At(u, 1), xj = P.At(v, 0), yj = P.At(v, 1);
-                        if ((yi > cy) != (yj > cy))
-                        {
-                            double xint = xi + (cy - yi) / (yj - yi) * (xj - xi);
-                            if (cx < xint) inside = !inside;
-                        }
+                        if (!edgeTris.TryGetValue(ky, out var lst)) { lst = new List<int>(); edgeTris[ky] = lst; }
+                        lst.Add(k);
                     }
-                    tf.Set(k, 0, inside ? 1 : 0);
                 }
+                var exterior = new bool[K];
+                var queue = new Queue<int>();
+                // semilla: triángulos con una arista de casco (1 dueño) NO bloqueada → dan al exterior
+                for (int k = 0; k < K; k++)
+                {
+                    var v3 = tv[k];
+                    var e2 = new[] { (v3[0], v3[1]), (v3[1], v3[2]), (v3[2], v3[0]) };
+                    foreach (var (p, q) in e2)
+                        if (edgeTris[Key(p, q)].Count == 1 && !EdgeBlocked(p, q))
+                        { if (!exterior[k]) { exterior[k] = true; queue.Enqueue(k); } }
+                }
+                while (queue.Count > 0)
+                {
+                    int t = queue.Dequeue(); var v3 = tv[t];
+                    var e2 = new[] { (v3[0], v3[1]), (v3[1], v3[2]), (v3[2], v3[0]) };
+                    foreach (var (p, q) in e2)
+                    {
+                        if (EdgeBlocked(p, q)) continue;                 // no cruzar el contorno
+                        foreach (int nb in edgeTris[Key(p, q)])
+                            if (nb != t && !exterior[nb]) { exterior[nb] = true; queue.Enqueue(nb); }
+                    }
+                }
+                for (int k = 0; k < K; k++) tf.Set(k, 0, exterior[k] ? 0 : 1);
                 return tf;
             };
             // inpolygon(xq,yq,xv,yv) → in [, on]   (punto dentro / sobre el borde del polígono)
@@ -10417,20 +10506,30 @@ namespace Calcpad.Core.Matlab
         }
         private static bool InCircumcircle(TriIdx t, double[,] pts, double px, double py)
         {
+            // Predicado incircle por DETERMINANTE (robusto a puntos cocirculares de mallas
+            // estructuradas). Una sola evaluación consistente por (triángulo,punto): el mismo
+            // par siempre da el mismo signo, así que un punto "sobre el círculo" se clasifica
+            // idéntico desde los dos triángulos que comparten una arista → la cavidad de
+            // Bowyer-Watson queda válida (sin triángulos solapados). El circuncentro/distancia
+            // anterior perdía esa consistencia y metía slivers. epsilon relativo a la escala.
             double ax = pts[t.A, 0], ay = pts[t.A, 1];
             double bx = pts[t.B, 0], by = pts[t.B, 1];
             double cx = pts[t.C, 0], cy = pts[t.C, 1];
-            double d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-            if (Math.Abs(d) < 1e-12) return false;
-            double ux = ((ax * ax + ay * ay) * (by - cy)
-                      +  (bx * bx + by * by) * (cy - ay)
-                      +  (cx * cx + cy * cy) * (ay - by)) / d;
-            double uy = ((ax * ax + ay * ay) * (cx - bx)
-                      +  (bx * bx + by * by) * (ax - cx)
-                      +  (cx * cx + cy * cy) * (bx - ax)) / d;
-            double r2 = (ux - ax) * (ux - ax) + (uy - ay) * (uy - ay);
-            double dp = (ux - px) * (ux - px) + (uy - py) * (uy - py);
-            return dp < r2 - 1e-12;
+            double adx = ax - px, ady = ay - py;
+            double bdx = bx - px, bdy = by - py;
+            double cdx = cx - px, cdy = cy - py;
+            double ad2 = adx * adx + ady * ady;
+            double bd2 = bdx * bdx + bdy * bdy;
+            double cd2 = cdx * cdx + cdy * cdy;
+            double det = adx * (bdy * cd2 - bd2 * cdy)
+                       - ady * (bdx * cd2 - bd2 * cdx)
+                       + ad2 * (bdx * cdy - bdy * cdx);
+            // Normalizar por la orientación del triángulo (det>0 dentro sólo para CCW)
+            double orient = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+            if (orient < 0) det = -det;
+            // epsilon ~ escala del determinante (longitud^4); on-circle => fuera (determinista)
+            double eps = 1e-12 * (ad2 * ad2 + bd2 * bd2 + cd2 * cd2);
+            return det > eps;
         }
 
         // ─── Constrained Delaunay (CDT) + inpolygon ──────────────────────────
@@ -10497,12 +10596,52 @@ namespace Calcpad.Core.Matlab
             var tris = new List<int[]>();
             foreach (var t in baseTris) tris.Add(new[] { t.A, t.B, t.C });
             if (constraints == null) return tris;
+            // partir cada restricción en sus puntos colineales intermedios (mallas estructuradas
+            // tienen vértices SOBRE la arista). Recolectar TODAS las sub-aristas ANTES de recuperar
+            // para bloquear (lock) su volteo: sin lock, recuperar una restricción posterior voltea
+            // una restricción ya recuperada → se pierden aristas de contorno (bug de las 21).
+            var chains = new List<List<int>>();
+            var locked = new HashSet<long>();
             foreach (var c in constraints)
             {
                 if (c[0] == c[1] || c[0] < 0 || c[1] < 0) continue;
-                RecoverConstraintEdge(tris, pts, c[0], c[1]);
+                var chain = SplitConstraintCollinear(pts, c[0], c[1]);
+                chains.Add(chain);
+                for (int s = 0; s + 1 < chain.Count; s++) locked.Add(EdgeKey(chain[s], chain[s + 1]));
             }
+            foreach (var chain in chains)
+                for (int s = 0; s + 1 < chain.Count; s++)
+                {
+                    int u = chain[s], v = chain[s + 1];
+                    RecoverConstraintEdge(tris, pts, u, v, locked);   // flip (rápido) primero
+                    if (!EdgeExists(tris, u, v))
+                        InsertConstraintCavity(tris, pts, u, v);      // cavidad robusta si el flip se atasca
+                }
             return tris;
+        }
+        private static long EdgeKey(int i, int j) { int lo = Math.Min(i, j), hi = Math.Max(i, j); return ((long)lo << 32) | (uint)hi; }
+        // Cadena de nodos de una restricción a-b incluyendo los vértices colineales que caen
+        // ESTRICTAMENTE dentro del segmento, ordenados a→b. Sin colineales devuelve [a,b].
+        private static List<int> SplitConstraintCollinear(double[,] p, int a, int b)
+        {
+            double ax = p[a, 0], ay = p[a, 1], bx = p[b, 0], by = p[b, 1];
+            double dx = bx - ax, dy = by - ay; double L2 = dx * dx + dy * dy;
+            var mids = new List<double[]>();   // [t, idx]
+            int n = p.GetLength(0);
+            for (int i = 0; i < n; i++)
+            {
+                if (i == a || i == b) continue;
+                double px = p[i, 0], py = p[i, 1];
+                double cross = (px - ax) * dy - (py - ay) * dx;   // 2·área del triángulo a-b-p
+                if (Math.Abs(cross) > 1e-7 * L2) continue;        // no colineal (tol relativa)
+                double t = ((px - ax) * dx + (py - ay) * dy) / L2;
+                if (t > 1e-9 && t < 1 - 1e-9) mids.Add(new[] { t, i });
+            }
+            mids.Sort((u, v) => u[0].CompareTo(v[0]));
+            var chain = new List<int> { a };
+            foreach (var m in mids) chain.Add((int)m[1]);
+            chain.Add(b);
+            return chain;
         }
         private static bool EdgeExists(List<int[]> tris, int a, int b)
         {
@@ -10513,6 +10652,79 @@ namespace Calcpad.Core.Matlab
                 if (ha && hb) return true;
             }
             return false;
+        }
+        // incircle por índices: ¿d está dentro del circuncírculo de (a,b,c)? (determinante, orient-agnóstico)
+        private static bool InCircleIdx(double[,] p, int a, int b, int c, int d)
+        {
+            double adx = p[a, 0] - p[d, 0], ady = p[a, 1] - p[d, 1];
+            double bdx = p[b, 0] - p[d, 0], bdy = p[b, 1] - p[d, 1];
+            double cdx = p[c, 0] - p[d, 0], cdy = p[c, 1] - p[d, 1];
+            double ad2 = adx * adx + ady * ady, bd2 = bdx * bdx + bdy * bdy, cd2 = cdx * cdx + cdy * cdy;
+            double det = adx * (bdy * cd2 - bd2 * cdy) - ady * (bdx * cd2 - bd2 * cdx) + ad2 * (bdx * cdy - bdy * cdx);
+            double orient = Orient2D(p[a, 0], p[a, 1], p[b, 0], p[b, 1], p[c, 0], p[c, 1]);
+            if (orient < 0) det = -det;
+            return det > 0;
+        }
+        // Inserta la restricción a-b por RETRIANGULACIÓN DE CAVIDAD (Sloan): borra los triángulos
+        // que el segmento a-b atraviesa y retriangula las dos cadenas resultantes con a-b como
+        // arista compartida. Robusto: recupera SIEMPRE el segmento (sin vértices sobre él),
+        // donde el flip de Anglada se atasca. Devuelve false si no puede localizar la cavidad.
+        private static bool InsertConstraintCavity(List<int[]> tris, double[,] pts, int a, int b)
+        {
+            if (EdgeExists(tris, a, b)) return true;
+            int cur = -1, eu = -1, ev = -1;
+            for (int i = 0; i < tris.Count; i++)
+            {
+                var t = tris[i]; int ia = -1;
+                for (int k = 0; k < 3; k++) if (t[k] == a) ia = k;
+                if (ia < 0) continue;
+                int p = t[(ia + 1) % 3], q = t[(ia + 2) % 3];
+                if (SegProperCross(pts, a, b, p, q)) { cur = i; eu = p; ev = q; break; }
+            }
+            if (cur < 0) return false;
+            var crossed = new List<int> { cur };
+            var upper = new List<int>(); var lower = new List<int>();
+            void Classify(int x)
+            {
+                double o = Orient2D(pts[a, 0], pts[a, 1], pts[b, 0], pts[b, 1], pts[x, 0], pts[x, 1]);
+                var lst = (o > 0) ? upper : lower;
+                if (lst.Count == 0 || lst[lst.Count - 1] != x) lst.Add(x);
+            }
+            Classify(eu); Classify(ev);
+            int guard = 0; bool reached = false;
+            while (guard++ < tris.Count + 5)
+            {
+                int nb = NeighborSharingEdge(tris, cur, eu, ev);
+                if (nb < 0) return false;
+                int w = ThirdVertex(tris[nb], eu, ev);
+                if (w < 0) return false;
+                crossed.Add(nb);
+                if (w == b) { reached = true; break; }
+                Classify(w); cur = nb;
+                if (SegProperCross(pts, a, b, eu, w)) ev = w;
+                else if (SegProperCross(pts, a, b, ev, w)) eu = w;
+                else return false;   // degeneración: dejar el flip como respaldo
+            }
+            if (!reached) return false;
+            // borrar triángulos atravesados (índices descendentes)
+            crossed.Sort();
+            for (int k = crossed.Count - 1; k >= 0; k--) tris.RemoveAt(crossed[k]);
+            // retriangular las dos pseudo-cadenas con base a-b
+            TriangulatePseudoPolygon(tris, pts, a, b, upper);
+            TriangulatePseudoPolygon(tris, pts, a, b, lower);
+            return true;
+        }
+        // Triangula el pseudo-polígono cuya base es la arista a-b y cuyo borde opuesto es la
+        // cadena 'poly' (vértices ordenados de a hacia b). Recursivo, criterio de Delaunay.
+        private static void TriangulatePseudoPolygon(List<int[]> tris, double[,] pts, int a, int b, List<int> poly)
+        {
+            if (poly.Count == 0) return;
+            int ci = 0, c = poly[0];
+            for (int k = 1; k < poly.Count; k++)
+                if (InCircleIdx(pts, a, b, c, poly[k])) { c = poly[k]; ci = k; }
+            tris.Add(new[] { a, c, b });
+            if (ci > 0) TriangulatePseudoPolygon(tris, pts, a, c, poly.GetRange(0, ci));
+            if (ci < poly.Count - 1) TriangulatePseudoPolygon(tris, pts, c, b, poly.GetRange(ci + 1, poly.Count - ci - 1));
         }
         private static int ThirdVertex(int[] t, int u, int v)
         { for (int k = 0; k < 3; k++) if (t[k] != u && t[k] != v) return t[k]; return -1; }
@@ -10538,7 +10750,7 @@ namespace Calcpad.Core.Matlab
             double o4 = Orient2D(p[c, 0], p[c, 1], p[d, 0], p[d, 1], p[b, 0], p[b, 1]);
             return (o1 * o2 < 0) && (o3 * o4 < 0);
         }
-        private static void RecoverConstraintEdge(List<int[]> tris, double[,] pts, int a, int b)
+        private static void RecoverConstraintEdge(List<int[]> tris, double[,] pts, int a, int b, HashSet<long> locked = null)
         {
             for (int iter = 0; iter < 20000 && !EdgeExists(tris, a, b); iter++)
             {
@@ -10550,6 +10762,7 @@ namespace Calcpad.Core.Matlab
                     {
                         int u = ti[e], v = ti[(e + 1) % 3];
                         if (u == a || u == b || v == a || v == b) continue;
+                        if (locked != null && locked.Contains(EdgeKey(u, v))) continue; // no voltear otra restricción
                         if (!SegProperCross(pts, a, b, u, v)) continue;          // la arista (u,v) cruza la restricción
                         int j = NeighborSharingEdge(tris, i, u, v);
                         if (j < 0) continue;
