@@ -1684,11 +1684,20 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             ValidateGrid(X, Y, Z);
             int id = ++_plotCounter;
+            // Niveles EXACTOS entre min y max (MATLAB reparte nLevels uniformemente;
+            // Plotly con solo 'ncontours' elige numeros redondos y sale mas grueso).
+            double zmin = double.PositiveInfinity, zmax = double.NegativeInfinity;
+            foreach (var v in Z.Data) { if (double.IsNaN(v)) continue; if (v < zmin) zmin = v; if (v > zmax) zmax = v; }
+            if (_caxisMin.HasValue) { zmin = _caxisMin.Value; zmax = _caxisMax.Value; }   // honrar caxis([lo hi])
+            if (!(zmax > zmin)) zmax = zmin + 1;
+            int nl = Math.Max(2, nLevels);
+            double step = (zmax - zmin) / nl;
+            string cs(double d) => d.ToString("R", Inv);
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'contour', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, ncontours: {nLevels}, contours: {{coloring: 'fill'}},\n");
+            sb.Append($"    type: 'contour', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, autocontour: false, contours: {{coloring: 'fill', start: {cs(zmin)}, end: {cs(zmax)}, size: {cs(step)}}}, line: {{width: 0.4, color: 'rgba(0,0,0,0.12)'}},\n");
             sb.Append($"    x: {EmitRowJs(X, true)},\n");
             sb.Append($"    y: {EmitColJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
