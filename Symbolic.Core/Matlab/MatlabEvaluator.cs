@@ -6357,6 +6357,68 @@ namespace Calcpad.Core.Matlab
                 }
                 return result;
             };
+            // delaunayTriangulation(P) | (x,y) | (P,C) | (x,y,C) → objeto CDT
+            // Devuelve un struct con .Points (Nx2), .ConnectivityList (Kx3, 1-based) y
+            // .Constraints (Mx2) si se dan aristas restringidas. Compatible con MATLAB.
+            _builtins["delaunayTriangulation"] = a => {
+                if (a.Length < 1) throw new MatlabRuntimeException("delaunayTriangulation(P) | (x,y) | (P,C)");
+                double[,] P; MValue Cm = null;
+                if (a.Length == 1)                       P = ArgToPoints(a[0], null);          // P (Nx2)
+                else if (a.Length == 2 && a[0].Cols == 2){ P = ArgToPoints(a[0], null); Cm = a[1]; } // (P, C)
+                else if (a.Length == 2)                  P = ArgToPoints(a[0], a[1]);          // (x, y)
+                else { P = ArgToPoints(a[0], a[1]); Cm = a[2]; }                               // (x, y, C)
+                int nn = P.GetLength(0);
+                List<int[]> cons = null;
+                if (Cm != null && Cm.Cols == 2 && Cm.Rows >= 1)
+                {
+                    cons = new List<int[]>();
+                    for (int i = 0; i < Cm.Rows; i++)
+                        cons.Add(new[] { (int)Math.Round(Cm.At(i, 0)) - 1, (int)Math.Round(Cm.At(i, 1)) - 1 });
+                }
+                var tris = DelaunayCDT(P, cons);
+                var pv = new MValue(nn, 2);
+                for (int i = 0; i < nn; i++) { pv.Set(i, 0, P[i, 0]); pv.Set(i, 1, P[i, 1]); }
+                var cl = new MValue(tris.Count, 3);
+                for (int i = 0; i < tris.Count; i++)
+                { cl.Set(i, 0, tris[i][0] + 1); cl.Set(i, 1, tris[i][1] + 1); cl.Set(i, 2, tris[i][2] + 1); }
+                var props = new Dictionary<string, MValue>(StringComparer.Ordinal)
+                { ["Points"] = pv, ["ConnectivityList"] = cl };
+                if (Cm != null) props["Constraints"] = Cm;
+                return MValue.NewInstance("delaunayTriangulation", props);
+            };
+            // isInterior(DT) → Kx1 lógico: 1 si el triángulo está dentro del contorno restringido.
+            _builtins["isInterior"] = a => {
+                if (a.Length < 1 || !a[0].IsStruct || !a[0].Fields.ContainsKey("ConnectivityList"))
+                    throw new MatlabRuntimeException("isInterior(DT): DT debe ser un delaunayTriangulation");
+                var DT = a[0];
+                var P = DT.Fields["Points"]; var CL = DT.Fields["ConnectivityList"];
+                int K = CL.Rows;
+                var tf = new MValue(K, 1);
+                MValue Cm = DT.Fields.ContainsKey("Constraints") ? DT.Fields["Constraints"] : null;
+                if (Cm == null || Cm.Cols != 2 || Cm.Rows < 1) { for (int k = 0; k < K; k++) tf.Set(k, 0, 1); return tf; }
+                for (int k = 0; k < K; k++)
+                {
+                    int i0 = (int)Math.Round(CL.At(k, 0)) - 1, i1 = (int)Math.Round(CL.At(k, 1)) - 1, i2 = (int)Math.Round(CL.At(k, 2)) - 1;
+                    double cx = (P.At(i0, 0) + P.At(i1, 0) + P.At(i2, 0)) / 3.0;
+                    double cy = (P.At(i0, 1) + P.At(i1, 1) + P.At(i2, 1)) / 3.0;
+                    bool inside = false;
+                    for (int e = 0; e < Cm.Rows; e++)   // even-odd ray cast contra las aristas restringidas (maneja huecos)
+                    {
+                        int u = (int)Math.Round(Cm.At(e, 0)) - 1, v = (int)Math.Round(Cm.At(e, 1)) - 1;
+                        double xi = P.At(u, 0), yi = P.At(u, 1), xj = P.At(v, 0), yj = P.At(v, 1);
+                        if ((yi > cy) != (yj > cy))
+                        {
+                            double xint = xi + (cy - yi) / (yj - yi) * (xj - xi);
+                            if (cx < xint) inside = !inside;
+                        }
+                    }
+                    tf.Set(k, 0, inside ? 1 : 0);
+                }
+                return tf;
+            };
+            // inpolygon(xq,yq,xv,yv) → in [, on]   (punto dentro / sobre el borde del polígono)
+            _builtins["inpolygon"] = a => InPolygonImpl(a)[0];
+            _multiOutBuiltins["inpolygon"] = a => InPolygonImpl(a);
             _multiOutBuiltins["meshgrid"] = a => {
                 var x = a[0];
                 var y = a.Length > 1 ? a[1] : x;
@@ -10369,6 +10431,138 @@ namespace Calcpad.Core.Matlab
             double r2 = (ux - ax) * (ux - ax) + (uy - ay) * (uy - ay);
             double dp = (ux - px) * (ux - px) + (uy - py) * (uy - py);
             return dp < r2 - 1e-12;
+        }
+
+        // ─── Constrained Delaunay (CDT) + inpolygon ──────────────────────────
+        // Convierte argumentos a puntos Nx2. Si y!=null: (x,y) vectores; si no: P ya es Nx2.
+        private static double[,] ArgToPoints(MValue P, MValue y)
+        {
+            if (y != null)
+            {
+                int n = P.Data.Length;
+                if (y.Data.Length != n) throw new MatlabRuntimeException("delaunayTriangulation: x,y de distinto tamaño");
+                var r = new double[n, 2];
+                for (int i = 0; i < n; i++) { r[i, 0] = P.Data[i]; r[i, 1] = y.Data[i]; }
+                return r;
+            }
+            if (P.Cols == 2)
+            {
+                var r = new double[P.Rows, 2];
+                for (int i = 0; i < P.Rows; i++) { r[i, 0] = P.At(i, 0); r[i, 1] = P.At(i, 1); }
+                return r;
+            }
+            throw new MatlabRuntimeException("delaunayTriangulation: P debe ser Nx2");
+        }
+        // inpolygon: [in, on] mismo tamaño que xq. even-odd + distancia a arista para 'on'.
+        private static MValue[] InPolygonImpl(MValue[] a)
+        {
+            if (a.Length < 4) throw new MatlabRuntimeException("inpolygon(xq,yq,xv,yv)");
+            var xq = a[0]; var yq = a[1]; var xv = a[2]; var yv = a[3];
+            int nq = xq.Data.Length, nv = xv.Data.Length;
+            var inM = new MValue(xq.Rows, xq.Cols); var onM = new MValue(xq.Rows, xq.Cols);
+            double s = 0; for (int i = 0; i < nv; i++) s = Math.Max(s, Math.Max(Math.Abs(xv.Data[i]), Math.Abs(yv.Data[i])));
+            double tol = 1e-9 * Math.Max(1.0, s);
+            for (int q = 0; q < nq; q++)
+            {
+                double px = xq.Data[q], py = yq.Data[q];
+                bool inside = false, onb = false;
+                for (int i = 0, j = nv - 1; i < nv; j = i++)
+                {
+                    double xi = xv.Data[i], yi = yv.Data[i], xj = xv.Data[j], yj = yv.Data[j];
+                    double dx = xj - xi, dy = yj - yi, L2 = dx * dx + dy * dy;
+                    if (L2 > 0)
+                    {
+                        double t = ((px - xi) * dx + (py - yi) * dy) / L2;
+                        if (t >= 0 && t <= 1)
+                        {
+                            double ex = xi + t * dx, ey = yi + t * dy;
+                            if ((px - ex) * (px - ex) + (py - ey) * (py - ey) <= tol * tol) onb = true;
+                        }
+                    }
+                    if ((yi > py) != (yj > py))
+                    {
+                        double xint = xi + (py - yi) / (yj - yi) * (xj - xi);
+                        if (px < xint) inside = !inside;
+                    }
+                }
+                inM.Data[q] = (inside || onb) ? 1 : 0;
+                onM.Data[q] = onb ? 1 : 0;
+            }
+            return new[] { inM, onM };
+        }
+        // Delaunay restringido: Delaunay base (Bowyer-Watson) + recuperación de aristas por flips (Anglada).
+        private static List<int[]> DelaunayCDT(double[,] pts, List<int[]> constraints)
+        {
+            var baseTris = DelaunayBowyerWatson(pts);
+            var tris = new List<int[]>();
+            foreach (var t in baseTris) tris.Add(new[] { t.A, t.B, t.C });
+            if (constraints == null) return tris;
+            foreach (var c in constraints)
+            {
+                if (c[0] == c[1] || c[0] < 0 || c[1] < 0) continue;
+                RecoverConstraintEdge(tris, pts, c[0], c[1]);
+            }
+            return tris;
+        }
+        private static bool EdgeExists(List<int[]> tris, int a, int b)
+        {
+            foreach (var t in tris)
+            {
+                bool ha = t[0] == a || t[1] == a || t[2] == a;
+                bool hb = t[0] == b || t[1] == b || t[2] == b;
+                if (ha && hb) return true;
+            }
+            return false;
+        }
+        private static int ThirdVertex(int[] t, int u, int v)
+        { for (int k = 0; k < 3; k++) if (t[k] != u && t[k] != v) return t[k]; return -1; }
+        private static int NeighborSharingEdge(List<int[]> tris, int self, int u, int v)
+        {
+            for (int i = 0; i < tris.Count; i++)
+            {
+                if (i == self) continue;
+                var t = tris[i];
+                bool hu = t[0] == u || t[1] == u || t[2] == u;
+                bool hv = t[0] == v || t[1] == v || t[2] == v;
+                if (hu && hv) return i;
+            }
+            return -1;
+        }
+        private static double Orient2D(double ax, double ay, double bx, double by, double cx, double cy)
+            => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        private static bool SegProperCross(double[,] p, int a, int b, int c, int d)
+        {
+            double o1 = Orient2D(p[a, 0], p[a, 1], p[b, 0], p[b, 1], p[c, 0], p[c, 1]);
+            double o2 = Orient2D(p[a, 0], p[a, 1], p[b, 0], p[b, 1], p[d, 0], p[d, 1]);
+            double o3 = Orient2D(p[c, 0], p[c, 1], p[d, 0], p[d, 1], p[a, 0], p[a, 1]);
+            double o4 = Orient2D(p[c, 0], p[c, 1], p[d, 0], p[d, 1], p[b, 0], p[b, 1]);
+            return (o1 * o2 < 0) && (o3 * o4 < 0);
+        }
+        private static void RecoverConstraintEdge(List<int[]> tris, double[,] pts, int a, int b)
+        {
+            for (int iter = 0; iter < 20000 && !EdgeExists(tris, a, b); iter++)
+            {
+                bool flipped = false;
+                for (int i = 0; i < tris.Count && !flipped; i++)
+                {
+                    var ti = tris[i];
+                    for (int e = 0; e < 3; e++)
+                    {
+                        int u = ti[e], v = ti[(e + 1) % 3];
+                        if (u == a || u == b || v == a || v == b) continue;
+                        if (!SegProperCross(pts, a, b, u, v)) continue;          // la arista (u,v) cruza la restricción
+                        int j = NeighborSharingEdge(tris, i, u, v);
+                        if (j < 0) continue;
+                        int w1 = ThirdVertex(ti, u, v), w2 = ThirdVertex(tris[j], u, v);
+                        if (w1 < 0 || w2 < 0 || w1 == w2) continue;
+                        if (!SegProperCross(pts, w1, w2, u, v)) continue;        // cuad convexo ⇒ flip válido
+                        tris[i] = new[] { w1, w2, u };                          // voltear diagonal (u,v)→(w1,w2)
+                        tris[j] = new[] { w1, w2, v };
+                        flipped = true; break;
+                    }
+                }
+                if (!flipped) break;
+            }
         }
     }
 
