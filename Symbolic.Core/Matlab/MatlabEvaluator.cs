@@ -2373,6 +2373,48 @@ namespace Calcpad.Core.Matlab
                     _htmlOut?.Invoke($"<h3 style=\"color:#0066b8;margin:.4em 0\">{System.Web.HttpUtility.HtmlEncode(a[0].StringValue)}</h3>\n");
                 return new MValue(0);
             };
+            // triplot(TRI,x,y) | triplot(TRI,x,y,'linespec'/'color') | triplot(DT) — dibuja la
+            // MALLA (aristas de los triángulos). Compatible MATLAB 2017a. Usado tras
+            // delaunayTriangulation/isInterior para ver la triangulación.
+            _builtins["triplot"] = a => {
+                a = DropAxes(a);
+                if (a.Length < 1) throw new MatlabRuntimeException("triplot(TRI,x,y) o triplot(DT)");
+                MValue TRI; double[] X, Y; int rest;
+                if (a[0].Fields != null && a[0].Fields.ContainsKey("ConnectivityList"))
+                {
+                    TRI = a[0].Fields["ConnectivityList"];
+                    var P = a[0].Fields["Points"];
+                    int np = P.Rows; X = new double[np]; Y = new double[np];
+                    for (int i = 0; i < np; i++) { X[i] = P.At(i, 0); Y[i] = P.At(i, 1); }
+                    rest = 1;
+                }
+                else
+                {
+                    if (a.Length < 3) throw new MatlabRuntimeException("triplot(TRI,x,y)");
+                    TRI = a[0]; X = a[1].Data; Y = a[2].Data; rest = 3;
+                }
+                string color = null; double lw = 0.5; string dash = "solid";
+                if (rest < a.Length && a[rest].IsString)
+                { ParseLineSpec(a[rest].StringValue, out _, out _, out color, out _, out dash); rest++; }
+                for (int i = rest; i + 1 < a.Length; i += 2)
+                {
+                    if (!a[i].IsString) break;
+                    switch (a[i].StringValue.ToLowerInvariant())
+                    { case "color": color = ColorArg(a[i + 1]); break; case "linewidth": lw = a[i + 1].Scalar; break; }
+                }
+                if (!_holdOn && MatlabPlots.HasOpenFigure)
+                { var ph = MatlabPlots.FinishFigure(); if (!string.IsNullOrEmpty(ph)) _htmlOut?.Invoke(ph); }
+                if (!MatlabPlots.HasOpenFigure)
+                { var pv = MatlabPlots.BeginFigure(); if (!string.IsNullOrEmpty(pv)) _htmlOut?.Invoke(pv); _colorCycleIdx = 0; }
+                if (color == null) { color = _matlabColorOrder[_colorCycleIdx % _matlabColorOrder.Length]; _colorCycleIdx++; }
+                MatlabPlots.TriPlot2D(TRI, X, Y, color, lw > 0 ? lw : 0.5);
+                return new MValue(0);
+            };
+            _builtins["trimesh"] = a => {   // trimesh 2D (sin z) = triplot; con z lo trata trisurf
+                if (a.Length >= 4 && !a[3].IsString && a[3].Data != null && a[3].Data.Length == (a[1]?.Data?.Length ?? -1))
+                    return _builtins["trisurf"](a);
+                return _builtins["triplot"](a);
+            };
             _builtins["trisurf"] = a => {
                 if (a.Length < 4) throw new MatlabRuntimeException("trisurf(tri, x, y, z)");
                 var tri = a[0]; var x = a[1]; var y = a[2]; var z = a[3];

@@ -888,6 +888,42 @@ return {make:make};
                 Color=color, LineWidth=lineWidth, Name=name, Dash=dash
             });
         }
+        /// <summary>triplot/trimesh 2D — dibuja las ARISTAS de la triangulación (tri Mx3, índices
+        /// 1-based) como líneas, cada arista separada por NaN. Se acumula en la figura (compone
+        /// con plot/patch). Compatible MATLAB triplot(TRI,x,y).</summary>
+        public static void TriPlot2D(MValue tri, double[] x, double[] y, string color, double lw)
+        {
+            var edges = new System.Collections.Generic.HashSet<(int, int)>();
+            for (int k = 0; k < tri.Rows; k++)
+            {
+                int a = (int)System.Math.Round(tri.At(k, 0)) - 1;
+                int b = (int)System.Math.Round(tri.At(k, 1)) - 1;
+                int c = (int)System.Math.Round(tri.At(k, 2)) - 1;
+                AddEdge(edges, a, b); AddEdge(edges, b, c); AddEdge(edges, c, a);
+            }
+            var xL = new System.Collections.Generic.List<double>();
+            var yL = new System.Collections.Generic.List<double>();
+            foreach (var (u, v) in edges)
+            {
+                xL.Add(x[u]); xL.Add(x[v]); xL.Add(double.NaN);
+                yL.Add(y[u]); yL.Add(y[v]); yL.Add(double.NaN);
+            }
+            // ruta Plotly: una sola traza con aristas separadas por NaN (eficiente)
+            var sb = new StringBuilder();
+            sb.Append("{type:'scatter', mode:'lines'");
+            sb.Append($", line:{{color:'{color}', width:{lw.ToString(Inv)}}}");
+            sb.Append($", x:[{CsvNaN(xL)}], y:[{CsvNaN(yL)}]");
+            sb.Append(", showlegend:false, hoverinfo:'skip'}");
+            AddTrace(sb.ToString());
+            // ruta CANVAS/SVG (cuando la figura tiene markers/patch): el renderer de line2d hace
+            // UNA polyline sin cortes por NaN → hay que dar UN FigPrim por arista (2 puntos c/u).
+            if (_figPrims != null)
+                foreach (var (u, v) in edges)
+                    _figPrims.Add(new FigPrim {
+                        Kind = "line2d", Xs = new[] { x[u], x[v] }, Ys = new[] { y[u], y[v] },
+                        Color = color, LineWidth = lw, Dash = "solid"
+                    });
+        }
         /// <summary>Markers 2D — puntos (scatter mode:markers) que se ACUMULAN en la figura.
         /// Permite que plot(x,y,'o') componga con patch/line/text en los mismos ejes.</summary>
         public static void Markers2D(double[] xs, double[] ys, string fillColor, string edgeColor,
