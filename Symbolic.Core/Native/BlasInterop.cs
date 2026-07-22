@@ -327,6 +327,32 @@ namespace Calcpad.Core
             catch { Available = false; }
         }
 
+        private static bool _warmed;
+        /// <summary>Dispara el init PESADO de MKL (threading/kernels de dpbsv) con un solve
+        /// mediano, para que la PRIMERA factorizacion del usuario no pague ~70ms de arranque
+        /// una sola vez. El probe del cctor es 2x2 (no dispara el threading). Llamar en el
+        /// arranque del motor, FUERA de toda medicion (constructor de MatlabPipeline).</summary>
+        public static void Warmup()
+        {
+            if (_warmed) return; _warmed = true;
+            if (!Available) return;
+            try
+            {
+                int n = 160, kd = 3;
+                var A = new double[n * n];
+                for (int i = 0; i < n; i++)
+                {
+                    A[i * n + i] = 4.0;
+                    for (int k = 1; k <= kd; k++)
+                        if (i >= k) { A[i * n + (i - k)] = -1.0; A[(i - k) * n + i] = -1.0; }
+                }
+                var b = new double[n];
+                for (int i = 0; i < n; i++) b[i] = 1.0;
+                SolveSymBanded(n, kd, A, b);           // dpbsv: init de MKL
+            }
+            catch { /* si falla, el primer solve real lo paga igual */ }
+        }
+
         /// <summary>Resuelve A·x = b con A simétrica positive definite banded (bw=kd).
         /// A row-major n×n. Retorna x. (AB en banded col-major + LAPACK_COL_MAJOR.)</summary>
         public static double[] SolveSymBanded(int n, int kd, double[] A_row, double[] b)

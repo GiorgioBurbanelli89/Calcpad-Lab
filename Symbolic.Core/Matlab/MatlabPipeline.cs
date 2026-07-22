@@ -17,8 +17,17 @@ namespace Calcpad.Core.Matlab
 {
     public sealed class MatlabPipeline
     {
+        // Pre-calienta el solver LAPACK/MKL UNA sola vez al crear el primer pipeline,
+        // fuera de toda medicion, para que el primer K\f del usuario no pague ~70ms de
+        // init de MKL (dpbsv). Idempotente (flag interno). Ver LapackInterop.Warmup.
+        static MatlabPipeline()
+        {
+            try { Calcpad.Core.LapackInterop.Warmup(); } catch { }
+        }
+
         private readonly MatlabEvaluator _evaluator = new();
         public MatlabScope GlobalScope => _evaluator.Globals;
+
 
         // ── Directivas Calcpad embebidas en comentarios MATLAB ──────────────
         // Un `.m` corre idéntico en MATLAB 2017a (que ve `% #deq ...` como un
@@ -110,7 +119,25 @@ namespace Calcpad.Core.Matlab
                 // Con MatlabFolderLoader anteponiendo otros .m, "la primera" ya no es la del
                 // archivo abierto — por eso el hint es lo correcto.
                 FunctionDef primaryFn = entryFn ?? firstFn;
-                if (!hasTopLevelExec && primaryFn != null && primaryFn.ParamNames.Count == 0)
+                // Invocable con CERO args = sin parámetros, o `varargin`, o una función que
+                // usa `nargin` en su cuerpo (maneja args faltantes con defaults, p.ej.
+                // `function M=muroFEM(S)` con `if nargin<1, S=...; end`). Así abrir la
+                // librería sola y pulsar Run corre el caso por defecto y dibuja.
+                bool primaryUsesNargin = false;
+                if (primaryFn != null && primaryFn.ParamNames.Count >= 1)
+                {
+                    int startLine = primaryFn.Line, endLine = int.MaxValue;
+                    foreach (var s in stmts)
+                        if (s is FunctionDef fd3 && fd3.Line > startLine && fd3.Line < endLine) endLine = fd3.Line;
+                    var srcLines = source.Split('\n');
+                    for (int li = startLine - 1; li >= 0 && li < srcLines.Length && li < endLine - 1; li++)
+                        if (System.Text.RegularExpressions.Regex.IsMatch(srcLines[li], @"\bnargin\b")) { primaryUsesNargin = true; break; }
+                }
+                bool callableZeroArgs = primaryFn != null &&
+                    (primaryFn.ParamNames.Count == 0 ||
+                     (primaryFn.ParamNames.Count == 1 && primaryFn.ParamNames[0] == "varargin") ||
+                     primaryUsesNargin);
+                if (!hasTopLevelExec && callableZeroArgs)
                 {
                     var call = new CallOrIndex
                     {
@@ -130,6 +157,10 @@ namespace Calcpad.Core.Matlab
             bool hidden = false;
             _evaluator.Output = msg => { if (!hidden) dispBuffer.AppendLine(msg); };
             _evaluator.HtmlOut = html => { if (!hidden) htmlBuffer.Append(html); };
+            // FRAMES de animación (drawnow): en StreamingMode (WPF) se emiten EN VIVO con la marca
+            // \x01FRAME\x01 → el host los repinta en el mismo lienzo. En batch (CLI) se ignoran los
+            // intermedios (solo importa la figura final que emite FinishFigure).
+            _evaluator.FrameOut = html => { if (!hidden && html != null && StreamingMode && StatementCompleted != null) StatementCompleted.Invoke(-1, "@@LABFRAME@@" + html); };
             // Marca de streaming: hasta dónde de `sb` ya se emitió en vivo. Declarado
             // ACÁ (antes de InnerStmtOut) para que el lambda pueda avanzarlo al emitir
             // chunks por iteración y el flush top-level no los reenvíe (evita duplicados).
@@ -156,7 +187,7 @@ namespace Calcpad.Core.Matlab
                 "polar", "polarplot", "fill", "fill3", "patch", "line", "text",
                 "histogram", "histogram2", "heatmap", "contour", "contourf", "imagesc",
                 "surf", "mesh", "surfc", "meshc", "quiver", "quiver3", "streamslice",
-                "trisurf", "trimesh", "triplot", "spy", "loglog", "semilogx", "semilogy",
+                "trisurf", "trimesh", "triplot", "tetramesh", "solidmesh", "spy", "loglog", "semilogx", "semilogy",
                 "area", "errorbar", "boxplot", "pie", "fplot",
                 // System / file
                 "mkdir", "save", "saveas", "load", "clear", "format", "echo", "pkg",
@@ -650,21 +681,21 @@ namespace Calcpad.Core.Matlab
             {
                 if (matRows.Count == 0) return;
                 outSb.Append(HtmlStart);
-                outSb.Append("<span class=\"mat\"><span class=\"lb\"></span><span class=\"cells\">");
+                outSb.Append("<span class=\"matrix\">");   // clásico AJUSTADO (corchetes = borde de celda vacía)
                 foreach (var rowContent in matRows)
                 {
-                    outSb.Append("<span class=\"row\">");
+                    outSb.Append("<span class=\"tr\"><span class=\"td\"></span>");
                     var cells = System.Text.RegularExpressions.Regex.Split(rowContent, @"[ \t]{2,}");
                     foreach (var cellRaw in cells)
                     {
                         if (string.IsNullOrWhiteSpace(cellRaw)) continue;
-                        outSb.Append("<span class=\"cell\">");
+                        outSb.Append("<span class=\"td\">");
                         outSb.Append(EncodeWithHtmlSegments(cellRaw));
                         outSb.Append("</span>");
                     }
-                    outSb.Append("</span>");
+                    outSb.Append("<span class=\"td\"></span></span>");
                 }
-                outSb.Append("</span><span class=\"rb\"></span></span>");
+                outSb.Append("</span>");
                 outSb.Append(HtmlEnd);
                 matRows.Clear();
             }
@@ -711,15 +742,15 @@ namespace Calcpad.Core.Matlab
                 var content = m.Groups[1].Value;
                 var cells = System.Text.RegularExpressions.Regex.Split(content, @"[ \t]{2,}");
                 var sb = new StringBuilder();
-                sb.Append("<span class=\"mat\"><span class=\"lb\"></span><span class=\"cells\"><span class=\"row\">");
+                sb.Append("<span class=\"matrix\"><span class=\"tr\"><span class=\"td\"></span>");   // clásico AJUSTADO
                 foreach (var cellRaw in cells)
                 {
                     if (string.IsNullOrWhiteSpace(cellRaw)) continue;
-                    sb.Append("<span class=\"cell\">");
+                    sb.Append("<span class=\"td\">");
                     sb.Append(cellRaw.Trim());
                     sb.Append("</span>");
                 }
-                sb.Append("</span></span><span class=\"rb\"></span></span>");
+                sb.Append("<span class=\"td\"></span></span></span>");
                 return sb.ToString();
             });
         }
@@ -881,6 +912,13 @@ namespace Calcpad.Core.Matlab
         /// </summary>
         private static string BeautifyMath(string s)
         {
+            // PARIDAD MATLAB: la salida de consola (fprintf/disp) se muestra TAL CUAL,
+            // en texto plano monoespaciado — igual que el Command Window de MATLAB. NO se
+            // italizan letras sueltas ni se estilizan unidades/subíndices/exponentes (eso
+            // divergía de MATLAB: "V=467 tonf" salía con la V en cursiva). El typeset
+            // matemático solo aplica al render de ASIGNACIONES (MatlabHtmlWriter), no acá.
+            return s ?? string.Empty;
+#pragma warning disable CS0162 // código de embellecido desactivado (se conserva por referencia)
             if (string.IsNullOrEmpty(s)) return s ?? string.Empty;
 
             // 1) Unidades primero — antes de que cualquier `^N` o variable interfiera
@@ -953,6 +991,7 @@ namespace Calcpad.Core.Matlab
             s = MulRegex.Replace(s, "&middot;");
 
             return s;
+#pragma warning restore CS0162
         }
     }
 }
