@@ -1164,6 +1164,14 @@ namespace Calcpad.Core.Matlab
             _builtins["tand"] = a => MapUnary(a[0], v => Math.Tan(v * Math.PI / 180));
             _builtins["deg2rad"] = a => MapUnary(a[0], v => v * Math.PI / 180);
             _builtins["rad2deg"] = a => MapUnary(a[0], v => v * 180 / Math.PI);
+            // trig inversa en GRADOS (MATLAB): faltaban -> devolvian vacio y rompian en silencio
+            _builtins["asind"] = a => MapUnary(a[0], v => Math.Asin(v) * 180 / Math.PI);
+            _builtins["acosd"] = a => MapUnary(a[0], v => Math.Acos(v) * 180 / Math.PI);
+            _builtins["atand"] = a => MapUnary(a[0], v => Math.Atan(v) * 180 / Math.PI);
+            _builtins["atan2d"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("atan2d(y,x)");
+                return MapBinary(a[0], a[1], (y, x) => Math.Atan2(y, x) * 180 / Math.PI);
+            };
             _builtins["cumsum"] = a => {
                 var v = a[0];
                 var r = new MValue(v.Rows, v.Cols);
