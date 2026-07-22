@@ -6478,16 +6478,17 @@ namespace Calcpad.Core.Matlab
                 var tf = new MValue(K, 1);
                 MValue Cm = DT.Fields.ContainsKey("Constraints") ? DT.Fields["Constraints"] : null;
                 if (Cm == null || Cm.Cols != 2 || Cm.Rows < 1) { for (int k = 0; k < K; k++) tf.Set(k, 0, 1); return tf; }
-                // ── FLOOD-FILL topológico (idéntico a MATLAB isInterior) ──────────────────
-                // Un triángulo es EXTERIOR si se alcanza desde fuera del casco convexo sin
-                // cruzar una arista restringida. Robusto a contornos cóncavos y colineales;
-                // reemplaza el ray-cast del centroide (frágil con aristas horizontales).
+                // ── FLOOD-FILL con BLOQUEO GEOMÉTRICO (idéntico al resultado de MATLAB) ─────
+                // Exterior = triángulos alcanzables desde fuera del casco SIN cruzar el contorno.
+                // Una arista de malla (p,q) bloquea el paso del flood si ES una restricción, la CRUZA,
+                // o corre PEGADA a ella. Robusto: NO necesita que la malla conforme (MATLAB tampoco
+                // recupera todas las restricciones en interfaces casi-colineales). Las cadenas
+                // internas abiertas no sellan región (el flood las rodea) → dominio completo interior.
                 int np = P.Rows; var pts = new double[np, 2];
                 for (int i = 0; i < np; i++) { pts[i, 0] = P.At(i, 0); pts[i, 1] = P.At(i, 1); }
                 long Key(int i, int j) { int lo = Math.Min(i, j), hi = Math.Max(i, j); return ((long)lo << 32) | (uint)hi; }
-                // aristas bloqueadas = restricciones partidas en sus puntos colineales
                 var blocked = new HashSet<long>();
-                var segs = new List<int[]>();   // segmentos de contorno (para bloqueo geométrico)
+                var segs = new List<int[]>();
                 for (int e = 0; e < Cm.Rows; e++)
                 {
                     int u = (int)Math.Round(Cm.At(e, 0)) - 1, v = (int)Math.Round(Cm.At(e, 1)) - 1;
@@ -6496,20 +6497,34 @@ namespace Calcpad.Core.Matlab
                     var chain = SplitConstraintCollinear(pts, u, v);
                     for (int s = 0; s + 1 < chain.Count; s++) blocked.Add(Key(chain[s], chain[s + 1]));
                 }
-                // una arista de malla (p,q) bloquea el flood si es restricción O si cruza
-                // geométricamente algún segmento del contorno (robusto a restricciones no
-                // recuperadas en interfaces casi-colineales: el hueco igual detiene la fuga).
+                // distancia punto-segmento (para detectar aristas pegadas al contorno)
+                double PtSeg(double px, double py, int c, int d)
+                {
+                    double cx = pts[c, 0], cy = pts[c, 1], ex = pts[d, 0] - cx, ey = pts[d, 1] - cy;
+                    double L2 = ex * ex + ey * ey; if (L2 < 1e-30) return Math.Sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+                    double t = Math.Max(0, Math.Min(1, ((px - cx) * ex + (py - cy) * ey) / L2));
+                    double qx = cx + t * ex, qy = cy + t * ey; return Math.Sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+                }
                 bool EdgeBlocked(int p, int q)
                 {
                     if (blocked.Contains(Key(p, q))) return true;
+                    double mx = (pts[p, 0] + pts[q, 0]) / 2, my = (pts[p, 1] + pts[q, 1]) / 2;
+                    double elen = Math.Sqrt((pts[p, 0] - pts[q, 0]) * (pts[p, 0] - pts[q, 0]) + (pts[p, 1] - pts[q, 1]) * (pts[p, 1] - pts[q, 1]));
                     foreach (var sg in segs)
                     {
-                        if (p == sg[0] || p == sg[1] || q == sg[0] || q == sg[1]) continue;
-                        if (SegProperCross(pts, p, q, sg[0], sg[1])) return true;
+                        if (p == sg[0] || p == sg[1] || q == sg[0] || q == sg[1])
+                        {   // comparte extremo con la restricción: bloquear solo si corre PEGADA (colineal)
+                            int far = (p == sg[0] || q == sg[0]) ? sg[1] : sg[0];
+                            int mine = (p == sg[0] || p == sg[1]) ? q : p;
+                            if (PtSeg(pts[mine, 0], pts[mine, 1], sg[0], sg[1]) < 1e-6 * (elen + 1) &&
+                                PtSeg(pts[far, 0], pts[far, 1], p, q) < 1e-6 * (elen + 1)) return true;
+                            continue;
+                        }
+                        if (SegProperCross(pts, p, q, sg[0], sg[1])) return true;       // cruce propio
+                        if (PtSeg(mx, my, sg[0], sg[1]) < 1e-6 * (elen + 1)) return true; // punto medio sobre el contorno
                     }
                     return false;
                 }
-                // arista → triángulos que la comparten
                 var tv = new int[K][];
                 var edgeTris = new Dictionary<long, List<int>>();
                 for (int k = 0; k < K; k++)
@@ -6524,22 +6539,19 @@ namespace Calcpad.Core.Matlab
                 }
                 var exterior = new bool[K];
                 var queue = new Queue<int>();
-                // semilla: triángulos con una arista de casco (1 dueño) NO bloqueada → dan al exterior
-                for (int k = 0; k < K; k++)
+                for (int k = 0; k < K; k++)   // semilla: triángulos con arista de casco (1 dueño) NO bloqueada
                 {
                     var v3 = tv[k];
-                    var e2 = new[] { (v3[0], v3[1]), (v3[1], v3[2]), (v3[2], v3[0]) };
-                    foreach (var (p, q) in e2)
+                    foreach (var (p, q) in new[] { (v3[0], v3[1]), (v3[1], v3[2]), (v3[2], v3[0]) })
                         if (edgeTris[Key(p, q)].Count == 1 && !EdgeBlocked(p, q))
                         { if (!exterior[k]) { exterior[k] = true; queue.Enqueue(k); } }
                 }
                 while (queue.Count > 0)
                 {
                     int t = queue.Dequeue(); var v3 = tv[t];
-                    var e2 = new[] { (v3[0], v3[1]), (v3[1], v3[2]), (v3[2], v3[0]) };
-                    foreach (var (p, q) in e2)
+                    foreach (var (p, q) in new[] { (v3[0], v3[1]), (v3[1], v3[2]), (v3[2], v3[0]) })
                     {
-                        if (EdgeBlocked(p, q)) continue;                 // no cruzar el contorno
+                        if (EdgeBlocked(p, q)) continue;
                         foreach (int nb in edgeTris[Key(p, q)])
                             if (nb != t && !exterior[nb]) { exterior[nb] = true; queue.Enqueue(nb); }
                     }
@@ -10651,14 +10663,29 @@ namespace Calcpad.Core.Matlab
                 chains.Add(chain);
                 for (int s = 0; s + 1 < chain.Count; s++) locked.Add(EdgeKey(chain[s], chain[s + 1]));
             }
+            // lista plana de sub-aristas a recuperar (todas las restricciones tras el split)
+            var need = new List<int[]>();
             foreach (var chain in chains)
-                for (int s = 0; s + 1 < chain.Count; s++)
+                for (int s = 0; s + 1 < chain.Count; s++) need.Add(new[] { chain[s], chain[s + 1] });
+            // ITERACIÓN A PUNTO FIJO: recuperar una restricción puede destruir otra ya recuperada
+            // (la cavidad borra triángulos; el flip puede voltear). Repetir hasta que TODAS estén
+            // presentes o una pasada no logre progreso. Garantiza malla conforme (para el flood-fill).
+            for (int pass = 0; pass < 8; pass++)
+            {
+                int missingBefore = 0;
+                foreach (var uv in need)
                 {
-                    int u = chain[s], v = chain[s + 1];
-                    RecoverConstraintEdge(tris, pts, u, v, locked);   // flip (rápido) primero
-                    if (!EdgeExists(tris, u, v))
-                        InsertConstraintCavity(tris, pts, u, v);      // cavidad robusta si el flip se atasca
+                    if (EdgeExists(tris, uv[0], uv[1])) continue;
+                    missingBefore++;
+                    RecoverConstraintEdge(tris, pts, uv[0], uv[1], locked);   // flip (rápido) primero
+                    if (!EdgeExists(tris, uv[0], uv[1]))
+                        InsertConstraintCavity(tris, pts, uv[0], uv[1]);      // cavidad robusta si el flip se atasca
                 }
+                if (missingBefore == 0) break;
+                int missingAfter = 0;
+                foreach (var uv in need) if (!EdgeExists(tris, uv[0], uv[1])) missingAfter++;
+                if (missingAfter == 0 || missingAfter >= missingBefore) break;   // hecho o sin progreso
+            }
             return tris;
         }
         private static long EdgeKey(int i, int j) { int lo = Math.Min(i, j), hi = Math.Max(i, j); return ((long)lo << 32) | (uint)hi; }
