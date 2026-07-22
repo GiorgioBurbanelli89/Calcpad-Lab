@@ -924,6 +924,52 @@ return {make:make};
                         Color = color, LineWidth = lw, Dash = "solid"
                     });
         }
+        /// <summary>trimesh 3D — MALLA DE ALAMBRE: aristas coloreadas por z, SIN relleno de caras
+        /// (a diferencia de trisurf, que rellena). Igual que MATLAB trimesh(TRI,x,y,z). Emite la
+        /// escena canvas/WebGL (CvLine con gradiente por z) y la traza Plotly (scatter3d lines
+        /// con line.color por z + colorscale).</summary>
+        public static void TriMesh3D(MValue faces, double[] x, double[] y, double[] z, string colormap)
+        {
+            if (_figTraces == null) BeginFigure();
+            SetCmapName(colormap);
+            int nF = faces.Rows;
+            double zmin = double.MaxValue, zmax = double.MinValue;
+            for (int i = 0; i < z.Length; i++) { if (z[i] < zmin) zmin = z[i]; if (z[i] > zmax) zmax = z[i]; }
+            double rng = (zmax - zmin) > 1e-12 ? zmax - zmin : 1;
+            var edges = new System.Collections.Generic.HashSet<(int, int)>();
+            for (int f = 0; f < nF; f++)
+            {
+                int a = (int)faces.At(f, 0) - 1, b = (int)faces.At(f, 1) - 1, c = (int)faces.At(f, 2) - 1;
+                AddEdge(edges, a, b); AddEdge(edges, b, c); AddEdge(edges, c, a);
+            }
+            // CANVAS: cada arista con gradiente de color (dos medios-segmentos por los extremos)
+            foreach (var (u, v) in edges)
+            {
+                float[] cu = CmapF(colormap, (z[u] - zmin) / rng), cv = CmapF(colormap, (z[v] - zmin) / rng);
+                double mx = (x[u] + x[v]) / 2, my = (y[u] + y[v]) / 2, mz = (z[u] + z[v]) / 2;
+                CvLine(x[u], y[u], z[u], mx, my, mz, cu);
+                CvLine(mx, my, mz, x[v], y[v], z[v], cv);
+            }
+            // PLOTLY: scatter3d de aristas, color por z (line.color array + colorscale), cortes por NaN
+            var xs = new System.Collections.Generic.List<double>();
+            var ys = new System.Collections.Generic.List<double>();
+            var zs = new System.Collections.Generic.List<double>();
+            var cs = new System.Collections.Generic.List<double>();
+            foreach (var (u, v) in edges)
+            {
+                xs.Add(x[u]); xs.Add(x[v]); xs.Add(double.NaN);
+                ys.Add(y[u]); ys.Add(y[v]); ys.Add(double.NaN);
+                zs.Add(z[u]); zs.Add(z[v]); zs.Add(double.NaN);
+                cs.Add(z[u]); cs.Add(z[v]); cs.Add(double.NaN);
+            }
+            var sb = new StringBuilder();
+            sb.Append("{type:'scatter3d',mode:'lines'");
+            sb.Append($", x:[{CsvNaN(xs)}], y:[{CsvNaN(ys)}], z:[{CsvNaN(zs)}]");
+            sb.Append($", line:{{width:2.5, color:[{CsvNaN(cs)}], colorscale:{ColorscaleJs(colormap)}, reversescale:{(ColormapReversed(colormap) ? "true" : "false")}}}");
+            sb.Append(", showlegend:false, hoverinfo:'skip'}");
+            AddTrace(sb.ToString());
+            _figIs3D = true;
+        }
         /// <summary>Markers 2D — puntos (scatter mode:markers) que se ACUMULAN en la figura.
         /// Permite que plot(x,y,'o') componga con patch/line/text en los mismos ejes.</summary>
         public static void Markers2D(double[] xs, double[] ys, string fillColor, string edgeColor,

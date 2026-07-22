@@ -2410,10 +2410,14 @@ namespace Calcpad.Core.Matlab
                 MatlabPlots.TriPlot2D(TRI, X, Y, color, lw > 0 ? lw : 0.5);
                 return new MValue(0);
             };
-            _builtins["trimesh"] = a => {   // trimesh 2D (sin z) = triplot; con z lo trata trisurf
+            _builtins["trimesh"] = a => {   // trimesh 3D = WIREFRAME (aristas por z, sin relleno) como MATLAB
                 if (a.Length >= 4 && !a[3].IsString && a[3].Data != null && a[3].Data.Length == (a[1]?.Data?.Length ?? -1))
-                    return _builtins["trisurf"](a);
-                return _builtins["triplot"](a);
+                {
+                    MatlabPlots.TriMesh3D(a[0], a[1].Data, a[2].Data, a[3].Data, _activeColormap ?? "parula");
+                    MatlabPlots.SetFigure3D(true);
+                    return new MValue(0);
+                }
+                return _builtins["triplot"](a);   // 2D (sin z) = triplot
             };
             _builtins["trisurf"] = a => {
                 if (a.Length < 4) throw new MatlabRuntimeException("trisurf(tri, x, y, z)");
