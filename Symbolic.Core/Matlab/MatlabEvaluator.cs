@@ -1862,8 +1862,25 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["quiver"] = a => {
+                a = DropAxes(a);
                 if (a.Length < 4) throw new MatlabRuntimeException("quiver(X, Y, U, V)");
-                _htmlOut?.Invoke(MatlabPlots.Quiver(a[0], a[1], a[2], a[3]));
+                var X = a[0].Data; var Y = a[1].Data; var U = a[2].Data; var V = a[3].Data;
+                double scale = 1.0; int idx = 4;
+                // 5º arg numérico = escala; 0 = longitud REAL (s=1); >0 = factor
+                if (a.Length > idx && !a[idx].IsString) { double sc = a[idx].Scalar; scale = (sc == 0) ? 1.0 : sc; idx++; }
+                string color = "#1f77b4"; double lw = 1.0; double headFrac = 0.28;
+                if (a.Length > idx && a[idx].IsString) { color = MatlabColorToJs(a[idx].StringValue); idx++; }
+                for (int i = idx; i + 1 < a.Length; i += 2)
+                {
+                    if (!a[i].IsString) break;
+                    string k = a[i].StringValue.ToLowerInvariant();
+                    if (k == "linewidth") lw = a[i + 1].Scalar;
+                    else if (k == "color") color = a[i + 1].IsString ? MatlabColorToJs(a[i + 1].StringValue) : (a[i + 1].Cols == 3 ? RgbVecToCss(a[i + 1]) : color);
+                    else if (k == "maxheadsize") headFrac = System.Math.Max(0.12, System.Math.Min(0.5, a[i + 1].Scalar * 0.18));
+                }
+                // hold: sin hold y con figura abierta → cerrar la anterior (como plot); luego componer
+                if (!_holdOn && MatlabPlots.HasOpenFigure) { var ph = MatlabPlots.FinishFigure(); if (!string.IsNullOrEmpty(ph)) _htmlOut?.Invoke(ph); }
+                MatlabPlots.QuiverAdd(X, Y, U, V, scale, color, lw, headFrac);
                 return new MValue(0);
             };
             _builtins["quiver3"] = a => {

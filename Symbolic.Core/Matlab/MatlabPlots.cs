@@ -938,6 +938,29 @@ return {make:make};
                 Color=color, LineWidth=lineWidth, Name=name, Dash=dash
             });
         }
+        /// <summary>quiver COMPONIENDO en la figura actual (2D): cada flecha = tallo + 2 líneas de
+        /// punta, agregadas como Line2D → compone con patch/plot/text (respeta hold). Antes quiver
+        /// emitía una figura Plotly standalone → cada flecha salía en su propio gráfico.</summary>
+        public static void QuiverAdd(double[] xs, double[] ys, double[] us, double[] vs,
+                                     double scale, string color, double lw, double headFrac)
+        {
+            if (_figTraces == null) BeginFigure();
+            int n = System.Math.Min(System.Math.Min(xs.Length, ys.Length), System.Math.Min(us.Length, vs.Length));
+            double ca = System.Math.Cos(0.42), sa = System.Math.Sin(0.42);   // ~24° para la punta
+            for (int i = 0; i < n; i++)
+            {
+                double x0 = xs[i], y0 = ys[i], dx = us[i] * scale, dy = vs[i] * scale;
+                double x1 = x0 + dx, y1 = y0 + dy;
+                Line2D(new[] { x0, x1 }, new[] { y0, y1 }, color, lw);        // tallo
+                double len = System.Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1e-12) continue;
+                double ux = dx / len, uy = dy / len, hl = headFrac * len;
+                double h1x = x1 - hl * (ux * ca - uy * sa), h1y = y1 - hl * (ux * sa + uy * ca);
+                double h2x = x1 - hl * (ux * ca + uy * sa), h2y = y1 - hl * (uy * ca - ux * sa);
+                Line2D(new[] { x1, h1x }, new[] { y1, h1y }, color, lw);      // punta 1
+                Line2D(new[] { x1, h2x }, new[] { y1, h2y }, color, lw);      // punta 2
+            }
+        }
         /// <summary>triplot/trimesh 2D — dibuja las ARISTAS de la triangulación (tri Mx3, índices
         /// 1-based) como líneas, cada arista separada por NaN. Se acumula en la figura (compone
         /// con plot/patch). Compatible MATLAB triplot(TRI,x,y).</summary>
