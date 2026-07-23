@@ -1136,8 +1136,8 @@ return {make:make};
             if (_figXMin.HasValue) { xmin = _figXMin.Value; xmax = _figXMax.Value; }
             if (_figYMin.HasValue) { ymin = _figYMin.Value; ymax = _figYMax.Value; }
             dx = xmax - xmin; dy = ymax - ymin;
-            // Margenes para ejes/labels
-            int marginL = 60, marginR = 30, marginT = 50, marginB = 60;
+            // Margenes para ejes/labels (mas a la derecha si hay colorbar)
+            int marginL = 60, marginR = _figColorbar ? 96 : 30, marginT = 50, marginB = 60;
             int plotW = width - marginL - marginR;
             int plotH = height - marginT - marginB;
             // axis equal: MATLAB usa la MISMA escala en los dos ejes (un metro en X mide
@@ -1208,7 +1208,13 @@ return {make:make};
                         pts.Append(",");
                         pts.Append(TY(p.Ys[i]).ToString("F2", Inv));
                     }
-                    svg.AppendLine($"    <polygon points='{pts}' fill='{p.FaceColor}' fill-opacity='{p.FaceAlpha.ToString(Inv)}' stroke='{p.EdgeColor}' stroke-width='{p.LineWidth.ToString(Inv)}'/>");
+                    // EdgeColor='none' en un campo de patches deja COSTURAS claras de
+                    // anti-aliasing entre triangulos vecinos; se pinta el borde del MISMO
+                    // color del relleno (fino) para que la superficie quede continua como MATLAB.
+                    bool noEdge = string.IsNullOrEmpty(p.EdgeColor) || p.EdgeColor == "none";
+                    string estroke = noEdge ? p.FaceColor : p.EdgeColor;
+                    string ewid = noEdge ? "0.7" : p.LineWidth.ToString(Inv);
+                    svg.AppendLine($"    <polygon points='{pts}' fill='{p.FaceColor}' fill-opacity='{p.FaceAlpha.ToString(Inv)}' stroke='{estroke}' stroke-width='{ewid}'/>");
                 }
                 else if (p.Kind == "line2d" && p.Xs.Length >= 2)
                 {
@@ -1327,6 +1333,26 @@ return {make:make};
                             svg.AppendLine($"    <circle cx='{lx+padx+12}' cy='{cy}' r='3' fill='{col}' stroke='{col}'/>");
                         svg.AppendLine($"    <text x='{lx+padx+30}' y='{cy+4}' font-family='sans-serif' font-size='11' fill='#222'>{EscapeXml(it.Name)}</text>");
                     }
+                }
+            }
+            // ---- COLORBAR (si se llamó colorbar() y hay caxis definido) ----
+            if (_figColorbar && TryGetCAxis(out double cbLo, out double cbHi) && cbHi > cbLo)
+            {
+                int cbx = width - marginR + 20, cbw = 16, cbtop = marginT, cbh = plotH, NB = 64;
+                for (int s = 0; s < NB; s++)
+                {
+                    var f3 = CmapF(_figCmapName, 1.0 - (double)s / (NB - 1));   // arriba = valor alto
+                    int R = (int)(f3[0]*255), G = (int)(f3[1]*255), B = (int)(f3[2]*255);
+                    double yy = cbtop + (double)cbh * s / NB, hh = (double)cbh / NB + 1;
+                    svg.AppendLine($"  <rect x='{cbx}' y='{yy.ToString("F1", Inv)}' width='{cbw}' height='{hh.ToString("F1", Inv)}' fill='rgb({R},{G},{B})'/>");
+                }
+                svg.AppendLine($"  <rect x='{cbx}' y='{cbtop}' width='{cbw}' height='{cbh}' fill='none' stroke='#333' stroke-width='0.8'/>");
+                foreach (var tv in NiceTicks(cbLo, cbHi))
+                {
+                    double fr = (tv - cbLo) / (cbHi - cbLo); if (fr < -1e-6 || fr > 1.0001) continue;
+                    double yy = cbtop + cbh * (1 - fr);
+                    svg.AppendLine($"  <line x1='{cbx+cbw}' y1='{yy.ToString("F1", Inv)}' x2='{cbx+cbw+3}' y2='{yy.ToString("F1", Inv)}' stroke='#333' stroke-width='0.8'/>");
+                    svg.AppendLine($"  <text x='{cbx+cbw+5}' y='{(yy+3).ToString("F1", Inv)}' font-family='sans-serif' font-size='10' fill='#222'>{FmtTick(tv)}</text>");
                 }
             }
             svg.AppendLine("</svg>");

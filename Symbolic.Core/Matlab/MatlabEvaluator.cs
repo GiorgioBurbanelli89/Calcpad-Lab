@@ -1559,6 +1559,7 @@ namespace Calcpad.Core.Matlab
                         _activeColormap = "custom";
                     }
                     else _activeColormap = "custom";
+                    MatlabPlots.SetCmapName(_activeColormap);   // el colorbar (SVG/canvas) usa este nombre
                     // MATLAB: colormap tras el plot lo re-colorea -> re-estilizar el ultimo plot.
                     var restyle = MatlabPlots.RestyleLastColormap(_activeColormap);
                     if (restyle != null) _htmlOut?.Invoke(restyle);
