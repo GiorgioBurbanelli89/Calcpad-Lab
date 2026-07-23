@@ -1870,7 +1870,9 @@ namespace Calcpad.Core.Matlab
                 // 5º arg numérico = escala; 0 = longitud REAL (s=1); >0 = factor
                 if (a.Length > idx && !a[idx].IsString) { double sc = a[idx].Scalar; scale = (sc == 0) ? 1.0 : sc; idx++; }
                 string color = "#1f77b4"; double lw = 1.0; double headFrac = 0.28;
-                if (a.Length > idx && a[idx].IsString) { color = MatlabColorToJs(a[idx].StringValue); idx++; }
+                // color posicional SOLO si es un color-string ('k','r'), NO si es un nombre de
+                // propiedad ('Color') — antes 'Color' se comía aquí y el RGB name-value se perdia.
+                if (a.Length > idx && a[idx].IsString && !IsPropName(a[idx].StringValue)) { color = MatlabColorToJs(a[idx].StringValue); idx++; }
                 for (int i = idx; i + 1 < a.Length; i += 2)
                 {
                     if (!a[i].IsString) break;
@@ -2431,7 +2433,10 @@ namespace Calcpad.Core.Matlab
                     TRI = a[0]; X = a[1].Data; Y = a[2].Data; rest = 3;
                 }
                 string color = null; double lw = 0.5; string dash = "solid";
-                if (rest < a.Length && a[rest].IsString)
+                // linespec SOLO si NO es un nombre de propiedad (Color/LineWidth/...) — antes 'Color'
+                // se comía como linespec y el RGB name-value se perdía (malla salía roja).
+                if (rest < a.Length && a[rest].IsString
+                    && !IsPropName(a[rest].StringValue))
                 { ParseLineSpec(a[rest].StringValue, out _, out _, out color, out _, out dash); rest++; }
                 for (int i = rest; i + 1 < a.Length; i += 2)
                 {
@@ -6730,6 +6735,18 @@ namespace Calcpad.Core.Matlab
         // ── Helpers para patch/line/text ──────────────────────────────────────
         /// <summary>Parsea un linespec MATLAB ('o','^','r-','--', etc.):
         /// detecta si pide línea, marcadores, color y símbolo Plotly.</summary>
+        // true si el string es un NOMBRE de propiedad (name-value), no un linespec ('r-','b:').
+        private static bool IsPropName(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            switch (s.ToLowerInvariant())
+            {
+                case "color": case "linewidth": case "linestyle": case "marker":
+                case "markersize": case "markerfacecolor": case "markeredgecolor":
+                case "displayname": case "handlevisibility": return true;
+                default: return false;
+            }
+        }
         private static void ParseLineSpec(string spec, out bool wantLine, out bool wantMarker,
                                            out string color, out string symbol, out string dash)
         {
