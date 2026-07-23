@@ -113,6 +113,46 @@ namespace Calcpad.Core.Matlab
         private static double _figCLo = 0, _figCHi = 1;
         public static void SetColorbar(bool on) { _figColorbar = on; }
         public static bool ColorbarState => _figColorbar;
+        // view(2): cámara CENITAL (top-down) sobre el canvas 3D → aspecto 2D como MATLAB.
+        private static bool _figView2 = false;
+        public static void SetView2(bool on) { _figView2 = on; }
+        // subplot(m,n,p): cada panel = su PROPIA figura, colocada en una celda de un grid CSS
+        // (antes se apilaban en una sola figura → solo se veía el último + colores cruzados).
+        private static bool _subplotActive = false;
+        // El grid de subplot se BUFFERIZA y se emite como UN SOLO chunk al cerrar. Si se emitiera
+        // por partes (grid-open, celda, celda), el streaming del WebView2 auto-cerraría el <div>
+        // contenedor vacío y los paneles quedarían apilados como bloques hermanos.
+        private static System.Text.StringBuilder _subplotBuf = null;
+        /// <summary>subplot(m,n,p): cierra el panel anterior al buffer, abre el grid en el primer
+        /// subplot, arranca una figura nueva para el panel actual. NO emite (todo va al buffer).</summary>
+        public static string SubplotCell(int m, int n)
+        {
+            if (_subplotActive)
+            {
+                string figPrev = FinishFigure();   // _subplotActive sigue true → panel encogido
+                _subplotBuf.Append("<div style=\"display:inline-block;vertical-align:top\">").Append(figPrev).Append("</div>");
+            }
+            else
+            {
+                _subplotBuf = new System.Text.StringBuilder();
+                _subplotBuf.Append("<div class=\"matlab-subplot-grid\" style=\"display:flex;flex-wrap:nowrap;align-items:flex-start;gap:.6em;margin:1em 0;width:max-content\">");
+                _subplotActive = true;
+            }
+            BeginFigure();   // ejes NUEVOS para el panel actual (colormap/title/etc. propios)
+            return "";       // nada se emite hasta CloseSubplotGrid (chunk único)
+        }
+        /// <summary>Cierra el último panel + el contenedor y devuelve TODO el grid como un chunk.</summary>
+        public static string CloseSubplotGrid()
+        {
+            if (!_subplotActive) return "";
+            string figLast = FinishFigure();   // FinishFigure ANTES de bajar el flag (panel encogido)
+            _subplotActive = false;
+            _subplotBuf.Append("<div style=\"display:inline-block;vertical-align:top\">").Append(figLast).Append("</div></div>\n");
+            string html = _subplotBuf.ToString();
+            _subplotBuf = null;
+            return html;
+        }
+        public static bool SubplotActive => _subplotActive;
         private static string _figCmapName = "parula";
         public static void SetCmapName(string n) { _figCmapName = n ?? "parula"; }
         public static void SetColorRange(double lo, double hi) { _figCLo = lo; _figCHi = hi; }
@@ -333,6 +373,11 @@ namespace Calcpad.Core.Matlab
         private static string FinishFigureCanvas()
         {
             int id = _figId;
+            // Tamaños: en modo subplot los paneles se encogen para caber lado a lado.
+            int cw = _subplotActive ? 430 : 720;
+            int ch = _subplotActive ? 340 : 560;
+            int cbH = _subplotActive ? 320 : 500;
+            int contW = cw + 95;
             double x0 = _cvXmin, x1 = _cvXmax, y0 = _cvYmin, y1 = _cvYmax, z0 = _cvZmin, z1 = _cvZmax;
             // xlim/ylim/zlim del script MANDAN sobre el auto-escalado (como MATLAB)
             if (_cvXlim.HasValue) { x0 = _cvXlim.Value.lo; x1 = _cvXlim.Value.hi; }
@@ -366,18 +411,18 @@ namespace Calcpad.Core.Matlab
                 for (int q = 0; q <= NT; q++)
                 {
                     double val = _figCHi - (_figCHi - _figCLo) * q / (double)NT;
-                    double top = 500.0 * q / NT;
+                    double top = cbH * q / (double)NT;
                     ticks.Append($"<div style=\"position:absolute;left:24px;top:{(top - 7).ToString("F0", Inv)}px;"
                                + $"font:10px sans-serif;color:#333;white-space:nowrap\">&ndash; {val.ToString("G3", Inv)}</div>");
                 }
-                cbar = "<div style=\"display:inline-block;vertical-align:top;margin-left:12px;position:relative;height:500px;width:80px\">"
-                     + $"<div style=\"width:18px;height:500px;border:1px solid #888;background:linear-gradient(to bottom, {stops})\"></div>"
+                cbar = $"<div style=\"display:inline-block;vertical-align:top;margin-left:12px;position:relative;height:{cbH}px;width:64px\">"
+                     + $"<div style=\"width:18px;height:{cbH}px;border:1px solid #888;background:linear-gradient(to bottom, {stops})\"></div>"
                      + ticks + "</div>";
             }
-            sb.Append("<div class=\"matlab-plot\" style=\"width:860px\">");
+            sb.Append($"<div class=\"matlab-plot\" style=\"width:{contW}px;display:inline-block;vertical-align:top\">");
             if (!string.IsNullOrEmpty(_figTitle))   // MATLAB muestra el title() sobre la figura
-                sb.Append($"<div style=\"font:bold 13px sans-serif;text-align:center;width:720px;margin-bottom:4px\">{EscapeXml(_figTitle)}</div>");
-            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:720px;height:560px;border:1px solid #333;background:#ffffff;cursor:grab;display:inline-block\"></canvas>");
+                sb.Append($"<div style=\"font:bold 13px sans-serif;text-align:center;width:{cw}px;margin-bottom:4px\">{EscapeXml(_figTitle)}</div>");
+            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:{cw}px;height:{ch}px;border:1px solid #333;background:#ffffff;cursor:grab;display:inline-block\"></canvas>");
             sb.Append(cbar);
             sb.Append($"<div style=\"font:11px sans-serif;color:#333;margin-top:4px\">{ejes}</div>");
             sb.Append("</div>\n");
@@ -386,7 +431,8 @@ namespace Calcpad.Core.Matlab
             sb.Append(x0.ToString(Inv)).Append(',').Append(x1.ToString(Inv)).Append(',')
               .Append(y0.ToString(Inv)).Append(',').Append(y1.ToString(Inv)).Append(',')
               .Append(z0.ToString(Inv)).Append(',').Append(z1.ToString(Inv)).Append("],")
-              .Append(_cvAxisEqual ? "1" : "0").Append(");})();</script>\n");
+              .Append(_cvAxisEqual ? "1" : "0").Append(',')
+              .Append(_figView2 ? "1" : "0").Append(");})();</script>\n");
             return sb.ToString();
         }
         // Mini-motor WebGL embebido (una sola vez por página, guard window.LAB3D). Órbita con mouse.
@@ -398,8 +444,9 @@ function rx(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,
 function rz(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,s,0,0,-s,c,0,0,0,0,1,0,0,0,0,1]);}
 function scl(x,y,z){return new Float32Array([x,0,0,0,0,y,0,0,0,0,z,0,0,0,0,1]);}
 function sh(gl,t,src){var o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);return o;}
-function make(cv,op,al,ln,bb,eq){
+function make(cv,op,al,ln,bb,eq,v2){
 if(eq===undefined)eq=1;
+if(v2===undefined)v2=0;
 var gl=cv.getContext('webgl',{antialias:true,preserveDrawingBuffer:true});if(!gl){cv.parentNode.innerHTML='<div style=color:#a00>WebGL no disponible</div>';return;}
 var hasDeriv=!!gl.getExtension('OES_standard_derivatives');
 var vs='attribute vec3 p;attribute vec4 c;uniform mat4 m;varying vec4 v;varying vec3 w;void main(){gl_Position=m*vec4(p,1.0);v=c;w=p;}';
@@ -420,14 +467,14 @@ var d0=1.7*Math.sqrt(ex*ex+ey*ey+ez*ez)||3;
 // zn = pasos ENTEROS de rueda. dist se recalcula siempre desde d0 con pow(), asi
 // acercar y alejar el mismo numero de pasos devuelve el valor EXACTO de partida;
 // multiplicando de forma acumulada el error de coma flotante hacia que no regresara.
-var st={az:-0.7,el:0.35,d0:d0,zn:0,dist:d0};
+var st={az:v2?0:-0.7,el:v2?1.5708:0.35,d0:d0,zn:0,dist:d0};
 gl.enable(gl.DEPTH_TEST);
 function bind(buf,stride,csz){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,stride,0);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,csz,gl.FLOAT,false,stride,12);}
 // --- marcas numericas de los ejes, como MATLAB: se proyectan en cada draw ---
 var host=cv.parentNode; if(getComputedStyle(host).position==='static')host.style.position='relative';
 var TK=[],NT=4;
 function fmt(v){return Math.abs(v)<1e-9?'0':(Math.abs(v)>=100||Math.abs(v)<0.01?v.toExponential(1):(''+(Math.round(v*100)/100)));}
-for(var ax=0;ax<3;ax++)for(var q=0;q<=NT;q++){
+for(var ax=0;ax<3;ax++){if(v2&&ax===2)continue;for(var q=0;q<=NT;q++){
   var f=q/NT,P=[bb[0],bb[2],bb[4]];
   // se separan HACIA AFUERA de la caja para que el solido no los tape,
   // igual que MATLAB, que rotula por fuera de los ejes
@@ -439,7 +486,7 @@ for(var ax=0;ax<3;ax++)for(var q=0;q<=NT;q++){
   d.style.cssText='position:absolute;font:10px sans-serif;color:#333;pointer-events:none;transform:translate(-50%,-50%)';
   d.textContent=fmt(ax===0?(bb[0]+f*(bb[1]-bb[0])):(ax===1?(bb[2]+f*(bb[3]-bb[2])):(bb[4]+f*(bb[5]-bb[4]))));
   host.appendChild(d); TK.push({el:d,p:P});
-}
+}}
 function ticks(M){try{
   var W=cv.clientWidth||cv.width, H=cv.clientHeight||cv.height;
   for(var i=0;i<TK.length;i++){
@@ -490,6 +537,7 @@ return {make:make};
             _figPrims = new System.Collections.Generic.List<FigPrim>();
             _figId = ++_plotCounter;
             _figIs3D = false;
+            _figView2 = false;
             CvReset();
             _figTitle = "";
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
@@ -752,6 +800,8 @@ return {make:make};
                     cmin = double.MaxValue; cmax = double.MinValue;
                     for (int t = 0; t < cdata.Data.Length; t++) { if (cdata.Data[t] < cmin) cmin = cdata.Data[t]; if (cdata.Data[t] > cmax) cmax = cdata.Data[t]; }
                     rng = (cmax - cmin) > 1e-12 ? cmax - cmin : 1;
+                    // propagar el rango de CData a la COLORBAR (antes mostraba 0..1 fijo)
+                    SetColorRange(cmin, cmax);
                 }
                 float[] VC(int vi, int fi)
                 {

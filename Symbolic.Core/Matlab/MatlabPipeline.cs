@@ -494,7 +494,13 @@ namespace Calcpad.Core.Matlab
             }
             // Al final del script: cerrar figura abierta (patch/line acumulados sin saveas)
             int finalChunkStart = sb.Length;
-            if (MatlabPlots.HasOpenFigure)
+            if (MatlabPlots.SubplotActive)
+            {
+                // cierra el último panel + el contenedor grid de subplot
+                var gridEnd = MatlabPlots.CloseSubplotGrid();
+                if (!string.IsNullOrEmpty(gridEnd)) sb.Append(gridEnd);
+            }
+            else if (MatlabPlots.HasOpenFigure)
             {
                 var finalFig = MatlabPlots.FinishFigure();
                 if (!string.IsNullOrEmpty(finalFig)) sb.Append(finalFig);

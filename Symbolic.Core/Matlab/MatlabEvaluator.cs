@@ -1987,7 +1987,15 @@ namespace Calcpad.Core.Matlab
                 }
                 return new MValue(0);
             };
-            _builtins["view"] = a => new MValue(0);
+            _builtins["view"] = a => {
+                // view(2)=cenital (top-down, 2D); view(3)=oblicua 3D; view([az el])/view(az,el): el>=89 → cenital
+                bool v2 = false;
+                if (a.Length == 1 && a[0].IsScalar) v2 = (int)a[0].Scalar == 2;
+                else if (a.Length >= 2 && a[0].IsScalar && a[1].IsScalar) v2 = a[1].Scalar >= 89;
+                else if (a.Length == 1 && a[0].Data != null && a[0].Data.Length == 2) v2 = a[0].Data[1] >= 89;
+                MatlabPlots.SetView2(v2);
+                return new MValue(0);
+            };
             _builtins["grid"] = a => {
                 int id = MatlabPlots.LastPlotId;
                 bool on = true;
@@ -2365,15 +2373,14 @@ namespace Calcpad.Core.Matlab
             _builtins["warning"] = a => new MValue(0);   // warning(...)/ws=warning('off',id): no-op; devuelve dummy
             _builtins["clf"] = a => new MValue(0);
             _builtins["subplot"] = a => {
-                // subplot(m, n, p) abre un sub-axes en la cuadrícula m×n posición p (1-based)
+                // subplot(m, n, p): cada panel es su PROPIA figura en una celda del grid.
                 if (a.Length < 3) throw new MatlabRuntimeException("subplot(m, n, p)");
                 int m = (int)a[0].Scalar, n = (int)a[1].Scalar, p = (int)a[2].Scalar;
-                if (_subplotGrid == null || _subplotGrid.Value.m != m || _subplotGrid.Value.n != n)
-                {
-                    _subplotGrid = (m, n);
-                    _htmlOut?.Invoke($"<div class=\"matlab-subplot-grid\" style=\"display:grid;grid-template-columns:repeat({n}, 1fr);gap:1em;margin:1em 0\" data-grid-rows=\"{m}\" data-grid-cols=\"{n}\"></div>\n");
-                }
+                _subplotGrid = (m, n);
                 _activeSubplotPos = p;
+                var html = MatlabPlots.SubplotCell(m, n);
+                if (!string.IsNullOrEmpty(html)) _htmlOut?.Invoke(html);
+                _colorCycleIdx = 0;   // ejes nuevos → reinicia ciclo de colores
                 return new MValue(0);
             };
             _builtins["sgtitle"] = a => {
