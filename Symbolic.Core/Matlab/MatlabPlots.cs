@@ -1088,6 +1088,29 @@ return {make:make};
         }
 
         /// <summary>Exporta la figura actual como SVG standalone (sólo primitives 2D).</summary>
+        /// <summary>Marcas de eje "bonitas": múltiplos redondos de 1/2/5·10^k dentro de [lo,hi].</summary>
+        private static System.Collections.Generic.List<double> NiceTicks(double lo, double hi, int target = 8)
+        {
+            var outp = new System.Collections.Generic.List<double>();
+            double range = hi - lo;
+            if (range <= 1e-12) { outp.Add(lo); return outp; }
+            double raw = range / target;
+            double mag = System.Math.Pow(10, System.Math.Floor(System.Math.Log10(raw)));
+            double norm = raw / mag;
+            double step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+            double first = System.Math.Ceiling(lo / step - 1e-9) * step;
+            for (double v = first; v <= hi + 1e-9; v += step)
+                outp.Add(System.Math.Abs(v) < step * 1e-6 ? 0.0 : v);
+            return outp;
+        }
+        private static string FmtTick(double v)
+        {
+            if (System.Math.Abs(v) < 1e-9) return "0";
+            double a = System.Math.Abs(v);
+            if (a >= 1e5 || a < 1e-3) return v.ToString("G3", Inv);
+            string s = v.ToString(a >= 100 ? "0.#" : "0.##", Inv);
+            return s;
+        }
         public static string ExportSvg(int width = 800, int height = 800)
         {
             if (_figPrims == null || _figPrims.Count == 0) return null;
@@ -1149,19 +1172,25 @@ return {make:make};
             // Y label
             if (!string.IsNullOrEmpty(_figYLabel))
                 svg.AppendLine($"  <text x='15' y='{marginT + plotH/2}' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 {marginT + plotH/2})'>{EscapeXml(_figYLabel)}</text>");
-            // Tick marks simples cada 5 divisions
-            for (int t = 0; t <= 5; t++)
+            // Marcas de eje en números REDONDOS (nice ticks), como MATLAB — antes eran
+            // xmin+dx*t/5 → valores feos (6.94, 0.978…).
+            foreach (var xv in NiceTicks(xmin, xmax))
             {
-                double xv = xmin + dx * t / 5.0;
-                double yv = ymin + dy * t / 5.0;
-                double tx = TX(xv); double ty = TY(yv);
-                svg.AppendLine($"  <text x='{tx}' y='{height-marginB+15}' text-anchor='middle' font-family='sans-serif' font-size='10'>{xv.ToString("G3", Inv)}</text>");
-                svg.AppendLine($"  <text x='{marginL-5}' y='{ty+4}' text-anchor='end' font-family='sans-serif' font-size='10'>{yv.ToString("G3", Inv)}</text>");
-                if (_figGrid)   // grid on
-                {
-                    svg.AppendLine($"  <line x1='{tx}' y1='{marginT}' x2='{tx}' y2='{height-marginB}' stroke='#d0d0d0' stroke-width='0.7'/>");
-                    svg.AppendLine($"  <line x1='{marginL}' y1='{ty}' x2='{width-marginR}' y2='{ty}' stroke='#d0d0d0' stroke-width='0.7'/>");
-                }
+                double tx = TX(xv);
+                if (tx < marginL - 1 || tx > width - marginR + 1) continue;
+                svg.AppendLine($"  <text x='{tx.ToString(Inv)}' y='{height-marginB+15}' text-anchor='middle' font-family='sans-serif' font-size='10'>{FmtTick(xv)}</text>");
+                svg.AppendLine($"  <line x1='{tx.ToString(Inv)}' y1='{height-marginB}' x2='{tx.ToString(Inv)}' y2='{height-marginB+4}' stroke='#333' stroke-width='0.8'/>");
+                if (_figGrid)
+                    svg.AppendLine($"  <line x1='{tx.ToString(Inv)}' y1='{marginT}' x2='{tx.ToString(Inv)}' y2='{height-marginB}' stroke='#d0d0d0' stroke-width='0.7'/>");
+            }
+            foreach (var yv in NiceTicks(ymin, ymax))
+            {
+                double ty = TY(yv);
+                if (ty < marginT - 1 || ty > height - marginB + 1) continue;
+                svg.AppendLine($"  <text x='{marginL-7}' y='{(ty+4).ToString(Inv)}' text-anchor='end' font-family='sans-serif' font-size='10'>{FmtTick(yv)}</text>");
+                svg.AppendLine($"  <line x1='{marginL-4}' y1='{ty.ToString(Inv)}' x2='{marginL}' y2='{ty.ToString(Inv)}' stroke='#333' stroke-width='0.8'/>");
+                if (_figGrid)
+                    svg.AppendLine($"  <line x1='{marginL}' y1='{ty.ToString(Inv)}' x2='{width-marginR}' y2='{ty.ToString(Inv)}' stroke='#d0d0d0' stroke-width='0.7'/>");
             }
             // Clip path para plot area
             svg.AppendLine($"  <defs><clipPath id='plot'><rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}'/></clipPath></defs>");

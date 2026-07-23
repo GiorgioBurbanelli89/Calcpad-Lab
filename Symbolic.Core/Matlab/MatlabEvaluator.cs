@@ -2000,6 +2000,10 @@ namespace Calcpad.Core.Matlab
                 else if (a.Length > 0 && a[0].Data.Length >= 4)
                 {
                     var b = a[0].Data;
+                    // Fija los límites REALES → el canvas/SVG recortan a este rango (como MATLAB),
+                    // no solo Plotly. Sin esto una flecha larga estiraba la vista.
+                    MatlabPlots.SetXLim(b[0], b[1]);
+                    MatlabPlots.SetYLim(b[2], b[3]);
                     _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, {{xaxis:{{range:[{b[0]},{b[1]}]}}, yaxis:{{range:[{b[2]},{b[3]}]}}}});}})();</script>\n");
                 }
                 return new MValue(0);
