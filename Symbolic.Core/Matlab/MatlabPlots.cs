@@ -1497,7 +1497,22 @@ return {make:make};
                             if (fc.Alpha > 0) { fill.Color = fc.WithAlpha((byte)(255 * p.FaceAlpha)); canvas.DrawPath(path, fill); }
                             stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke);
                         }
-                        else { stroke.Color = ParseColor(p.Color); stroke.StrokeWidth = (float)Math.Max(0.8, p.LineWidth); canvas.DrawPath(path, stroke); }
+                        else
+                        {
+                            stroke.Color = ParseColor(p.Color);
+                            stroke.StrokeWidth = (float)Math.Max(0.8, p.LineWidth);
+                            // Estilo de linea como MATLAB: '--' dash, ':' dot, '-.' dashdot.
+                            float lw = stroke.StrokeWidth;
+                            stroke.PathEffect = p.Dash switch
+                            {
+                                "dash" => SKPathEffect.CreateDash(new[] { 6f * lw / 1.5f, 4f * lw / 1.5f }, 0),
+                                "dot" => SKPathEffect.CreateDash(new[] { 1.5f, 3f * lw / 1.5f }, 0),
+                                "dashdot" => SKPathEffect.CreateDash(new[] { 6f, 3f, 1.5f, 3f }, 0),
+                                _ => null
+                            };
+                            canvas.DrawPath(path, stroke);
+                            stroke.PathEffect = null;
+                        }
                         path.Dispose();
                     }
                     else if (p.Kind == "markers2d" && p.Xs != null)
@@ -1543,6 +1558,51 @@ return {make:make};
                     }
                 }
                 canvas.Restore();   // fin del clip del area de plot (curvas dentro del box)
+
+                // ── LEGEND (caja con muestras de linea + nombres), como MATLAB ──
+                if (_figShowLegend)
+                {
+                    var items = new System.Collections.Generic.List<(SKColor col, string dash, string name, float lw)>();
+                    int li = 0;
+                    foreach (var p in _figPrims)
+                    {
+                        if (p.Kind != "line2d" && p.Kind != "patch2d") continue;
+                        string nm = (_figLegendNames != null && li < _figLegendNames.Length) ? _figLegendNames[li] : p.Name;
+                        li++;
+                        if (string.IsNullOrEmpty(nm)) continue;
+                        items.Add((ParseColor(p.Color), p.Dash, nm, (float)Math.Max(0.8, p.LineWidth)));
+                    }
+                    if (items.Count > 0)
+                    {
+                        float lh = 15, pad = 6, sample = 22, gap = 5, tw = 0;
+                        foreach (var it in items) { font.MeasureText(it.name, out var rr); tw = Math.Max(tw, rr.Width); }
+                        float boxW = pad * 2 + sample + gap + tw, boxH = pad * 2 + items.Count * lh;
+                        // Ubicacion (default northeast); soporta las esquinas.
+                        string loc = _figLegendLoc ?? "northeast";
+                        float bx = loc.Contains("west") ? plotL + 6 : plotR - boxW - 6;
+                        float by = loc.Contains("south") ? plotB - boxH - 6 : plotT + 6;
+                        using var legBg = new SKPaint { Style = SKPaintStyle.Fill, Color = SKColors.White, IsAntialias = true };
+                        canvas.DrawRect(bx, by, boxW, boxH, legBg);
+                        canvas.DrawRect(bx, by, boxW, boxH, axis);
+                        for (int k = 0; k < items.Count; k++)
+                        {
+                            var it = items[k];
+                            float cy = by + pad + k * lh + lh / 2f;
+                            stroke.Color = it.col; stroke.StrokeWidth = it.lw;
+                            stroke.PathEffect = it.dash switch
+                            {
+                                "dash" => SKPathEffect.CreateDash(new[] { 6f, 4f }, 0),
+                                "dot" => SKPathEffect.CreateDash(new[] { 1.5f, 3f }, 0),
+                                "dashdot" => SKPathEffect.CreateDash(new[] { 6f, 3f, 1.5f, 3f }, 0),
+                                _ => null
+                            };
+                            canvas.DrawLine(bx + pad, cy, bx + pad + sample, cy, stroke);
+                            stroke.PathEffect = null;
+                            txt.Color = SKColors.Black;
+                            canvas.DrawText(it.name, bx + pad + sample + gap, cy + 4, SKTextAlign.Left, font, txt);
+                        }
+                    }
+                }
             }
             return bmp;
         }

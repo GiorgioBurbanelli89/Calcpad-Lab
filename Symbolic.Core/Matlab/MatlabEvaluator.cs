@@ -2093,9 +2093,11 @@ namespace Calcpad.Core.Matlab
                     ? a[0].StringValue.Trim().ToLowerInvariant()
                     : (_holdOn ? "off" : "on");
                 if (mode == "off") {
+                    // MATLAB: hold off NO cierra la figura; solo desactiva el modo. La figura
+                    // sigue abierta para xlabel/ylabel/title/legend/grid POSTERIORES y se emite
+                    // al final del script (o al siguiente figure()). Antes se emitia aqui y esos
+                    // se perdian -> el plot multi-curva salia sin titulo/labels/leyenda/grid.
                     _holdOn = false;
-                    string html = MatlabPlots.FinishFigure();
-                    if (!string.IsNullOrEmpty(html)) _htmlOut?.Invoke(html);
                 } else {   // "on" (o cualquier otra cosa la tratamos como on)
                     _holdOn = true;
                     if (!MatlabPlots.HasOpenFigure) {
