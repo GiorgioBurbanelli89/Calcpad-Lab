@@ -8348,6 +8348,23 @@ namespace Calcpad.Core.Matlab
             }
             return new MValue(dst.Rows, dst.Cols, nd);
         }
+        /// <summary>Scatter-ADD IN-PLACE: dst(idx) += add. NO clona — muta dst.Data y lo
+        /// devuelve. Es el Fint(d)=Fint(d)+... del FEM, el patron caliente: sin esto se
+        /// clonaba el vector entero (ndof) en cada elemento -> ~167M copias por corrida.
+        /// Seguro porque Lab clona en A=B (semantica por valor): el MValue del scope no esta
+        /// aliaseado. El add ya se calculo antes de mutar, asi que leer-y-escribir es correcto.</summary>
+        public static MValue JitScatterAddInPlace(MValue dst, MValue idx, MValue add)
+        {
+            var nd = dst.Data;
+            int n = idx.Rows * idx.Cols;
+            for (int k = 0; k < n; k++)
+            {
+                int li = (int)idx.Data[k] - 1;
+                if (li < 0 || li >= nd.Length) throw new MatlabRuntimeException($"Scatter index {li + 1} out of bounds (1..{nd.Length})");
+                nd[li] += add.Data[k];
+            }
+            return dst;
+        }
         /// <summary>Scatter-assign: dst(idx) = vals (idx vector 1-based, vals paralelo). Clona
         /// dst. En el FEM los indices de un elemento no se repiten, asi que equivale al
         /// Fint(d)=Fint(d)+... (el RHS ya trae el gather+suma).</summary>

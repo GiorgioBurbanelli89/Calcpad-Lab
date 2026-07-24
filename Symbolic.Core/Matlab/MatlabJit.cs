@@ -176,6 +176,7 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MJitGather     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGather));
         internal static readonly MethodInfo MJitScatterAdd = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAdd));
         internal static readonly MethodInfo MJitScatterAssign = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAssign));
+        internal static readonly MethodInfo MJitScatterAddInPlace = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAddInPlace));
         internal static readonly MethodInfo MJitColSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitColSlice));
         internal static readonly MethodInfo MJitRowSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitRowSlice));
         internal static readonly ConstructorInfo CMValueScalar = typeof(MValue).GetConstructor(new[] { typeof(double) });
@@ -682,8 +683,30 @@ namespace Calcpad.Core.Matlab
                         if (tgtCall.Args.Count == 1 && InferKind(tgtCall.Args[0], cc) == TKind.Matrix)
                         {
                             var idxV = ConvertExprAsKind(tgtCall.Args[0], cc, TKind.Matrix);
+                            if (idxV == null) return null;
+                            // PATRON ACUMULACION: V(idx) = V(idx) + X  →  scatter-ADD in-place de X.
+                            // Evita clonar el vector entero (ndof) y el gather redundante: el cuello
+                            // de fint_c (~167M copias/corrida se vuelven 0).
+                            if (a.Rhs is BinaryOp badd && badd.Op == "+")
+                            {
+                                MatlabNode other = null;
+                                if (IsSameIndexed(badd.Left, matIdent.Name, tgtCall.Args)) other = badd.Right;
+                                else if (IsSameIndexed(badd.Right, matIdent.Name, tgtCall.Args)) other = badd.Left;
+                                if (other != null)
+                                {
+                                    var addE = ConvertExprAsKind(other, cc, TKind.Matrix);
+                                    if (addE != null)
+                                    {
+                                        var dstA = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(matIdent.Name));
+                                        var acc = Expression.Call(JitCtx.MJitScatterAddInPlace, dstA, idxV, addE);
+                                        return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar,
+                                            Expression.Constant(matIdent.Name), acc);
+                                    }
+                                }
+                            }
+                            // general: scatter-assign del RHS evaluado (clona)
                             var valsV = ConvertExprAsKind(a.Rhs, cc, TKind.Matrix);
-                            if (idxV == null || valsV == null) return null;
+                            if (valsV == null) return null;
                             var dstV = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(matIdent.Name));
                             var scattered = Expression.Call(JitCtx.MJitScatterAssign, dstV, idxV, valsV);
                             return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar,
@@ -775,6 +798,24 @@ namespace Calcpad.Core.Matlab
                     return null;
             }
         }
+
+        /// <summary>true si `node` es V(args) con el mismo nombre e indices que el target —
+        /// para reconocer la acumulacion V(idx)=V(idx)+X.</summary>
+        private static bool IsSameIndexed(MatlabNode node, string name, List<MatlabNode> args)
+        {
+            if (node is not CallOrIndex ci || ci.Target is not IdentRef id || id.Name != name) return false;
+            if (ci.Args.Count != args.Count) return false;
+            for (int i = 0; i < args.Count; i++) if (!NodeEq(ci.Args[i], args[i])) return false;
+            return true;
+        }
+        /// <summary>Igualdad estructural minima de indices (IdentRef/NumberLit). Conservador:
+        /// cualquier otra cosa → no igual (cae al camino general con clon).</summary>
+        private static bool NodeEq(MatlabNode a, MatlabNode b) => (a, b) switch
+        {
+            (IdentRef x, IdentRef y) => x.Name == y.Name,
+            (NumberLit x, NumberLit y) => x.Value == y.Value,
+            _ => false
+        };
 
         /// <summary>Condicion booleana (para if): comparaciones/AND/OR sobre escalares.</summary>
         private static Expression ConvertCond(MatlabNode node, CompileCtx cc)
