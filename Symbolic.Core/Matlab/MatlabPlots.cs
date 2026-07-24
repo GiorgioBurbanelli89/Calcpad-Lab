@@ -59,6 +59,11 @@ namespace Calcpad.Core.Matlab
         private static double[][] _hoverVals = null;
         private static string[] _hoverLabels = null;
         public static void SetHoverData(double[][] vals, string[] labels) { _hoverVals = vals; _hoverLabels = labels; }
+        /// <summary>Modo export PNG (CLI sin navegador): cada figura que se finaliza se
+        /// rasteriza a PNG y se acumula en ExportedPngs. Regla de Jorge: gráficas → PNG.</summary>
+        public static bool PngExportMode = false;
+        public static readonly System.Collections.Generic.List<byte[]> ExportedPngs = new();
+
         private static System.Collections.Generic.List<string> _figTraces = null;
         private static System.Collections.Generic.List<string> _figAnnotations = null;
         private static int _figId = 0;
@@ -555,6 +560,13 @@ return {make:make};
             {
                 _figTraces = null; _figAnnotations = null;
                 return "";
+            }
+            // Captura PNG (modo export sin navegador) ANTES de consumir la figura.
+            if (PngExportMode)
+            {
+                if (_retActive) BuildRetainedFaces();
+                try { var _png = RasterizeFigurePng(960, 700); if (_png != null && _png.Length > 0) ExportedPngs.Add(_png); }
+                catch { /* figura no rasterizable (p.ej. 3D webgl) → se omite */ }
             }
             // Malla 2D CON valor por-cara (patch FaceVertexCData) → CANVAS interactivo con hover.
             if (_retActive) BuildRetainedFaces();   // figura FINAL desde el estado retenido (última mutación de set)

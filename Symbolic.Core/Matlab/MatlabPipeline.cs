@@ -28,6 +28,15 @@ namespace Calcpad.Core.Matlab
         private readonly MatlabEvaluator _evaluator = new();
         public MatlabScope GlobalScope => _evaluator.Globals;
 
+        /// <summary>Export de gráficas a PNG (CLI sin navegador). true → cada figura se
+        /// rasteriza y acumula en ExportedPngs. Proxy público de MatlabPlots (internal).</summary>
+        public static bool PngExportMode
+        {
+            get => MatlabPlots.PngExportMode;
+            set => MatlabPlots.PngExportMode = value;
+        }
+        public static System.Collections.Generic.List<byte[]> ExportedPngs => MatlabPlots.ExportedPngs;
+
 
         // ── Directivas Calcpad embebidas en comentarios MATLAB ──────────────
         // Un `.m` corre idéntico en MATLAB 2017a (que ve `% #deq ...` como un

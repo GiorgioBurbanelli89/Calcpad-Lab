@@ -353,6 +353,13 @@ namespace Calcpad.Cli
                 outFile = Path.ChangeExtension(fileName, "." + outFile);
 
             var ext = Path.GetExtension(outFile);
+            bool isTxt = ext == ".txt";
+            // Modo TXT → gráficas a PNG (sin navegador): activar la captura antes de correr.
+            if (isTxt)
+            {
+                Calcpad.Core.Matlab.MatlabPipeline.PngExportMode = true;
+                Calcpad.Core.Matlab.MatlabPipeline.ExportedPngs.Clear();
+            }
             try
             {
                 // Resolve to absolute paths BEFORE changing cwd; otherwise a
@@ -425,7 +432,6 @@ namespace Calcpad.Cli
                     parser.Parse(unwrappedCode, true, ext == ".docx");
                     htmlResult = parser.HtmlResult;
                 }
-                bool isTxt = ext == ".txt";
                 if (ext == ".html" || ext == ".htm")
                     converter.ToHtml(htmlResult, outFile);
                 else if (ext == ".docx" && !isPureMatlab)
@@ -433,9 +439,21 @@ namespace Calcpad.Cli
                 else if (ext == ".pdf")
                     converter.ToPdf(htmlResult, outFile);
                 else if (isTxt)
+                {
                     // Export TEXTO PLANO (Unicode) — sin HTML, sin navegador. Numerico y
                     // ecuaciones en Unicode; los errores se incluyen (van dentro de htmlResult).
                     File.WriteAllText(outFile, HtmlToPlainText(htmlResult), new System.Text.UTF8Encoding(false));
+                    // Graficas → PNG (SkiaSharp, sin navegador). 1 figura → base.png; varias → base_1.png…
+                    Calcpad.Core.Matlab.MatlabPipeline.PngExportMode = false;
+                    var pngs = Calcpad.Core.Matlab.MatlabPipeline.ExportedPngs;
+                    string baseNoExt = Path.Combine(Path.GetDirectoryName(outFile) ?? ".", Path.GetFileNameWithoutExtension(outFile));
+                    for (int pi = 0; pi < pngs.Count; pi++)
+                    {
+                        string pngPath = pngs.Count == 1 ? baseNoExt + ".png" : $"{baseNoExt}_{pi + 1}.png";
+                        File.WriteAllBytes(pngPath, pngs[pi]);
+                    }
+                    if (pngs.Count > 0 && !isSilent) Console.WriteLine($"✓ {pngs.Count} PNG generado(s)");
+                }
                 else
                     WriteErrorAndWait(Messages.InvalidOutputExtensionMustBeHtmlDocxOrPdf);
 
