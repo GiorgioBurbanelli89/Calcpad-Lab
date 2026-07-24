@@ -10174,6 +10174,48 @@ namespace Calcpad.Core.Matlab
                 }
                 return MValue.New3D(subPages);
             }
+            // FAST-PATH indexacion escalar: v(i) / A(i,j) donde los indices son literal
+            // numerico o identificador (sin end/rango/colon), sobre matriz real densa.
+            // Es la operacion dominante en bucles FEM (sig(1), ep(2), dJw(e,q)); el camino
+            // general (int[][] + ResolveIndexArg + push/pop _endCtx) cuesta ~5x mas (medido
+            // 108 vs 20 ns, contra MATLAB). Restringido a NumberLit/IdentRef para no
+            // arriesgar doble evaluacion de expresiones con efectos secundarios.
+            if (!m.Is3D && !m.IsString && m.CellData == null && m.Symbolic == null
+                && m.SymCells == null && m.Fields == null && m.Imag == null && m.Data != null)
+            {
+                int ndf = idxNodes.Count;
+                if (ndf == 1 && (idxNodes[0] is NumberLit || idxNodes[0] is IdentRef))
+                {
+                    var iv = Eval(idxNodes[0], scope);
+                    if (iv.IsScalar && iv.Symbolic == null && !iv.IsString)
+                    {
+                        int li = (int)iv.Scalar - 1;
+                        int tot = m.Rows * m.Cols;
+                        if (li >= 0 && li < tot)
+                        {
+                            if (m.Rows == 1 || m.Cols == 1) return new MValue(m.Data[li]);
+                            int rr = li % m.Rows, cc = li / m.Rows;   // linear MATLAB = col-major
+                            return new MValue(m.Data[rr * m.Cols + cc]);
+                        }
+                        throw new MatlabRuntimeException($"Index {li + 1} out of bounds (1..{tot})");
+                    }
+                }
+                else if (ndf == 2 && (idxNodes[0] is NumberLit || idxNodes[0] is IdentRef)
+                                  && (idxNodes[1] is NumberLit || idxNodes[1] is IdentRef))
+                {
+                    var r0 = Eval(idxNodes[0], scope);
+                    var c0 = Eval(idxNodes[1], scope);
+                    if (r0.IsScalar && c0.IsScalar && r0.Symbolic == null && c0.Symbolic == null
+                        && !r0.IsString && !c0.IsString)
+                    {
+                        int ri = (int)r0.Scalar - 1, ci = (int)c0.Scalar - 1;
+                        if (ri >= 0 && ri < m.Rows && ci >= 0 && ci < m.Cols)
+                            return new MValue(m.Data[ri * m.Cols + ci]);
+                        throw new MatlabRuntimeException($"Index ({ri + 1},{ci + 1}) out of bounds ({m.Rows}×{m.Cols})");
+                    }
+                }
+            }
+
             // Resolver cada arg → lista de índices (1-based MATLAB convertidos a 0-based)
             // Soporta: escalar, ColonAll, Range, vector de índices.
             int nDims = idxNodes.Count;
