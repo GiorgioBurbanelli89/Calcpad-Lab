@@ -70,8 +70,12 @@ namespace Calcpad.Core.Matlab
         /// <summary>True si es un handle de gráficos (axes/figure/uicontrol). Lab usa un eje implícito;
         /// las propiedades del handle (Value, Min, Max…) se guardan en Fields.</summary>
         public bool IsGfxHandle;
+        /// <summary>Si no-null: este MValue es un objeto decomposition(A) — una factorización
+        /// PARDISO retenida. `dA\b` reusa la factorización en vez de re-factorizar.</summary>
+        public Calcpad.Core.BlasInterop.PardisoFactorization Decomp;
+        public bool IsDecomposition => Decomp != null;
 
-        public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null && MapData == null;
+        public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null && MapData == null && Decomp == null;
         public bool IsCallable => Callable != null;
         public bool IsComplex => Imag != null;
         public static MValue NewSymbolic(SymNode s)
@@ -541,6 +545,43 @@ namespace Calcpad.Core.Matlab
                 return r;
             };
             _builtins["haspardiso"] = a => new MValue(Calcpad.Core.BlasInterop.PardisoAvailable ? 1 : 0);
+            // decomposition(A): factoriza A UNA vez y retiene la factorizacion (PARDISO).
+            // Luego dA\b reusa la factorizacion (fase 33) en vez de re-factorizar. En un
+            // Newton modificado (misma K, muchos RHS) ahorra N-1 factorizaciones.
+            // R2017b+; en R2017a no existe -> Lab gana una capacidad que el oraculo no tiene.
+            _builtins["decomposition"] = a => {
+                if (a.Length < 1) throw new MatlabRuntimeException("decomposition(A)");
+                var A = a[0];
+                if (A.Rows != A.Cols) throw new MatlabRuntimeException("decomposition: A debe ser cuadrada");
+                if (!Calcpad.Core.BlasInterop.PardisoAvailable)
+                    throw new MatlabRuntimeException("decomposition: requiere MKL/PARDISO (no disponible con OpenBLAS)");
+                int n = A.Rows;
+                int[] rowPtr, colIdx; double[] vals;
+                if (A.IsSparseReal)
+                {
+                    // clonar: la factorizacion retiene la matriz; que no la afecte mutar A luego
+                    rowPtr = (int[])A.SparseRowPtr.Clone();
+                    colIdx = (int[])A.SparseCols.Clone();
+                    vals = (double[])A.SparseVals.Clone();
+                }
+                else
+                {
+                    // CSR 0-based a partir de la densa (omitir ceros exactos)
+                    var rp = new int[n + 1]; var ci = new System.Collections.Generic.List<int>(); var vv = new System.Collections.Generic.List<double>();
+                    for (int i = 0; i < n; i++)
+                    {
+                        rp[i] = ci.Count;
+                        for (int jcol = 0; jcol < n; jcol++)
+                        {
+                            double e = A.At(i, jcol);
+                            if (e != 0.0) { ci.Add(jcol); vv.Add(e); }
+                        }
+                    }
+                    rp[n] = ci.Count; rowPtr = rp; colIdx = ci.ToArray(); vals = vv.ToArray();
+                }
+                var f = Calcpad.Core.BlasInterop.PardisoFactorization.Factor(n, rowPtr, colIdx, vals);
+                return new MValue(0) { Decomp = f };
+            };
             // cell(n) -> n x n ; cell(m,n) -> m x n ; celdas vacias = [] (0x0)
             _builtins["cell"] = a => {
                 int m = a.Length >= 1 ? (int)a[0].Scalar : 0;
@@ -9539,9 +9580,11 @@ namespace Calcpad.Core.Matlab
                 "./" => MapBinary(l, r, (a, c) => a / c),
                 // MATLAB \: mldivide. Si ambos son matrices, resolver A*x = b.
                 // Si alguno es scalar, fallback a element-wise reverse-div.
-                "\\" => (l.IsScalar || r.IsScalar)
-                    ? MapBinary(l, r, (a, c) => c / a)
-                    : MatlabLinAlg.Linsolve(l, r),
+                "\\" => l.IsDecomposition                       // dA\b: reusar la factorizacion
+                    ? MatlabLinAlg.Linsolve(l, r)
+                    : (l.IsScalar || r.IsScalar)
+                        ? MapBinary(l, r, (a, c) => c / a)
+                        : MatlabLinAlg.Linsolve(l, r),
                 ".\\" => MapBinary(l, r, (a, c) => c / a),
                 "^" => l.IsScalar && r.IsScalar ? new MValue(Math.Pow(l.Scalar, r.Scalar))
                        : MapBinary(l, r, Math.Pow), // MVP — full would do matrix power
@@ -11254,6 +11297,25 @@ namespace Calcpad.Core.Matlab
 
         public static MValue Linsolve(MValue A, MValue b)
         {
+            // decomposition(A)\b: reusar la factorizacion retenida (fase 33). Sin re-factorizar.
+            if (A.IsDecomposition)
+            {
+                var f = A.Decomp;
+                var bd = b.IsSparseReal ? b.ToDense() : b;
+                if (bd.Rows != f.N)
+                    throw new MatlabRuntimeException($"decomposition\\b: b tiene {bd.Rows} filas, la factorizacion es {f.N}×{f.N}");
+                int nc = bd.Cols;
+                var res = new MValue(f.N, nc);
+                var bv = new double[f.N];
+                for (int c = 0; c < nc; c++)
+                {
+                    for (int i = 0; i < f.N; i++) bv[i] = bd.At(i, c);
+                    var xx = f.Solve(bv);
+                    for (int i = 0; i < f.N; i++) res.Set(i, c, xx[i]);
+                }
+                return res;
+            }
+
             // Fast-path SPARSE: A CSR resuelto con MKL PARDISO — evita densificar A
             // (128 MB) y los 3 escaneos densos por iteracion. b es un vector (se
             // densifica). Si PARDISO falla, cae al camino denso (ToDense).

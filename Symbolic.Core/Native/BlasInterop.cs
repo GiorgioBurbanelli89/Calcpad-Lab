@@ -173,6 +173,96 @@ namespace Calcpad.Core
 
         /// <summary>Resuelve A·x=b con A sparse CSR 0-based (matriz completa, real no-simétrica)
         /// vía MKL PARDISO. rowPtr[n+1], colIdx[nnz], vals[nnz]. Requiere Intel MKL.</summary>
+        /// <summary>
+        /// Factorización PARDISO RETENIDA — el corazón de `decomposition(A)` en Lab.
+        /// El backslash normal hace la fase 13 (análisis+factorización+solve) y libera en
+        /// cada llamada. Aquí separamos: Factor() hace 11+22 y GUARDA el handle interno pt;
+        /// Solve() hace solo la fase 33 reusando esa factorización. En un Newton modificado
+        /// (misma K, muchos RHS) esto evita re-factorizar N veces → techo medido 4.3× en el
+        /// solve del Demo04, y crece con el tamaño del modelo.
+        /// PARDISO en la fase 33 aún necesita a/ia/ja, así que la matriz se retiene también.
+        /// </summary>
+        public sealed unsafe class PardisoFactorization : IDisposable
+        {
+            private readonly long[] _pt = new long[64];      // handle interno de PARDISO (estado retenido)
+            private readonly int[] _iparm = new int[64];
+            private readonly int[] _perm;
+            private readonly int[] _rowPtr, _colIdx;
+            private readonly double[] _vals;
+            private readonly int _n, _mtype;
+            private bool _disposed;
+
+            public int N => _n;
+
+            private PardisoFactorization(int n, int[] rowPtr, int[] colIdx, double[] vals, int mtype)
+            {
+                _n = n; _rowPtr = rowPtr; _colIdx = colIdx; _vals = vals; _mtype = mtype;
+                _perm = new int[n];
+            }
+
+            /// <summary>Fases 11+22: análisis simbólico + factorización numérica. Retiene todo.</summary>
+            public static PardisoFactorization Factor(int n, int[] rowPtr, int[] colIdx, double[] vals, int mtype = 11)
+            {
+                if (!NativeBlas.HasPardiso)
+                    throw new InvalidOperationException("PARDISO no disponible (requiere Intel MKL real, no OpenBLAS).");
+                var f = new PardisoFactorization(n, rowPtr, colIdx, vals, mtype);
+                int error = 0;
+                fixed (long* ppt = f._pt)
+                fixed (int* pip = f._iparm, pia = f._rowPtr, pja = f._colIdx, ppe = f._perm)
+                fixed (double* pa = f._vals)
+                {
+                    int mt = mtype;
+                    NativeBlas.Pardisoinit((void*)ppt, &mt, pip);
+                    f._iparm[34] = 1;               // indexado 0-based (CSR de Lab)
+                    int mf = 1, mn = 1, ml = 0, nr = 1, N = n;
+                    int phase = 12;                 // 11 (análisis) + 22 (factorización), SIN solve
+                    double dummy = 0;
+                    NativeBlas.Pardiso((void*)ppt, &mf, &mn, &mt, &phase, &N, pa, pia, pja, ppe, &nr, pip, &ml, &dummy, &dummy, &error);
+                }
+                if (error != 0) { f.Dispose(); throw new InvalidOperationException($"PARDISO factor error {error}"); }
+                return f;
+            }
+
+            /// <summary>Fase 33: sustitución hacia adelante/atrás reusando la factorización retenida.</summary>
+            public double[] Solve(double[] b)
+            {
+                if (_disposed) throw new ObjectDisposedException(nameof(PardisoFactorization));
+                if (b.Length != _n) throw new ArgumentException($"decomposition\\b: b tiene {b.Length}, se esperaba {_n}");
+                var x = new double[_n];
+                int error = 0;
+                fixed (long* ppt = _pt)
+                fixed (int* pip = _iparm, pia = _rowPtr, pja = _colIdx, ppe = _perm)
+                fixed (double* pa = _vals, pb = b, px = x)
+                {
+                    int mt = _mtype, mf = 1, mn = 1, ml = 0, nr = 1, N = _n;
+                    int phase = 33;                 // solo solve
+                    NativeBlas.Pardiso((void*)ppt, &mf, &mn, &mt, &phase, &N, pa, pia, pja, ppe, &nr, pip, &ml, pb, px, &error);
+                }
+                if (error != 0) throw new InvalidOperationException($"PARDISO solve error {error}");
+                return x;
+            }
+
+            private void Free()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                if (!NativeBlas.HasPardiso) return;
+                int error = 0;
+                fixed (long* ppt = _pt)
+                fixed (int* pip = _iparm, pia = _rowPtr, pja = _colIdx, ppe = _perm)
+                fixed (double* pa = _vals)
+                {
+                    int mt = _mtype, mf = 1, mn = 1, ml = 0, nr = 1, N = _n;
+                    int phase = -1;                 // liberar memoria interna de PARDISO
+                    double dummy = 0;
+                    NativeBlas.Pardiso((void*)ppt, &mf, &mn, &mt, &phase, &N, pa, pia, pja, ppe, &nr, pip, &ml, &dummy, &dummy, &error);
+                }
+            }
+
+            public void Dispose() { Free(); GC.SuppressFinalize(this); }
+            ~PardisoFactorization() { Free(); }
+        }
+
         public static double[] SolveSparsePardiso(int n, int[] rowPtr, int[] colIdx, double[] vals, double[] b)
         {
             if (!NativeBlas.HasPardiso)
