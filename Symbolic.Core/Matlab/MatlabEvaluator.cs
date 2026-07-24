@@ -7443,6 +7443,60 @@ namespace Calcpad.Core.Matlab
             if (arg is SymConst c) return new SymConst(f(c.Value));
             return new SymFunc("f", arg);  // unknown — placeholder
         }
+        private static double ApplyOp(char op, double x, double y) => op switch { '+' => x + y, '-' => x - y, '*' => x * y, _ => x / y };
+
+        /// <summary>Element-wise SIMD para + - .* ./ sobre reales densos de misma forma o
+        /// con un escalar. El MapBinary generico llama un delegado Func por elemento, que el
+        /// JIT de .NET NO vectoriza (~20x mas lento que MATLAB en matrices grandes). Aqui se
+        /// usa System.Numerics.Vector&lt;double&gt; (SIMD). Devuelve null si no aplica
+        /// (complex/sparse/broadcasting no-escalar/arreglo chico) → el caller usa MapBinary.
+        /// Bit-identico: cada elemento es una op IEEE independiente, sin reordenar.</summary>
+        private static MValue MapBinaryFast(MValue a, MValue b, char op)
+        {
+            if (a.IsComplex || b.IsComplex || a.IsSparseReal || b.IsSparseReal) return null;
+            bool aS = a.IsScalar, bS = b.IsScalar;
+            if (aS && bS) return null;                       // scalar-scalar: lo hace el caller
+            int w = System.Numerics.Vector<double>.Count;
+            MValue r; int n; double[] da = null, db = null; double sa = 0, sb = 0;
+            if (aS) { r = new MValue(b.Rows, b.Cols); n = b.Data.Length; db = b.Data; sa = a.Scalar; }
+            else if (bS) { r = new MValue(a.Rows, a.Cols); n = a.Data.Length; da = a.Data; sb = b.Scalar; }
+            else if (a.Rows == b.Rows && a.Cols == b.Cols) { r = new MValue(a.Rows, a.Cols); n = a.Data.Length; da = a.Data; db = b.Data; }
+            else return null;                                // broadcasting no-escalar → generico
+            if (n < 2 * w) return null;                      // arreglo chico: el setup SIMD no compensa
+            var rd = r.Data; int i = 0;
+            if (da != null && db != null)
+            {
+                for (; i <= n - w; i += w)
+                {
+                    var va = new System.Numerics.Vector<double>(da, i);
+                    var vb = new System.Numerics.Vector<double>(db, i);
+                    (op switch { '+' => va + vb, '-' => va - vb, '*' => va * vb, _ => va / vb }).CopyTo(rd, i);
+                }
+                for (; i < n; i++) rd[i] = ApplyOp(op, da[i], db[i]);
+            }
+            else if (da != null)
+            {
+                var vs = new System.Numerics.Vector<double>(sb);
+                for (; i <= n - w; i += w)
+                {
+                    var va = new System.Numerics.Vector<double>(da, i);
+                    (op switch { '+' => va + vs, '-' => va - vs, '*' => va * vs, _ => va / vs }).CopyTo(rd, i);
+                }
+                for (; i < n; i++) rd[i] = ApplyOp(op, da[i], sb);
+            }
+            else
+            {
+                var vs = new System.Numerics.Vector<double>(sa);
+                for (; i <= n - w; i += w)
+                {
+                    var vb = new System.Numerics.Vector<double>(db, i);
+                    (op switch { '+' => vs + vb, '-' => vs - vb, '*' => vs * vb, _ => vs / vb }).CopyTo(rd, i);
+                }
+                for (; i < n; i++) rd[i] = ApplyOp(op, sa, db[i]);
+            }
+            return r;
+        }
+
         private static MValue MapBinary(MValue a, MValue b, Func<double, double, double> f)
         {
             // Guarda SPARSE: las ops element-wise (+ - .* ./) usan .Data denso; si un
@@ -8262,8 +8316,8 @@ namespace Calcpad.Core.Matlab
         }
         // Wrappers de operaciones matriciales para el JIT (delegan al engine existente).
         public static MValue JitMatMul(MValue a, MValue b) => MatMul(a, b);
-        public static MValue JitMatAdd(MValue a, MValue b) => MapBinary(a, b, (x, y) => x + y);
-        public static MValue JitMatSub(MValue a, MValue b) => MapBinary(a, b, (x, y) => x - y);
+        public static MValue JitMatAdd(MValue a, MValue b) => MapBinaryFast(a, b, '+') ?? MapBinary(a, b, (x, y) => x + y);
+        public static MValue JitMatSub(MValue a, MValue b) => MapBinaryFast(a, b, '-') ?? MapBinary(a, b, (x, y) => x - y);
         public static MValue JitMatTrans(MValue a) => Transpose(a);
         public static MValue JitMatNeg(MValue a)
         {
@@ -8274,7 +8328,7 @@ namespace Calcpad.Core.Matlab
                     r.Set(i, j, -a.At(i, j));
             return r;
         }
-        public static MValue JitMatScalarMul(MValue a, double s) => MapBinary(a, new MValue(s), (x, y) => x * y);
+        public static MValue JitMatScalarMul(MValue a, double s) { var sm = new MValue(s); return MapBinaryFast(a, sm, '*') ?? MapBinary(a, sm, (x, y) => x * y); }
         public static MValue JitMakeRowVec(double[] elements)
         {
             var v = new MValue(1, elements.Length);
@@ -9650,12 +9704,12 @@ namespace Calcpad.Core.Matlab
             }
             return b.Op switch
             {
-                "+" => MapBinary(l, r, (a, c) => a + c),
-                "-" => MapBinary(l, r, (a, c) => a - c),
+                "+" => MapBinaryFast(l, r, '+') ?? MapBinary(l, r, (a, c) => a + c),
+                "-" => MapBinaryFast(l, r, '-') ?? MapBinary(l, r, (a, c) => a - c),
                 "*" => MatMul(l, r),
-                ".*" => MapBinary(l, r, (a, c) => a * c),
-                "/" => MapBinary(l, r, (a, c) => a / c),  // MVP — full would do mrdivide
-                "./" => MapBinary(l, r, (a, c) => a / c),
+                ".*" => MapBinaryFast(l, r, '*') ?? MapBinary(l, r, (a, c) => a * c),
+                "/" => MapBinaryFast(l, r, '/') ?? MapBinary(l, r, (a, c) => a / c),  // MVP — full would do mrdivide
+                "./" => MapBinaryFast(l, r, '/') ?? MapBinary(l, r, (a, c) => a / c),
                 // MATLAB \: mldivide. Si ambos son matrices, resolver A*x = b.
                 // Si alguno es scalar, fallback a element-wise reverse-div.
                 "\\" => l.IsDecomposition                       // dA\b: reusar la factorizacion
