@@ -348,7 +348,8 @@ namespace Calcpad.Cli
             else if (string.Equals(outFile, "html") ||
                      string.Equals(outFile, "htm") ||
                      string.Equals(outFile, "docx") ||
-                     string.Equals(outFile, "pdf"))
+                     string.Equals(outFile, "pdf") ||
+                     string.Equals(outFile, "txt"))
                 outFile = Path.ChangeExtension(fileName, "." + outFile);
 
             var ext = Path.GetExtension(outFile);
@@ -424,23 +425,29 @@ namespace Calcpad.Cli
                     parser.Parse(unwrappedCode, true, ext == ".docx");
                     htmlResult = parser.HtmlResult;
                 }
+                bool isTxt = ext == ".txt";
                 if (ext == ".html" || ext == ".htm")
                     converter.ToHtml(htmlResult, outFile);
                 else if (ext == ".docx" && !isPureMatlab)
                     converter.ToOpenXml(htmlResult, outFile, new List<string>());  // pure mode: sin OpenXml por ahora
                 else if (ext == ".pdf")
                     converter.ToPdf(htmlResult, outFile);
+                else if (isTxt)
+                    // Export TEXTO PLANO (Unicode) — sin HTML, sin navegador. Numerico y
+                    // ecuaciones en Unicode; los errores se incluyen (van dentro de htmlResult).
+                    File.WriteAllText(outFile, HtmlToPlainText(htmlResult), new System.Text.UTF8Encoding(false));
                 else
                     WriteErrorAndWait(Messages.InvalidOutputExtensionMustBeHtmlDocxOrPdf);
 
-                // ── Calcpad Lab CLI: abrir el reporte en el navegador ──
-                // Si el usuario pasó `-s` (silencioso) no abrimos navegador.
-                // Si no, lanzamos el HTML/PDF en el handler default del SO.
-                if (!isSilent && File.Exists(outFile))
+                // ── Abrir el reporte en el navegador ──
+                // NUNCA para .txt (texto plano, sin navegador). Tampoco con -s (silencioso).
+                if (!isSilent && !isTxt && File.Exists(outFile))
                 {
                     Console.WriteLine($"✓ Reporte generado: {outFile}");
                     OpenInBrowser(outFile);
                 }
+                else if (isTxt && !isSilent && File.Exists(outFile))
+                    Console.WriteLine($"✓ TXT generado: {outFile}");
 
                 return true;
             }
@@ -449,6 +456,56 @@ namespace Calcpad.Cli
                 WriteErrorAndWait(ex.Message);
                 return true;
             }
+        }
+
+        // Sub/super-índices a Unicode (para ecuaciones en TXT sin HTML).
+        private static readonly System.Collections.Generic.Dictionary<char, char> _subMap = new()
+        { ['0']='₀',['1']='₁',['2']='₂',['3']='₃',['4']='₄',['5']='₅',['6']='₆',['7']='₇',['8']='₈',['9']='₉',
+          ['+']='₊',['-']='₋',['=']='₌',['(']='₍',[')']='₎',['a']='ₐ',['e']='ₑ',['i']='ᵢ',['j']='ⱼ',['n']='ₙ',['x']='ₓ' };
+        private static readonly System.Collections.Generic.Dictionary<char, char> _supMap = new()
+        { ['0']='⁰',['1']='¹',['2']='²',['3']='³',['4']='⁴',['5']='⁵',['6']='⁶',['7']='⁷',['8']='⁸',['9']='⁹',
+          ['+']='⁺',['-']='⁻',['=']='⁼',['(']='⁽',[')']='⁾',['n']='ⁿ',['i']='ⁱ' };
+
+        private static string MapScript(string s, System.Collections.Generic.Dictionary<char, char> map, char fallbackPrefix)
+        {
+            var sb = new System.Text.StringBuilder();
+            bool allMapped = true;
+            foreach (var c in s) if (!map.ContainsKey(c)) { allMapped = false; break; }
+            if (allMapped) { foreach (var c in s) sb.Append(map[c]); return sb.ToString(); }
+            return fallbackPrefix + s;   // p.ej. x_max → x_max, y^2n → y^2n (no todo mapeable)
+        }
+
+        /// <summary>Convierte el HTML del reporte a TEXTO PLANO Unicode: sin markup, sin
+        /// navegador. Preserva saltos de linea/tablas, pasa sub/sup a Unicode y decodifica
+        /// entidades. Es el modo de salida numerico/ecuaciones que pidio Jorge (no HTML).</summary>
+        private static string HtmlToPlainText(string html)
+        {
+            if (string.IsNullOrEmpty(html)) return "";
+            var s = html;
+            // Fuera el JS/CSS embebido (Plotly, MathJax… pesan MBs y no son texto)
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<script\b[^>]*>.*?</script>", " ",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<style\b[^>]*>.*?</style>", " ",
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // sub/sup → Unicode
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<sub>(.*?)</sub>",
+                m => MapScript(System.Text.RegularExpressions.Regex.Replace(m.Groups[1].Value, "<[^>]+>", ""), _subMap, '_'),
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<sup>(.*?)</sup>",
+                m => MapScript(System.Text.RegularExpressions.Regex.Replace(m.Groups[1].Value, "<[^>]+>", ""), _supMap, '^'),
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // saltos de linea a partir de la estructura
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"</(p|div|tr|h[1-6]|li)>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<br\s*/?>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"</(td|th)>", "  ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // quitar el resto de tags
+            s = System.Text.RegularExpressions.Regex.Replace(s, "<[^>]+>", "");
+            s = System.Net.WebUtility.HtmlDecode(s);
+            // colapsar espacios y lineas en blanco excesivas
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"[ \t]+", " ");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @" *\n *", "\n");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\n{3,}", "\n\n");
+            return s.Trim() + "\n";
         }
 
         /// <summary>
