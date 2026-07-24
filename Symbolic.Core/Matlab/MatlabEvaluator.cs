@@ -11335,6 +11335,53 @@ namespace Calcpad.Core.Matlab
                 }
                 catch { A = A.ToDense(); }
             }
+            // Fast-path DENSA-PERO-RALA: en Lab `sparse(n,n)` devuelve una densa, asi que
+            // el ensamblaje FEM (K=sparse(n,n); K(d,d)=K(d,d)+Ke) produce una densa que es
+            // ~97% ceros. El camino denso de abajo solo usa LAPACK banded si el ancho de
+            // banda es < n/3; con numeracion de nodos sin optimizar el ancho es grande y
+            // cae a Cholesky/LU denso O(n^3) -> ~0.3 s por solve (30x mas lento que MATLAB,
+            // que reordena con CHOLMOD). Aqui detectamos la esparsidad y usamos PARDISO,
+            // que hace su propio reordenamiento fill-reducing -> rapido sin importar la
+            // numeracion. Solo se activa si de verdad es rala (nnz < 1/3), asi una densa
+            // llena sigue por el camino denso normal.
+            if (!A.IsSparseReal && A.Rows == A.Cols && A.Rows >= 256 && b.Cols == 1
+                && A.Imag == null && b.Imag == null && Calcpad.Core.BlasInterop.PardisoAvailable)
+            {
+                int n = A.Rows;
+                long limit = (long)n * n / 3;
+                var vals = new System.Collections.Generic.List<double>();
+                var cols = new System.Collections.Generic.List<int>();
+                var rowPtr = new int[n + 1];
+                bool rala = true;
+                for (int i = 0; i < n && rala; i++)
+                {
+                    rowPtr[i] = vals.Count;
+                    int baseI = i * n;
+                    for (int j = 0; j < n; j++)
+                    {
+                        double e = A.Data[baseI + j];
+                        if (e != 0.0) { cols.Add(j); vals.Add(e); }
+                    }
+                    if (vals.Count > limit) rala = false;   // no vale la pena → camino denso
+                }
+                if (rala)
+                {
+                    rowPtr[n] = vals.Count;
+                    var bd = b.IsSparseReal ? b.ToDense() : b;
+                    var bv = new double[n];
+                    for (int i = 0; i < n; i++) bv[i] = bd.At(i, 0);
+                    try
+                    {
+                        var xx = Calcpad.Core.BlasInterop.SolveSparsePardiso(
+                            n, rowPtr, cols.ToArray(), vals.ToArray(), bv);
+                        var rr = new MValue(n, 1);
+                        for (int i = 0; i < n; i++) rr.Set(i, 0, xx[i]);
+                        return rr;
+                    }
+                    catch { /* cae al camino denso */ }
+                }
+            }
+
             // Red de seguridad: cualquier operando sparse restante → denso.
             if (A.IsSparseReal) A = A.ToDense();
             if (b.IsSparseReal) b = b.ToDense();
