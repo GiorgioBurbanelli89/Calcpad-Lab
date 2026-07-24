@@ -129,6 +129,25 @@ namespace Calcpad.Core.Matlab
         }
         public void SetMatrixVar(string name, MValue val) => Scope.Set(name, val);
 
+        /// <summary>Lee un elemento de un cell array por indices escalares: c{i} o c{i,j}.
+        /// Devuelve el MValue de la celda (una matriz en el FEM: Bc{e,q}).</summary>
+        public MValue GetCellElem(string name, double i, double j)
+        {
+            if (!Scope.TryGet(name, out var v) || v.CellData == null)
+                throw new MatlabRuntimeException("Undefined cell: " + name);
+            int r = (int)i - 1, c = (int)j - 1;
+            var cd = v.CellData;
+            // c{i} lineal (col-major MATLAB) si es 1-D; c{i,j} 2-D
+            if (j == 0)   // marca de indice unico (llamador pasa j=0)
+            {
+                int rows = cd.GetLength(0), cols = cd.GetLength(1);
+                if (rows == 1) { c = r; r = 0; }
+                else if (cols == 1) { c = 0; }
+                else { c = r / rows; r = r % rows; }
+            }
+            return cd[r, c];
+        }
+
         // ─── MethodInfo handles (pre-resueltos) ───────────────────────────
         internal static readonly MethodInfo MMatLen = typeof(JitCtx).GetMethod(nameof(MatLen));
         internal static readonly MethodInfo MGetMatElem1 = typeof(JitCtx).GetMethod(nameof(GetMatElem1));
@@ -153,6 +172,12 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MGetMatRow     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatRow));
         internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
+        internal static readonly MethodInfo MGetCellElem   = typeof(JitCtx).GetMethod(nameof(GetCellElem));
+        internal static readonly MethodInfo MJitGather     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGather));
+        internal static readonly MethodInfo MJitScatterAdd = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAdd));
+        internal static readonly MethodInfo MJitScatterAssign = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAssign));
+        internal static readonly MethodInfo MJitColSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitColSlice));
+        internal static readonly MethodInfo MJitRowSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitRowSlice));
         internal static readonly ConstructorInfo CMValueScalar = typeof(MValue).GetConstructor(new[] { typeof(double) });
 
         // ─── Mapa de funciones matematicas escalares que el JIT INLINEA como
@@ -275,7 +300,7 @@ namespace Calcpad.Core.Matlab
 
         // ─── Compile context con clasificación de tipos ─────────────────
         /// <summary>Tipo inferido de una expresión / variable.</summary>
-        private enum TKind { Scalar, Matrix }
+        private enum TKind { Scalar, Matrix, Cell }
 
         private sealed class CompileCtx
         {
@@ -495,11 +520,38 @@ namespace Calcpad.Core.Matlab
                         return true;
                     }
                     return false;
+                case IfBlock ib:
+                    foreach (var (cond, cbody) in ib.Branches)
+                    {
+                        if (cond != null && !ClassifyCond(cond, cc)) return false;
+                        if (!ClassifyBody(cbody, cc)) return false;
+                    }
+                    return true;
+                case ForLoop fl:
+                    // Bucle anidado (el for q dentro del for e de fint_c). Rango simple.
+                    if (fl.Iter is not Range fr || fr.Step != null) return false;
+                    if (!SetKind(cc, fl.VarName, TKind.Scalar)) return false;
+                    if (InferKind(fr.Start, cc) == null || InferKind(fr.End, cc) == null) return false;
+                    return ClassifyBody(fl.Body, cc);
                 case ExprStmt es:
                     return InferKind(es.Expr, cc) != null;
                 default:
                     return false;
             }
+        }
+
+        /// <summary>Clasifica (registra vars de) una condicion de if. Comparaciones/AND/OR
+        /// se recorren recursivamente; el resto se infiere como expresion.</summary>
+        private static bool ClassifyCond(MatlabNode node, CompileCtx cc)
+        {
+            if (node is BinaryOp b)
+            {
+                if (b.Op is ">" or "<" or ">=" or "<=" or "==" or "~=" or "!=")
+                    return InferKind(b.Left, cc) != null && InferKind(b.Right, cc) != null;
+                if (b.Op is "&&" or "&" or "||" or "|")
+                    return ClassifyCond(b.Left, cc) && ClassifyCond(b.Right, cc);
+            }
+            return InferKind(node, cc) != null;
         }
 
         private static bool SetKind(CompileCtx cc, string name, TKind kind)
@@ -561,10 +613,22 @@ namespace Calcpad.Core.Matlab
                     }
                     // Indexing de matriz
                     if (!SetKind(cc, ident.Name, TKind.Matrix)) return null;
+                    bool anyColon = false, anyVec = false;
                     foreach (var arg in coi.Args)
+                    {
+                        if (arg is ColonAll) { anyColon = true; continue; }
+                        var ak = InferKind(arg, cc);
+                        if (ak == null) return null;
+                        if (ak == TKind.Matrix) anyVec = true;   // indice vectorial → gather
+                    }
+                    // slice A(:,j)/A(i,:) o gather A(vec) → Matrix; todos escalares → Scalar
+                    return (anyColon || anyVec) ? TKind.Matrix : TKind.Scalar;
+                case CellIndex cix when cix.Target is IdentRef cellId:
+                    // c{i} / c{i,j}: la var es un cell, el ELEMENTO es una matriz (Bc{e,q})
+                    if (!SetKind(cc, cellId.Name, TKind.Cell)) return null;
+                    foreach (var arg in cix.Args)
                         if (InferKind(arg, cc) == null) return null;
-                    // M(i,j) o M(i) → scalar (asumimos índices escalares = single element)
-                    return TKind.Scalar;
+                    return TKind.Matrix;
                 case MatrixLit ml:
                     foreach (var row in ml.Rows)
                         foreach (var el in row)
@@ -612,6 +676,19 @@ namespace Calcpad.Core.Matlab
                     }
                     if (tgt is CallOrIndex tgtCall && tgtCall.Target is IdentRef matIdent)
                     {
+                        // SCATTER: V(vec) = RHS con indice VECTORIAL (Fint(d)=Fint(d)+...).
+                        // El RHS ya trae el gather+suma; scatter-assign equivale a += porque
+                        // los dofs de un elemento no se repiten.
+                        if (tgtCall.Args.Count == 1 && InferKind(tgtCall.Args[0], cc) == TKind.Matrix)
+                        {
+                            var idxV = ConvertExprAsKind(tgtCall.Args[0], cc, TKind.Matrix);
+                            var valsV = ConvertExprAsKind(a.Rhs, cc, TKind.Matrix);
+                            if (idxV == null || valsV == null) return null;
+                            var dstV = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(matIdent.Name));
+                            var scattered = Expression.Call(JitCtx.MJitScatterAssign, dstV, idxV, valsV);
+                            return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar,
+                                Expression.Constant(matIdent.Name), scattered);
+                        }
                         var rhs = ConvertExprAsKind(a.Rhs, cc, TKind.Scalar);
                         if (rhs == null) return null;
                         if (tgtCall.Args.Count == 1)
@@ -634,11 +711,108 @@ namespace Calcpad.Core.Matlab
                         return null;
                     }
                     return null;
+                case IfBlock ib:
+                    {
+                        // Construir IfThenElse anidado desde el final (el else va con Cond=null).
+                        Expression elseE = Expression.Empty();
+                        for (int bi = ib.Branches.Count - 1; bi >= 0; bi--)
+                        {
+                            var (cond, cbody) = ib.Branches[bi];
+                            var bodyExprs = new List<Expression>();
+                            foreach (var st in cbody)
+                            {
+                                if (st is CommentStmt) continue;
+                                var se = ConvertStmt(st, cc);
+                                if (se == null) return null;
+                                bodyExprs.Add(se);
+                            }
+                            Expression bodyBlock = bodyExprs.Count > 0
+                                ? Expression.Block(bodyExprs) : Expression.Empty();
+                            if (cond == null) elseE = bodyBlock;
+                            else
+                            {
+                                var condE = ConvertCond(cond, cc);
+                                if (condE == null) return null;
+                                elseE = Expression.IfThenElse(condE, bodyBlock, elseE);
+                            }
+                        }
+                        return elseE;
+                    }
+                case ForLoop fl:
+                    {
+                        // Bucle anidado: for v = start:end  (step 1). Emite un Loop IL con
+                        // contador double y break cuando v>end.
+                        if (fl.Iter is not Range r2 || r2.Step != null) return null;
+                        if (!cc.SlotIdx.ContainsKey(fl.VarName)) return null;
+                        var startE = ConvertExprAsKind(r2.Start, cc, TKind.Scalar);
+                        var endE = ConvertExprAsKind(r2.End, cc, TKind.Scalar);
+                        if (startE == null || endE == null) return null;
+                        var lv = ScalarAccess(cc, fl.VarName);
+                        var endLocal = Expression.Variable(typeof(double), "for_end");
+                        var brk = Expression.Label("for_brk");
+                        var innerBody = new List<Expression>
+                        {
+                            Expression.IfThen(Expression.GreaterThan(lv, endLocal), Expression.Break(brk))
+                        };
+                        foreach (var st in fl.Body)
+                        {
+                            if (st is CommentStmt) continue;
+                            var se = ConvertStmt(st, cc);
+                            if (se == null) return null;
+                            innerBody.Add(se);
+                        }
+                        innerBody.Add(Expression.Assign(lv, Expression.Add(lv, Expression.Constant(1.0))));
+                        var loop = Expression.Loop(Expression.Block(innerBody), brk);
+                        return Expression.Block(
+                            new[] { endLocal },
+                            Expression.Assign(endLocal, endE),
+                            Expression.Assign(lv, startE),
+                            loop);
+                    }
                 case ExprStmt _:
                     return Expression.Empty();
                 default:
                     return null;
             }
+        }
+
+        /// <summary>Condicion booleana (para if): comparaciones/AND/OR sobre escalares.</summary>
+        private static Expression ConvertCond(MatlabNode node, CompileCtx cc)
+        {
+            if (node is BinaryOp b)
+            {
+                if (b.Op is ">" or "<" or ">=" or "<=" or "==" or "~=" or "!=")
+                {
+                    var L = ConvertExprAsKind(b.Left, cc, TKind.Scalar);
+                    var R = ConvertExprAsKind(b.Right, cc, TKind.Scalar);
+                    if (L == null || R == null) return null;
+                    return b.Op switch
+                    {
+                        ">" => Expression.GreaterThan(L, R),
+                        "<" => Expression.LessThan(L, R),
+                        ">=" => Expression.GreaterThanOrEqual(L, R),
+                        "<=" => Expression.LessThanOrEqual(L, R),
+                        "==" => Expression.Equal(L, R),
+                        _ => Expression.NotEqual(L, R),
+                    };
+                }
+                if (b.Op is "&&" or "&")
+                {
+                    var L = ConvertCond(b.Left, cc); var R = ConvertCond(b.Right, cc);
+                    if (L == null || R == null) return null;
+                    return Expression.AndAlso(L, R);
+                }
+                if (b.Op is "||" or "|")
+                {
+                    var L = ConvertCond(b.Left, cc); var R = ConvertCond(b.Right, cc);
+                    if (L == null || R == null) return null;
+                    return Expression.OrElse(L, R);
+                }
+            }
+            // condicion escalar suelta: cond != 0
+            var s = ConvertExprAsKind(node, cc, TKind.Scalar);
+            if (s == null) return null;
+            return Expression.NotEqual(s, Expression.Constant(0.0, typeof(double)));
         }
 
         // ─── Convert con coerción de tipo ───────────────────────────────
@@ -750,6 +924,25 @@ namespace Calcpad.Core.Matlab
                     }
                 case CallOrIndex coi when coi.Target is IdentRef ident:
                     return ConvertCallOrIndex(ident.Name, coi.Args, cc);
+                case CellIndex cix when cix.Target is IdentRef cellId:
+                    {
+                        // c{i} o c{i,j} → GetCellElem(name, i, j). j=0 marca indice unico.
+                        Expression iE, jE;
+                        if (cix.Args.Count == 1)
+                        {
+                            iE = ConvertExprAsKind(cix.Args[0], cc, TKind.Scalar);
+                            jE = Expression.Constant(0.0, typeof(double));
+                        }
+                        else if (cix.Args.Count == 2)
+                        {
+                            iE = ConvertExprAsKind(cix.Args[0], cc, TKind.Scalar);
+                            jE = ConvertExprAsKind(cix.Args[1], cc, TKind.Scalar);
+                        }
+                        else return null;
+                        if (iE == null || jE == null) return null;
+                        return Expression.Call(cc.CtxParam, JitCtx.MGetCellElem,
+                            Expression.Constant(cellId.Name), iE, jE);
+                    }
                 case MatrixLit ml:
                     return ConvertMatrixLit(ml, cc);
                 default:
@@ -794,6 +987,14 @@ namespace Calcpad.Core.Matlab
             if (args.Count == 1)
             {
                 if (args[0] is ColonAll) return null;   // A(:) flatten — no soportado
+                // GATHER: A(vec) con indice vectorial (el u(d') del FEM)
+                if (InferKind(args[0], cc) == TKind.Matrix)
+                {
+                    var idxV = ConvertExprAsKind(args[0], cc, TKind.Matrix);
+                    if (idxV == null) return null;
+                    var matV = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(name));
+                    return Expression.Call(JitCtx.MJitGather, matV, idxV);
+                }
                 var prevEnd = cc.EndArray; cc.EndArray = name;      // `end` = longitud de este arreglo
                 var idx1 = ConvertExprAsKind(args[0], cc, TKind.Scalar);
                 cc.EndArray = prevEnd;

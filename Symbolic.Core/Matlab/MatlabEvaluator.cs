@@ -545,6 +545,13 @@ namespace Calcpad.Core.Matlab
                 return r;
             };
             _builtins["haspardiso"] = a => new MValue(Calcpad.Core.BlasInterop.PardisoAvailable ? 1 : 0);
+            // Diagnostico del JIT: [Compiles, Skips(bail-out), Hits]. Resetea al leer.
+            _builtins["__jitstats"] = a => {
+                var r = new MValue(1, 3);
+                r.Set(0, 0, MatlabJit.Compiles); r.Set(0, 1, MatlabJit.Skips); r.Set(0, 2, MatlabJit.Hits);
+                MatlabJit.Compiles = 0; MatlabJit.Skips = 0; MatlabJit.Hits = 0;
+                return r;
+            };
             // decomposition(A): factoriza A UNA vez y retiene la factorizacion (PARDISO).
             // Luego dA\b reusa la factorizacion (fase 33) en vez de re-factorizar. En un
             // Newton modificado (misma K, muchos RHS) ahorra N-1 factorizaciones.
@@ -8306,6 +8313,60 @@ namespace Calcpad.Core.Matlab
             if (v.Rows == 1 && v.Cols == 1) return v.At(0, 0);
             throw new MatlabRuntimeException("Expected scalar, got matrix");
         }
+        /// <summary>Gather: src(idx) con idx vector 1-based → vector con la misma forma que idx.
+        /// Es el u(d') del FEM (leer los grados de libertad de un elemento).</summary>
+        public static MValue JitGather(MValue src, MValue idx)
+        {
+            int n = idx.Rows * idx.Cols;
+            // Orientacion como MATLAB/Lab: si src es un VECTOR, el resultado hereda la
+            // orientacion de src (u columna -> u(d') columna, Fint columna -> Fint(d)
+            // columna). Solo si src es matriz se usa la forma del indice. Esto importa:
+            // el JIT sumaba Fint(d) [row] + col -> broadcast 12x12 y el FEM divergia.
+            bool srcVec = src.Rows == 1 || src.Cols == 1;
+            bool col = srcVec ? (src.Cols == 1) : (idx.Cols == 1);
+            var r = col ? new MValue(n, 1) : new MValue(1, n);
+            var sd = src.Data;
+            for (int k = 0; k < n; k++)
+            {
+                int li = (int)idx.Data[k] - 1;     // src es vector: row-major == col-major
+                if (li < 0 || li >= sd.Length) throw new MatlabRuntimeException($"Gather index {li + 1} out of bounds (1..{sd.Length})");
+                r.Data[k] = sd[li];
+            }
+            return r;
+        }
+        /// <summary>Scatter-add: dst(idx) += add (idx vector 1-based, add vector paralelo).
+        /// Clona dst (semantica por valor) y acumula. Es el Fint(d)=Fint(d)+... del FEM.</summary>
+        public static MValue JitScatterAdd(MValue dst, MValue idx, MValue add)
+        {
+            var nd = (double[])dst.Data.Clone();
+            int n = idx.Rows * idx.Cols;
+            for (int k = 0; k < n; k++)
+            {
+                int li = (int)idx.Data[k] - 1;
+                if (li < 0 || li >= nd.Length) throw new MatlabRuntimeException($"Scatter index {li + 1} out of bounds (1..{nd.Length})");
+                nd[li] += add.Data[k];
+            }
+            return new MValue(dst.Rows, dst.Cols, nd);
+        }
+        /// <summary>Scatter-assign: dst(idx) = vals (idx vector 1-based, vals paralelo). Clona
+        /// dst. En el FEM los indices de un elemento no se repiten, asi que equivale al
+        /// Fint(d)=Fint(d)+... (el RHS ya trae el gather+suma).</summary>
+        public static MValue JitScatterAssign(MValue dst, MValue idx, MValue vals)
+        {
+            var nd = (double[])dst.Data.Clone();
+            int n = idx.Rows * idx.Cols;
+            for (int k = 0; k < n; k++)
+            {
+                int li = (int)idx.Data[k] - 1;
+                if (li < 0 || li >= nd.Length) throw new MatlabRuntimeException($"Scatter index {li + 1} out of bounds (1..{nd.Length})");
+                nd[li] = vals.Data[k];
+            }
+            return new MValue(dst.Rows, dst.Cols, nd);
+        }
+        /// <summary>Columna j (1-based, expr) de una matriz — A(:,j). Alias claro de JitGetMatCol.</summary>
+        public static MValue JitColSlice(MValue m, double jOneBased) => JitGetMatCol(m, jOneBased);
+        /// <summary>Fila i (1-based, expr) de una matriz — A(i,:). Alias claro de JitGetMatRow.</summary>
+        public static MValue JitRowSlice(MValue m, double iOneBased) => JitGetMatRow(m, iOneBased);
 
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
