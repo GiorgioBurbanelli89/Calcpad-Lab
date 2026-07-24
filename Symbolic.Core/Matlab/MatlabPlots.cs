@@ -1398,6 +1398,19 @@ return {make:make};
             }
             if (xmax - xmin < 1e-9) xmax = xmin + 1;
             if (ymax - ymin < 1e-9) ymax = ymin + 1;
+            // Rango de valores por-cara (malla FEM coloreada por colormap).
+            double vmin = double.MaxValue, vmax = double.MinValue;
+            foreach (var p in _figPrims)
+                if (p.Kind == "patch2d" && !double.IsNaN(p.Val)) { if (p.Val < vmin) vmin = p.Val; if (p.Val > vmax) vmax = p.Val; }
+            bool hasVals = vmax >= vmin;
+            if (hasVals && vmax - vmin < 1e-12) vmax = vmin + 1;
+            bool cmapRev = _figCmapName != null && (_figCmapName.EndsWith("_r") || _figCmapName.Contains("reverse"));
+            SKColor ValColor(double v)
+            {
+                double t = (v - vmin) / (vmax - vmin);
+                if (cmapRev) t = 1 - t;
+                return ParseColor(JetCss(t));
+            }
             // Limites y ticks "bonitos" (estilo MATLAB: el eje abarca hasta el tick).
             // target de ticks proporcional al tamaño del eje (~1 cada 70px en X, 48px en Y),
             // como MATLAB (más ticks en ejes grandes).
@@ -1415,7 +1428,7 @@ return {make:make};
             // (para paridad pixel a pixel): left=0.13, bottom=0.11, right=0.095, top=0.075.
             int mL = (int)Math.Round(0.130 * width);
             int mB = (int)Math.Round(0.110 * height);
-            int mR = (int)Math.Round(0.095 * width);
+            int mR = (int)Math.Round(hasVals ? 0.165 * width : 0.095 * width);  // colorbar necesita espacio
             int mT = (int)Math.Round(0.075 * height);
             double sx = (width - mL - mR) / ddx, sy = (height - mT - mB) / ddy;
             double offX = 0, offY = 0;
@@ -1493,7 +1506,8 @@ return {make:make};
                         if (p.Kind == "patch2d")
                         {
                             path.Close();
-                            var fc = ParseColor(p.FaceColor);
+                            // Color por VALOR (colormap) para mallas FEM; si no, FaceColor fijo.
+                            var fc = !double.IsNaN(p.Val) ? ValColor(p.Val) : ParseColor(p.FaceColor);
                             if (fc.Alpha > 0) { fill.Color = fc.WithAlpha((byte)(255 * p.FaceAlpha)); canvas.DrawPath(path, fill); }
                             stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke);
                         }
@@ -1558,6 +1572,26 @@ return {make:make};
                     }
                 }
                 canvas.Restore();   // fin del clip del area de plot (curvas dentro del box)
+
+                // ── COLORBAR (malla FEM coloreada por valor), como MATLAB ──
+                if (hasVals)
+                {
+                    float cbW = 14, cbX = plotR + 16, cbH = plotB - plotT;
+                    for (int i = 0; i < (int)cbH; i++)
+                    {
+                        double t = 1.0 - i / cbH;                 // arriba = vmax
+                        using var cbp = new SKPaint { Style = SKPaintStyle.Fill, Color = ParseColor(JetCss(cmapRev ? 1 - t : t)) };
+                        canvas.DrawRect(cbX, plotT + i, cbW, 1.2f, cbp);
+                    }
+                    canvas.DrawRect(cbX, plotT, cbW, cbH, axis);
+                    foreach (var tv in NiceTicks(vmin, vmax, 5))
+                    {
+                        if (tv < vmin - 1e-9 || tv > vmax + 1e-9) continue;
+                        float ty = plotB - (float)((tv - vmin) / (vmax - vmin) * cbH);
+                        canvas.DrawLine(cbX + cbW, ty, cbX + cbW + 3, ty, axis);
+                        canvas.DrawText(FmtTick(tv), cbX + cbW + 5, ty + 3, SKTextAlign.Left, font, txt);
+                    }
+                }
 
                 // ── LEGEND (caja con muestras de linea + nombres), como MATLAB ──
                 if (_figShowLegend)
