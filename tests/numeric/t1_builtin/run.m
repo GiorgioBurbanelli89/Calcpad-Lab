@@ -5,6 +5,7 @@
 % si se rinde al interprete el test tambien pasa, pero lo que se vigila es que
 % NO devuelva 0 cuando compila.
 
+tic;
 a=zeros(3,1);
 for k=1:3
   a(k)=pi;
@@ -42,3 +43,4 @@ for k=1:2
   g(k)=1/Inf;
 end
 disp(['CHECK inv_inf ' num2str(g(1),12)]);
+disp(['CHECK t_seg ' num2str(toc,6)]);   % tiempo de computo; se compara vs MATLAB 2017a

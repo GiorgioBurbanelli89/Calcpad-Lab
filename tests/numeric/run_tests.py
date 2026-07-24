@@ -31,6 +31,16 @@ DEFAULT_EXE = os.path.abspath(os.path.join(
 
 # nombre -> (valor esperado, tolerancia absoluta)
 # Referencias verificadas en MATLAB 2017a. area/peso/uel_max ademas contra Abaqus.
+# Tiempo tic/toc de referencia en MATLAB 2017a (mejor de 3 corridas, en segundos).
+# Requisito de Jorge: Hekatan Lab debe ser IGUAL o MENOR. Solo se marca falla si Lab
+# supera 1.5x Y la brecha pasa de 50 ms, para que t1/t2 (sub-10 ms, muy ruidosos) no
+# rompan por ruido del SO. El que importa de verdad es t3 (el FEM real).
+MATLAB_SEG = {
+    "t1_builtin":  0.0096,
+    "t2_arrays3d": 0.0088,
+    "t3_fem_srm":  4.34,
+}
+
 EXPECTED = {
     "t1_builtin": {
         "pi":        (3.14159265359, 1e-9),
@@ -139,13 +149,26 @@ def main():
             if abs(val - ref) > tol:
                 bad.append("%s: %.12g  esperado %.12g  (dif %.3g > tol %.3g)"
                            % (name, val, ref, abs(val - ref), tol))
+        # --- comparacion de tiempo tic/toc vs MATLAB 2017a (requisito: Lab <= MATLAB) ---
+        tinfo = ""
+        lab_t = float(got["t_seg"].split()[0]) if "t_seg" in got else None
+        ml_t = MATLAB_SEG.get(folder)
+        if lab_t is not None and ml_t:
+            r = lab_t / ml_t
+            tinfo = "  t_seg Lab=%.4gs  MATLAB=%.4gs  (%.2fx)" % (lab_t, ml_t, r)
+            # falla solo si Lab es claramente mas lento: >1.5x Y la brecha pasa de 50 ms
+            # (asi t1/t2, que son sub-milisegundo y muy ruidosos, no rompen por ruido)
+            if r > 1.5 and (lab_t - ml_t) > 0.05:
+                bad.append("t_seg: Lab %.4gs es MAS LENTO que MATLAB %.4gs (%.2fx)"
+                           % (lab_t, ml_t, r))
+
         if bad:
-            print("  [FALLA] %-14s  %.1fs" % (folder, dt))
+            print("  [FALLA] %-14s  %.1fs%s" % (folder, dt, tinfo))
             for b in bad:
                 print("           - %s" % b)
             fails.extend((folder, b) for b in bad)
         else:
-            print("  [  OK  ] %-14s  %d valores  %.1fs" % (folder, len(expected), dt))
+            print("  [  OK  ] %-14s  %d valores  %.1fs%s" % (folder, len(expected), dt, tinfo))
 
     print("")
     if fails:

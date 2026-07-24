@@ -1,3 +1,4 @@
-# reportes generados por cada corrida
+# reportes y logs generados por cada corrida
 run.html
 *.html
+*.log

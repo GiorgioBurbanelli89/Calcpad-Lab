@@ -3,6 +3,7 @@
 % en v1.0.75; este test compara SIEMPRE contra el equivalente aplanado, que es
 % independiente del camino 3-D. Si difieren, el 3-D se rompio.
 
+tic;
 ne=120;
 A3=zeros(4,ne,3);
 Afl=zeros(4,ne*3);
@@ -36,3 +37,4 @@ disp(['CHECK shape_slice ' num2str(sv(1)) ' ' num2str(sv(2))]);
 
 % paso a funcion (el FEM pasa sig0 como parametro)
 disp(['CHECK diff3d_en_funcion ' num2str(cmp3d(A3,Afl,ne),12)]);
+disp(['CHECK t_seg ' num2str(toc,6)]);   % tiempo de computo; se compara vs MATLAB 2017a
