@@ -547,9 +547,11 @@ namespace Calcpad.Core.Matlab
             _builtins["haspardiso"] = a => new MValue(Calcpad.Core.BlasInterop.PardisoAvailable ? 1 : 0);
             // Diagnostico del JIT: [Compiles, Skips(bail-out), Hits]. Resetea al leer.
             _builtins["__jitstats"] = a => {
-                var r = new MValue(1, 3);
+                var r = new MValue(1, 5);
                 r.Set(0, 0, MatlabJit.Compiles); r.Set(0, 1, MatlabJit.Skips); r.Set(0, 2, MatlabJit.Hits);
+                r.Set(0, 3, MatlabJit.EwEmitOk); r.Set(0, 4, MatlabJit.EwEmitFail);
                 MatlabJit.Compiles = 0; MatlabJit.Skips = 0; MatlabJit.Hits = 0;
+                MatlabJit.EwEmitOk = 0; MatlabJit.EwEmitFail = 0;
                 return r;
             };
             // decomposition(A): factoriza A UNA vez y retiene la factorizacion (PARDISO).
@@ -7444,6 +7446,39 @@ namespace Calcpad.Core.Matlab
             return new SymFunc("f", arg);  // unknown — placeholder
         }
         private static double ApplyOp(char op, double x, double y) => op switch { '+' => x + y, '-' => x - y, '*' => x * y, _ => x / y };
+
+        /// <summary>Ejecuta una cadena element-wise FUSIONADA: evalua todo el arbol
+        /// (p.ej. P.*Q+P) en UN solo pase SIMD, sin matrices temporales, reusando el
+        /// buffer de `reuse` (el destino C) si su forma coincide. Elimina el alloc/GC por
+        /// operacion que era el cuello real del element-wise. Bit-identico al camino
+        /// no-fusionado (cada elemento es una cadena de ops IEEE en el mismo orden).
+        /// vk = kernel SIMD (datas, offset)->Vector; sk = kernel escalar (datas, i)->double.</summary>
+        public static MValue EwFusedRun(MValue[] leaves, MValue reuse,
+            Func<double[][], int, System.Numerics.Vector<double>> vk,
+            Func<double[][], int, double> sk)
+        {
+            int rows = leaves[0].Rows, cols = leaves[0].Cols, n = rows * cols;
+            var datas = new double[leaves.Length][];
+            for (int k = 0; k < leaves.Length; k++)
+            {
+                if (leaves[k].Rows != rows || leaves[k].Cols != cols)
+                    throw new MatlabRuntimeException("Dimension mismatch en operacion element-wise fusionada");
+                datas[k] = leaves[k].Data;
+            }
+            bool canReuse = reuse != null && !reuse.IsSparseReal && reuse.Imag == null
+                            && reuse.Data != null && reuse.Data.Length == n && !ReferenceContains(datas, reuse.Data);
+            double[] rd = canReuse ? reuse.Data : new double[n];
+            int w = System.Numerics.Vector<double>.Count, i = 0;
+            for (; i <= n - w; i += w) vk(datas, i).CopyTo(rd, i);
+            for (; i < n; i++) rd[i] = sk(datas, i);
+            if (canReuse && reuse.Rows == rows && reuse.Cols == cols) return reuse;
+            return new MValue(rows, cols, rd);
+        }
+        private static bool ReferenceContains(double[][] arr, double[] x)
+        {
+            foreach (var a in arr) if (ReferenceEquals(a, x)) return true;   // no reusar C si es tambien una hoja
+            return false;
+        }
 
         /// <summary>Element-wise SIMD para + - .* ./ sobre reales densos de misma forma o
         /// con un escalar. El MapBinary generico llama un delegado Func por elemento, que el

@@ -129,6 +129,16 @@ namespace Calcpad.Core.Matlab
         }
         public void SetMatrixVar(string name, MValue val) => Scope.Set(name, val);
 
+        /// <summary>C si existe como matriz densa real con la forma dada (para reusar su
+        /// buffer en la fusion element-wise); null si no existe o no encaja.</summary>
+        public MValue GetMatrixOrNull(string name)
+        {
+            if (Scope.TryGet(name, out var v) && v != null && !v.IsSparseReal
+                && !v.IsComplex && !v.IsString && v.CellData == null && v.Data != null)
+                return v;
+            return null;
+        }
+
         /// <summary>Lee un elemento de un cell array por indices escalares: c{i} o c{i,j}.
         /// Devuelve el MValue de la celda (una matriz en el FEM: Bc{e,q}).</summary>
         public MValue GetCellElem(string name, double i, double j)
@@ -173,6 +183,12 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
         internal static readonly MethodInfo MGetCellElem   = typeof(JitCtx).GetMethod(nameof(GetCellElem));
+        internal static readonly MethodInfo MGetMatrixOrNull = typeof(JitCtx).GetMethod(nameof(GetMatrixOrNull));
+        internal static readonly MethodInfo MEwFusedRun    = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.EwFusedRun));
+        internal static readonly System.Reflection.ConstructorInfo CVecFromScalar =
+            typeof(System.Numerics.Vector<double>).GetConstructor(new[] { typeof(double) });
+        internal static readonly System.Reflection.ConstructorInfo CVecFromArray =
+            typeof(System.Numerics.Vector<double>).GetConstructor(new[] { typeof(double[]), typeof(int) });
         internal static readonly MethodInfo MJitGather     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGather));
         internal static readonly MethodInfo MJitScatterAdd = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAdd));
         internal static readonly MethodInfo MJitScatterAssign = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAssign));
@@ -207,6 +223,7 @@ namespace Calcpad.Core.Matlab
         public static bool Enabled =
             System.Environment.GetEnvironmentVariable("CALCPAD_LAB_JIT") != "0";
         public static long Hits, Compiles, Skips;
+        public static long EwEmitOk, EwEmitFail;   // diagnostico fusion element-wise
 
         private struct Compiled
         {
@@ -225,7 +242,7 @@ namespace Calcpad.Core.Matlab
 
             if (!_cache.TryGetValue(loop, out var c))
             {
-                c = TryCompile(loop, ev);
+                c = TryCompile(loop, ev, scope);
                 _cache[loop] = c;
                 if (!c.Failed) Compiles++;
             }
@@ -306,6 +323,7 @@ namespace Calcpad.Core.Matlab
         private sealed class CompileCtx
         {
             public MatlabEvaluator Evaluator;
+            public MatlabScope Scope;   // scope real: para inferir el tipo de las vars live-in
             public Dictionary<string, int> SlotIdx = new(StringComparer.Ordinal);
             public Dictionary<string, TKind> VarKind = new(StringComparer.Ordinal);
             public ParameterExpression CtxParam;
@@ -367,14 +385,14 @@ namespace Calcpad.Core.Matlab
             }
         }
 
-        private static Compiled TryCompile(ForLoop loop, MatlabEvaluator ev)
+        private static Compiled TryCompile(ForLoop loop, MatlabEvaluator ev, MatlabScope scope)
         {
             if (loop.Iter is not Range range || range.Step != null)
                 return new Compiled { Failed = true };
 
             try
             {
-                var cc = new CompileCtx { Evaluator = ev };
+                var cc = new CompileCtx { Evaluator = ev, Scope = scope };
                 cc.CtxParam = Expression.Parameter(typeof(JitCtx), "ctx");
                 cc.SlotsExpr = Expression.Field(cc.CtxParam, JitCtx.FSlots);
 
@@ -585,7 +603,18 @@ namespace Calcpad.Core.Matlab
                     // (phi*pi/180 = 0) y el talud se desmoronaba. Bail-out: que lo corra el
                     // interprete, mas lento pero correcto.
                     if (BuiltinConsts.Contains(ir.Name)) return null;
-                    // Variable no asignada antes — asumimos scalar (live-in)
+                    // Variable no asignada antes en el loop → es LIVE-IN: consultar su tipo
+                    // REAL en el scope. Antes se asumia Scalar; una matriz live-in (P en
+                    // C=P.*Q) se tomaba escalar y luego el sembrado la detectaba no-escalar y
+                    // hacia bail-out. Con el tipo real, el loop compila (y habilita la fusion).
+                    if (cc.Scope != null && cc.Scope.TryGet(ir.Name, out var lv) && lv != null
+                        && !lv.IsScalar && !lv.IsString && lv.CellData == null && lv.Fields == null
+                        && lv.Symbolic == null && lv.SymCells == null && lv.MapData == null && !lv.Is3D
+                        && (lv.Data != null || lv.IsSparseReal))
+                    {
+                        cc.VarKind[ir.Name] = TKind.Matrix;
+                        return TKind.Matrix;
+                    }
                     cc.VarKind[ir.Name] = TKind.Scalar;
                     return TKind.Scalar;
                 case UnaryOp u when u.Op == "-" || u.Op == "+":
@@ -662,6 +691,14 @@ namespace Calcpad.Core.Matlab
                     if (tgt is IdentRef ir)
                     {
                         var rhsKind = cc.VarKind[ir.Name];
+                        // FUSION element-wise: C = <cadena +,-,.*,./ de matrices> en un solo
+                        // pase SIMD sin temporales, reusando el buffer de C. Mata el alloc/GC
+                        // por operacion (el cuello real de A.*B en matrices grandes).
+                        if (rhsKind == TKind.Matrix)
+                        {
+                            var fused = TryEmitEwFused(ir.Name, a.Rhs, cc);
+                            if (fused != null) return fused;
+                        }
                         var rhs = ConvertExprAsKind(a.Rhs, cc, rhsKind);
                         if (rhs == null) return null;
                         if (rhsKind == TKind.Scalar)
@@ -816,6 +853,100 @@ namespace Calcpad.Core.Matlab
             (NumberLit x, NumberLit y) => x.Value == y.Value,
             _ => false
         };
+
+        // ─── Fusion element-wise: C = P.*Q+P → un solo loop SIMD sin temporales ───────
+        /// <summary>true si `node` es una expresion element-wise PURA (solo +,-,.*,./ y
+        /// unario -/+ sobre matrices densas o literales numericos). Recolecta los nombres
+        /// de las matrices hoja (dedup, en orden) en `leaves`. Conservador: escalares
+        /// variables, '*'/'/'/funciones → NO fusiona (return false).</summary>
+        private static bool CollectEw(MatlabNode node, CompileCtx cc, System.Collections.Generic.List<string> leaves)
+        {
+            switch (node)
+            {
+                case NumberLit _: return true;
+                case IdentRef ir:
+                    if (!cc.VarKind.TryGetValue(ir.Name, out var k) || k != TKind.Matrix) return false;
+                    if (!leaves.Contains(ir.Name)) leaves.Add(ir.Name);
+                    return true;
+                case UnaryOp u when u.Op == "-" || u.Op == "+":
+                    return CollectEw(u.Operand, cc, leaves);
+                case BinaryOp b when b.Op is "+" or "-" or ".*" or "./":
+                    return CollectEw(b.Left, cc, leaves) && CollectEw(b.Right, cc, leaves);
+                default: return false;
+            }
+        }
+
+        /// <summary>Genera el cuerpo del kernel. vec=true → sobre Vector&lt;double&gt; (bloque
+        /// SIMD); vec=false → sobre double (resto escalar). datas = double[][] (Data de las
+        /// hojas), pos = offset SIMD o indice escalar.</summary>
+        private static Expression GenEw(MatlabNode node, System.Collections.Generic.List<string> leaves,
+            ParameterExpression datas, ParameterExpression pos, bool vec)
+        {
+            switch (node)
+            {
+                case NumberLit nl:
+                    return vec ? Expression.New(JitCtx.CVecFromScalar, Expression.Constant(nl.Value))
+                               : (Expression)Expression.Constant(nl.Value, typeof(double));
+                case IdentRef ir:
+                    {
+                        int k = leaves.IndexOf(ir.Name);
+                        var arrK = Expression.ArrayIndex(datas, Expression.Constant(k));   // datas[k] → double[]
+                        return vec ? Expression.New(JitCtx.CVecFromArray, arrK, pos)        // new Vector(datas[k], off)
+                                   : Expression.ArrayIndex(arrK, pos);                      // datas[k][i]
+                    }
+                case UnaryOp u when u.Op == "-":
+                    return Expression.Negate(GenEw(u.Operand, leaves, datas, pos, vec));
+                case UnaryOp u when u.Op == "+":
+                    return GenEw(u.Operand, leaves, datas, pos, vec);
+                case BinaryOp b:
+                    var L = GenEw(b.Left, leaves, datas, pos, vec);
+                    var R = GenEw(b.Right, leaves, datas, pos, vec);
+                    return b.Op switch
+                    {
+                        "+" => Expression.Add(L, R),
+                        "-" => Expression.Subtract(L, R),
+                        ".*" => Expression.Multiply(L, R),
+                        "./" => Expression.Divide(L, R),
+                        _ => null
+                    };
+                default: return null;
+            }
+        }
+
+        /// <summary>Si `rhs` es element-wise puro con ≥1 matriz hoja, emite la asignacion
+        /// `name = &lt;fusion&gt;`: un solo pase SIMD sin temporales, reusando el buffer de
+        /// name. Devuelve null si no aplica (→ camino normal).</summary>
+        private static Expression TryEmitEwFused(string name, MatlabNode rhs, CompileCtx cc)
+        {
+            var leaves = new System.Collections.Generic.List<string>();
+            if (!CollectEw(rhs, cc, leaves) || leaves.Count == 0) return null;
+            // solo vale si hay al menos una operacion (si es solo `C = P`, que lo haga el camino normal)
+            if (rhs is IdentRef) return null;
+            try
+            {
+                var datasP = Expression.Parameter(typeof(double[][]), "datas");
+                var offP = Expression.Parameter(typeof(int), "off");
+                var vecBody = GenEw(rhs, leaves, datasP, offP, true);
+                if (vecBody == null) return null;
+                var vk = Expression.Lambda<Func<double[][], int, System.Numerics.Vector<double>>>(vecBody, datasP, offP).Compile();
+
+                var idxP = Expression.Parameter(typeof(int), "i");
+                var sclBody = GenEw(rhs, leaves, datasP, idxP, false);
+                if (sclBody == null) return null;
+                var sk = Expression.Lambda<Func<double[][], int, double>>(sclBody, datasP, idxP).Compile();
+
+                var leafElems = new Expression[leaves.Count];
+                for (int i = 0; i < leaves.Count; i++)
+                    leafElems[i] = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(leaves[i]));
+                var leavesArr = Expression.NewArrayInit(typeof(MValue), leafElems);
+                var reuseE = Expression.Call(cc.CtxParam, JitCtx.MGetMatrixOrNull, Expression.Constant(name));
+                var fused = Expression.Call(JitCtx.MEwFusedRun, leavesArr, reuseE,
+                    Expression.Constant(vk), Expression.Constant(sk));
+                EwEmitOk++;
+                return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar, Expression.Constant(name), fused);
+            }
+            catch { EwEmitFail++; return null; }   // cualquier problema generando el kernel → camino normal
+        }
 
         /// <summary>Condicion booleana (para if): comparaciones/AND/OR sobre escalares.</summary>
         private static Expression ConvertCond(MatlabNode node, CompileCtx cc)
