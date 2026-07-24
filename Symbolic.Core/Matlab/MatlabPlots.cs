@@ -41,6 +41,12 @@ namespace Calcpad.Core.Matlab
             public double Val = double.NaN;   // valor por-cara (para hover interactivo)
             public string Name;               // DisplayName (para la leyenda del SVG)
             public string Dash = "solid";     // estilo de linea: solid/dash/dot/dashdot
+            // --- fieldfill (contourf por-píxel, liso como imagesc) ---
+            public int GridNx, GridNy, NLevels;  // dims de la malla y # de bandas
+            public double Vmin = double.NaN, Vmax = double.NaN;  // rango de color (caxis = datos)
+            public double LevLo, LevStep;        // rejilla de niveles "redondos" (como MATLAB)
+            public bool Curvi;                   // malla curvilínea (deformada): Xs/Ys = X,Y completos
+            public double[] GX, GY;              // coords de nodo completas (curvilínea): ny*nx cada una
         }
         /// <summary>Color CSS 'rgb(r,g,b)' del colormap jet para t en [0,1].</summary>
         public static string JetCss(double t)
@@ -49,9 +55,9 @@ namespace Calcpad.Core.Matlab
             double r = System.Math.Min(4 * t - 1.5, -4 * t + 4.5);
             double g = System.Math.Min(4 * t - 0.5, -4 * t + 3.5);
             double b = System.Math.Min(4 * t + 0.5, -4 * t + 2.5);
-            int R = (int)(255 * System.Math.Max(0, System.Math.Min(1, r)));
-            int G = (int)(255 * System.Math.Max(0, System.Math.Min(1, g)));
-            int B = (int)(255 * System.Math.Max(0, System.Math.Min(1, b)));
+            int R = (int)System.Math.Round(255 * System.Math.Max(0, System.Math.Min(1, r)));
+            int G = (int)System.Math.Round(255 * System.Math.Max(0, System.Math.Min(1, g)));
+            int B = (int)System.Math.Round(255 * System.Math.Max(0, System.Math.Min(1, b)));
             return $"rgb({R},{G},{B})";
         }
         private static System.Collections.Generic.List<FigPrim> _figPrims = null;
@@ -553,10 +559,36 @@ return {make:make};
             _figShowLegend = false; _figLegendLoc = null; _figLegendNames = null;
             return prev;
         }
+        private static int _imgZoomId = 0;
+        /// <summary>Envuelve un PNG base64 en un contenedor con zoom/pan por JS (rueda=zoom,
+        /// arrastrar=pan, doble-clic=reset) — conserva la gráfica nítida (=MATLAB) e interactiva.</summary>
+        private static string ZoomableImgHtml(string b64)
+        {
+            int k = ++_imgZoomId;
+            string wid = "zw" + k, iid = "zi" + k;
+            var sb = new StringBuilder();
+            // Zoom cambiando el ANCHO real de la img dentro de un contenedor overflow:auto ->
+            // aparecen BARRAS de desplazamiento (además de arrastrar). Rueda=zoom, arrastrar=pan,
+            // doble-clic=reset.
+            sb.Append("<div id=\"").Append(wid).Append("\" class=\"matlab-plot\" style=\"overflow:auto;max-width:100%;max-height:640px;border:1px solid #e6e6e6\">");
+            sb.Append("<img id=\"").Append(iid).Append("\" src=\"data:image/png;base64,").Append(b64);
+            sb.Append("\" style=\"width:560px;display:block;cursor:grab;user-select:none\" draggable=\"false\"/></div>");
+            sb.Append("<script>(function(){var w=document.getElementById('").Append(wid).Append("'),im=document.getElementById('").Append(iid).Append("');");
+            sb.Append("w.addEventListener('wheel',function(e){e.preventDefault();var d=e.deltaY<0?1.15:1/1.15;var r=w.getBoundingClientRect();var cx=e.clientX-r.left+w.scrollLeft,cy=e.clientY-r.top+w.scrollTop;var cw=parseFloat(im.style.width)||560;var nw=cw*d;if(nw<560)nw=560;var f=nw/cw;im.style.width=nw+'px';w.scrollLeft=cx*f-(e.clientX-r.left);w.scrollTop=cy*f-(e.clientY-r.top);});");
+            sb.Append("var dg=false,lx=0,ly=0,sl=0,st=0;");
+            sb.Append("im.addEventListener('mousedown',function(e){dg=true;lx=e.clientX;ly=e.clientY;sl=w.scrollLeft;st=w.scrollTop;im.style.cursor='grabbing';e.preventDefault();});");
+            sb.Append("window.addEventListener('mouseup',function(){dg=false;im.style.cursor='grab';});");
+            sb.Append("window.addEventListener('mousemove',function(e){if(!dg)return;w.scrollLeft=sl-(e.clientX-lx);w.scrollTop=st-(e.clientY-ly);});");
+            sb.Append("im.addEventListener('dblclick',function(){im.style.width='560px';w.scrollLeft=0;w.scrollTop=0;});");
+            sb.Append("})();</script>\n");
+            return sb.ToString();
+        }
         /// <summary>Cierra figura abierta y devuelve su HTML.</summary>
         public static string FinishFigure()
         {
-            if (_figTraces == null || _figTraces.Count == 0)
+            bool noTraces = _figTraces == null || _figTraces.Count == 0;
+            bool noPrims  = _figPrims  == null || _figPrims.Count  == 0;
+            if (noTraces && noPrims)
             {
                 _figTraces = null; _figAnnotations = null;
                 return "";
@@ -575,6 +607,25 @@ return {make:make};
             {
                 string iv = RenderInteractiveMesh(760, 560);
                 if (iv != null) { ResetRetainedMesh(); return iv; }
+            }
+            // contourf (fieldfill): render CANVAS PNG (idéntico al del CLI, alineado a MATLAB),
+            // no Plotly (que salía parula y sin deformar en el WPF).
+            if (!_figIs3D && _figPrims != null && _figPrims.Exists(p => p.Kind == "fieldfill"))
+            {
+                try
+                {
+                    // Render a 2× (1120×840, misma proporcion que MATLAB 560×420) y mostrar a 560px
+                    // -> NÍTIDO en high-DPI. Envuelto en zoom/pan JS (rueda=zoom, arrastrar=pan,
+                    // doble-clic=reset) para no perder la interactividad del embebido.
+                    var png = RasterizeFigurePng(1120, 840);
+                    if (png != null && png.Length > 0)
+                    {
+                        string b64 = System.Convert.ToBase64String(png);
+                        _figTraces = null; _figAnnotations = null; _figPrims = null;
+                        return ZoomableImgHtml(b64);
+                    }
+                }
+                catch { }
             }
             // DIBUJO 2D estructural (malla: patches/texto/markers) → SVG inline (nítido,
             // numeración fiable). Plotly se reserva para resultados (surf/contour/datos).
@@ -934,6 +985,125 @@ return {make:make};
                 FaceColor=faceColor, EdgeColor=edgeColor, FaceAlpha=faceAlpha, LineWidth=lineWidth, Val=val
             });
         }
+        /// <summary>Niveles de contorno "redondos" estilo MATLAB: paso ∈ {1,2,2.5,5}×10^k
+        /// tal que caben ~n bandas en [zmin,zmax], alineados a múltiplos del paso.</summary>
+        private static void NiceContourLevels(double zmin, double zmax, int n, out double lo, out double hi, out double step)
+        {
+            double range = zmax - zmin;
+            double raw = range / System.Math.Max(1, n);
+            double mag = System.Math.Pow(10, System.Math.Floor(System.Math.Log10(raw)));
+            double norm = raw / mag;
+            double nice = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+            step = nice * mag;
+            lo = System.Math.Floor(zmin / step) * step;
+            hi = System.Math.Ceiling(zmax / step) * step;
+            if (hi <= lo) hi = lo + step;
+        }
+        /// <summary>contourf / contour como PRIMITIVAS de canvas (PNG sin navegador).
+        /// filled = bandas rellenas (patch2d cuantizado por nivel, coloreado por colormap);
+        /// lines  = isolíneas negras (marching squares). Se agregan directo a _figPrims
+        /// (sin AddTrace) para no generar miles de trazas Plotly en mallas finas.</summary>
+        public static void Contourf2D(MValue X, MValue Y, MValue Z, int nLevels, string colormap, bool filled, bool lines)
+        {
+            if (_figTraces == null) BeginFigure();
+            if (_figPrims == null) _figPrims = new System.Collections.Generic.List<FigPrim>();
+            SetCmapName(colormap);
+            int nx = Z.Cols, ny = Z.Rows;
+            if (nx < 2 || ny < 2) return;
+            var xv = new double[nx];
+            var yv = new double[ny];
+            // X: matriz meshgrid (primera fila) o vector; Y: primera columna o vector.
+            for (int j = 0; j < nx; j++) xv[j] = (j < X.Data.Length) ? X.Data[j] : j;
+            bool yIsVec = (Y.Rows == 1 || Y.Cols == 1);
+            for (int i = 0; i < ny; i++) yv[i] = yIsVec ? (i < Y.Data.Length ? Y.Data[i] : i) : Y.Data[i * Y.Cols];
+            // Coords de nodo COMPLETAS + deteccion de malla curvilinea (deformada):
+            // si X,Y son matrices ny×nx y X varia por fila (o Y por columna) → curvilinea.
+            bool xFull = X.Rows == ny && X.Cols == nx && X.Data.Length >= nx * ny;
+            bool yFull = Y.Rows == ny && Y.Cols == nx && Y.Data.Length >= nx * ny;
+            var GX = new double[nx * ny];
+            var GY = new double[nx * ny];
+            bool curvi = false;
+            for (int i = 0; i < ny; i++)
+                for (int j = 0; j < nx; j++)
+                {
+                    GX[i * nx + j] = xFull ? X.Data[i * nx + j] : xv[j];
+                    GY[i * nx + j] = yFull ? Y.Data[i * nx + j] : yv[i];
+                    if (xFull && System.Math.Abs(X.Data[i * nx + j] - X.Data[j]) > 1e-12) curvi = true;
+                    if (yFull && System.Math.Abs(Y.Data[i * nx + j] - Y.Data[i * nx]) > 1e-12) curvi = true;
+                }
+            double NX_(int i, int j) => GX[i * nx + j];
+            double NY_(int i, int j) => GY[i * nx + j];
+            if (nLevels < 1) nLevels = 10;
+            double zmin = double.MaxValue, zmax = double.MinValue;
+            foreach (var v in Z.Data) { if (double.IsNaN(v)) continue; if (v < zmin) zmin = v; if (v > zmax) zmax = v; }
+            if (zmax <= zmin) zmax = zmin + 1;
+            // Niveles "redondos" como MATLAB (paso 1/2/2.5/5 × 10^k); el COLOR se
+            // normaliza al rango de datos [zmin,zmax] (caxis por defecto de MATLAB).
+            double lo, hi, levStep;
+            NiceContourLevels(zmin, zmax, nLevels, out lo, out hi, out levStep);
+            int nBands = (int)System.Math.Round((hi - lo) / levStep);
+            double Zv(int i, int j) => Z.Data[i * nx + j];
+
+            if (filled)
+            {
+                // UNA primitiva con toda la malla; el rasterizador rellena POR PÍXEL
+                // (muestreo bilineal + cuantización a banda) → liso como imagesc de MATLAB,
+                // sin costuras de antialiasing entre celditas.
+                _figPrims.Add(new FigPrim {
+                    Kind = "fieldfill",
+                    Xs = curvi ? (double[])GX.Clone() : (double[])xv.Clone(),
+                    Ys = curvi ? (double[])GY.Clone() : (double[])yv.Clone(),
+                    Zs = (double[])Z.Data.Clone(),
+                    GridNx = nx, GridNy = ny, NLevels = nBands, Vmin = zmin, Vmax = zmax,
+                    LevLo = lo, LevStep = levStep,
+                    Curvi = curvi, GX = curvi ? GX : null, GY = curvi ? GY : null
+                });
+            }
+            if (lines)
+            {
+                bool cmapRev = colormap != null && (colormap.EndsWith("_r") || colormap.Contains("reverse"));
+                for (int L = 1; L < nBands; L++)
+                {
+                    double c = lo + L * levStep;
+                    if (c <= zmin || c >= zmax) continue;
+                    double tL = (c - zmin) / (zmax - zmin);
+                    if (cmapRev) tL = 1 - tL;
+                    string lineCol = JetCss(tL);   // isolínea del color del colormap (nivel)
+                    for (int i = 0; i < ny - 1; i++)
+                        for (int j = 0; j < nx - 1; j++)
+                        {
+                            double vA = Zv(i, j), vB = Zv(i, j + 1), vC = Zv(i + 1, j + 1), vD = Zv(i + 1, j);
+                            if (double.IsNaN(vA) || double.IsNaN(vB) || double.IsNaN(vC) || double.IsNaN(vD)) continue;
+                            double ax = NX_(i, j),     ay = NY_(i, j);
+                            double bx = NX_(i, j + 1), by = NY_(i, j + 1);
+                            double cx = NX_(i + 1, j + 1), cy = NY_(i + 1, j + 1);
+                            double dx = NX_(i + 1, j), dy = NY_(i + 1, j);
+                            var px = new System.Collections.Generic.List<double>(4);
+                            var py = new System.Collections.Generic.List<double>(4);
+                            void Cross(double p1x, double p1y, double v1, double p2x, double p2y, double v2)
+                            {
+                                if ((v1 - c) * (v2 - c) < 0)
+                                {
+                                    double tt = (c - v1) / (v2 - v1);
+                                    px.Add(p1x + tt * (p2x - p1x)); py.Add(p1y + tt * (p2y - p1y));
+                                }
+                            }
+                            Cross(ax, ay, vA, bx, by, vB);
+                            Cross(bx, by, vB, cx, cy, vC);
+                            Cross(cx, cy, vC, dx, dy, vD);
+                            Cross(dx, dy, vD, ax, ay, vA);
+                            if (px.Count == 2)
+                                _figPrims.Add(new FigPrim { Kind = "line2d", Xs = new[] { px[0], px[1] }, Ys = new[] { py[0], py[1] }, Color = lineCol, LineWidth = 0.7 });
+                            else if (px.Count == 4)
+                            {
+                                _figPrims.Add(new FigPrim { Kind = "line2d", Xs = new[] { px[0], px[1] }, Ys = new[] { py[0], py[1] }, Color = lineCol, LineWidth = 0.7 });
+                                _figPrims.Add(new FigPrim { Kind = "line2d", Xs = new[] { px[2], px[3] }, Ys = new[] { py[2], py[3] }, Color = lineCol, LineWidth = 0.7 });
+                            }
+                        }
+                }
+            }
+            SetColorRange(zmin, zmax);
+        }
         public static void Line2D(double[] xs, double[] ys, string color, double lineWidth, string name = null, string dash = "solid")
         {
             var sb = new StringBuilder();
@@ -1123,6 +1293,15 @@ return {make:make};
             if (a >= 1e5 || a < 1e-3) return v.ToString("G3", Inv);
             string s = v.ToString(a >= 100 ? "0.#" : "0.##", Inv);
             return s;
+        }
+        /// <summary>Exponente en superíndice unicode (p.ej. -4 → "⁻⁴") para el multiplicador ×10ⁿ.</summary>
+        private static string SupExp(int e)
+        {
+            const string sup = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+            var sb = new StringBuilder();
+            if (e < 0) sb.Append('⁻');
+            foreach (char c in System.Math.Abs(e).ToString()) sb.Append(sup[c - '0']);
+            return sb.ToString();
         }
         public static string ExportSvg(int width = 800, int height = 800)
         {
@@ -1401,7 +1580,10 @@ return {make:make};
             // Rango de valores por-cara (malla FEM coloreada por colormap).
             double vmin = double.MaxValue, vmax = double.MinValue;
             foreach (var p in _figPrims)
+            {
                 if (p.Kind == "patch2d" && !double.IsNaN(p.Val)) { if (p.Val < vmin) vmin = p.Val; if (p.Val > vmax) vmax = p.Val; }
+                else if (p.Kind == "fieldfill" && !double.IsNaN(p.Vmin)) { if (p.Vmin < vmin) vmin = p.Vmin; if (p.Vmax > vmax) vmax = p.Vmax; }
+            }
             bool hasVals = vmax >= vmin;
             if (hasVals && vmax - vmin < 1e-12) vmax = vmin + 1;
             bool cmapRev = _figCmapName != null && (_figCmapName.EndsWith("_r") || _figCmapName.Contains("reverse"));
@@ -1418,17 +1600,24 @@ return {make:make};
             // mismos ticks: X paso 1 (~7-8 ticks), Y paso 0.2 (~11 ticks).
             int tgtX = Math.Max(4, (int)Math.Round(width * 0.775 / 62.0));
             int tgtY = Math.Max(4, (int)Math.Round(height * 0.815 / 34.0));
-            var (axXmin, axXmax) = NiceLimits(xmin, xmax, tgtX);
-            var (axYmin, axYmax) = NiceLimits(ymin, ymax, tgtY);
+            // Si el script fijó límites explícitos con axis([xmin xmax ymin ymax]) los usamos
+            // EXACTOS (como MATLAB), sin extender con NiceLimits.
+            var (axXmin, axXmax) = _figXMin.HasValue ? (_figXMin.Value, _figXMax.Value) : NiceLimits(xmin, xmax, tgtX);
+            var (axYmin, axYmax) = _figYMin.HasValue ? (_figYMin.Value, _figYMax.Value) : NiceLimits(ymin, ymax, tgtY);
             var ticksX = NiceTicks(axXmin, axXmax, tgtX);
             var ticksY = NiceTicks(axYmin, axYmax, tgtY);
             double ddx = axXmax - axXmin, ddy = axYmax - axYmin;
             if (ddx < 1e-12) ddx = 1; if (ddy < 1e-12) ddy = 1;
             // Margenes = posicion del axes por defecto de MATLAB [0.13 0.11 0.775 0.815]
             // (para paridad pixel a pixel): left=0.13, bottom=0.11, right=0.095, top=0.075.
+            // contourf/fieldfill: MATLAB deja el axes MÁS ANCHO y la colorbar más fina/a la
+            // derecha (medido: axes L=0.116, R=0.879) que en las mallas FEM patch (mR=0.205).
+            // contourf/fieldfill: en MATLAB, un `axis([...])` DESPUÉS de `axis equal` cancela la
+            // igualdad de escala → el axes ESTIRA-RELLENA su rectángulo Position (medido en el PNG
+            // de MATLAB: x∈[0.116,0.879], y∈[0.250 arriba, 0.286 abajo]). Fijamos esa caja exacta.
             int mL = (int)Math.Round(0.130 * width);
             int mB = (int)Math.Round(0.110 * height);
-            int mR = (int)Math.Round(hasVals ? 0.205 * width : 0.095 * width);  // MATLAB encoge el axes al añadir colorbar
+            int mR = (int)Math.Round(hasVals ? 0.205 * width : 0.095 * width);
             int mT = (int)Math.Round(0.075 * height);
             double sx = (width - mL - mR) / ddx, sy = (height - mT - mB) / ddy;
             double offX = 0, offY = 0;
@@ -1443,6 +1632,16 @@ return {make:make};
             float TY(double y) => (float)(height - mB - offY - (y - axYmin) * sy);
             float plotL = (float)(mL + offX), plotR = (float)(width - mR - offX);
             float plotT = (float)(mT + offY), plotB = (float)(height - mB - offY);
+            // Con axis-equal la caja puede quedar mucho mas angosta/baja que la figura
+            // (p.ej. un vastago 1:16) -> el # de ticks debe ir por el ancho de la CAJA, no de
+            // la figura, si no se amontonan los numeros (como MATLAB, que pone pocos).
+            if (_figAxisEqual)
+            {
+                int tX2 = Math.Max(2, (int)Math.Round((plotR - plotL) / (62.0 * width / 560.0)));
+                int tY2 = Math.Max(2, (int)Math.Round((plotB - plotT) / (34.0 * height / 420.0)));
+                ticksX = NiceTicks(axXmin, axXmax, tX2);
+                ticksY = NiceTicks(axYmin, axYmax, tY2);
+            }
 
             var bmp = new SKBitmap(width, height);
             using (var canvas = new SKCanvas(bmp))
@@ -1481,9 +1680,11 @@ return {make:make};
                 // ── BOX (marco) ──
                 canvas.DrawRect(plotL, plotT, plotR - plotL, plotB - plotT, axis);
                 // ── xlabel / ylabel / titulo ──
+                // xlabel/ylabel/titulo se anclan a la CAJA (plotB/plotT), no al borde de la
+                // figura -> con axis-equal (caja centrada y encogida) siguen a la caja como MATLAB.
                 using var lblFont = new SKFont(tface, 11);
                 if (!string.IsNullOrEmpty(_figXLabel))
-                    canvas.DrawText(_figXLabel, (plotL + plotR) / 2f, height - 10, SKTextAlign.Center, lblFont, txt);
+                    canvas.DrawText(_figXLabel, (plotL + plotR) / 2f, Math.Min(height - 6, plotB + 34), SKTextAlign.Center, lblFont, txt);
                 if (!string.IsNullOrEmpty(_figYLabel))
                 {
                     canvas.Save(); canvas.RotateDegrees(-90, 13, (plotT + plotB) / 2f);
@@ -1492,12 +1693,89 @@ return {make:make};
                 }
                 if (!string.IsNullOrEmpty(_figTitle))
                     using (var tfont = new SKFont(tface, 11) { Embolden = true })
-                        canvas.DrawText(_figTitle, (plotL + plotR) / 2f, mT - 10, SKTextAlign.Center, tfont, txt);
+                        canvas.DrawText(_figTitle, (plotL + plotR) / 2f, Math.Max(14, plotT - 12), SKTextAlign.Center, tfont, txt);
                 // ── Curvas / primitivas: CLIPeadas al area de plot ──
+                // Las anotaciones de texto (text2d) NO se clipean (MATLAB las dibuja fuera del box) → diferidas.
+                var pendingText = new System.Collections.Generic.List<FigPrim>();
                 canvas.Save();
                 canvas.ClipRect(new SKRect(plotL, plotT, plotR, plotB));
                 foreach (var p in _figPrims)
                 {
+                    if (p.Kind == "fieldfill" && p.Zs != null && p.Curvi && p.GX != null)
+                    {
+                        // Malla CURVILINEA (deformada): rasterizacion por TRIANGULOS.
+                        // Cada celda -> 2 triangulos; se rellena cada pixel con Z interpolado
+                        // (baricentrico) -> banda -> color. Sin costuras, sigue la forma deformada.
+                        int gnx = p.GridNx, gny = p.GridNy;
+                        double bLo = p.LevLo, stp = p.LevStep;
+                        double[] GXa = p.GX, GYa = p.GY, zg = p.Zs;
+                        void FillTri(double sx0,double sy0,double z0, double sx1,double sy1,double z1, double sx2,double sy2,double z2)
+                        {
+                            int minx = Math.Max((int)Math.Floor(plotL), (int)Math.Floor(Math.Min(sx0,Math.Min(sx1,sx2))));
+                            int maxx = Math.Min((int)Math.Ceiling(plotR), (int)Math.Ceiling(Math.Max(sx0,Math.Max(sx1,sx2))));
+                            int miny = Math.Max((int)Math.Floor(plotT), (int)Math.Floor(Math.Min(sy0,Math.Min(sy1,sy2))));
+                            int maxy = Math.Min((int)Math.Ceiling(plotB), (int)Math.Ceiling(Math.Max(sy0,Math.Max(sy1,sy2))));
+                            double den = (sy1-sy2)*(sx0-sx2) + (sx2-sx1)*(sy0-sy2);
+                            if (Math.Abs(den) < 1e-9) return;
+                            for (int py = miny; py <= maxy; py++)
+                                for (int px = minx; px <= maxx; px++)
+                                {
+                                    double fx = px + 0.5, fy = py + 0.5;
+                                    double w0 = ((sy1-sy2)*(fx-sx2) + (sx2-sx1)*(fy-sy2)) / den;
+                                    double w1 = ((sy2-sy0)*(fx-sx2) + (sx0-sx2)*(fy-sy2)) / den;
+                                    double w2 = 1 - w0 - w1;
+                                    if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+                                    double vv = w0*z0 + w1*z1 + w2*z2;
+                                    if (double.IsNaN(vv)) continue;
+                                    int band = (int)Math.Floor((vv - bLo) / stp);
+                                    bmp.SetPixel(px, py, ValColor(bLo + (band + 0.5) * stp));
+                                }
+                        }
+                        for (int i = 0; i < gny - 1; i++)
+                            for (int j = 0; j < gnx - 1; j++)
+                            {
+                                int a = i*gnx+j, b = i*gnx+j+1, c = (i+1)*gnx+j+1, d = (i+1)*gnx+j;
+                                if (double.IsNaN(zg[a])||double.IsNaN(zg[b])||double.IsNaN(zg[c])||double.IsNaN(zg[d])) continue;
+                                float Ax=TX(GXa[a]),Ay=TY(GYa[a]), Bx=TX(GXa[b]),By=TY(GYa[b]);
+                                float Cx=TX(GXa[c]),Cy=TY(GYa[c]), Dx=TX(GXa[d]),Dy=TY(GYa[d]);
+                                FillTri(Ax,Ay,zg[a], Bx,By,zg[b], Cx,Cy,zg[c]);
+                                FillTri(Ax,Ay,zg[a], Cx,Cy,zg[c], Dx,Dy,zg[d]);
+                            }
+                        continue;
+                    }
+                    if (p.Kind == "fieldfill" && p.Zs != null)
+                    {
+                        // Relleno POR PÍXEL (contourf liso, sin costuras): muestreo bilineal
+                        // del campo + cuantización a banda → color del colormap. Como imagesc.
+                        int gnx = p.GridNx, gny = p.GridNy;
+                        double zmn = p.Vmin, zmx = p.Vmax;         // caxis (rango de datos) → color
+                        double bLo = p.LevLo, stp = p.LevStep;     // rejilla de niveles redondos → banda
+                        double[] xg = p.Xs, yg = p.Ys, zg = p.Zs;
+                        int x0 = Math.Max(0, (int)Math.Floor(plotL)), x1 = Math.Min(width - 1, (int)Math.Ceiling(plotR));
+                        int y0 = Math.Max(0, (int)Math.Floor(plotT)), y1 = Math.Min(height - 1, (int)Math.Ceiling(plotB));
+                        for (int py = y0; py <= y1; py++)
+                        {
+                            double y = axYmin + (height - mB - offY - (py + 0.5)) / sy;
+                            if (y < yg[0] || y > yg[gny - 1]) continue;
+                            int iy = 0; while (iy < gny - 2 && yg[iy + 1] < y) iy++;
+                            double ty = (yg[iy + 1] == yg[iy]) ? 0 : (y - yg[iy]) / (yg[iy + 1] - yg[iy]);
+                            for (int px = x0; px <= x1; px++)
+                            {
+                                double x = axXmin + ((px + 0.5) - mL - offX) / sx;
+                                if (x < xg[0] || x > xg[gnx - 1]) continue;
+                                int ix = 0; while (ix < gnx - 2 && xg[ix + 1] < x) ix++;
+                                double tx = (xg[ix + 1] == xg[ix]) ? 0 : (x - xg[ix]) / (xg[ix + 1] - xg[ix]);
+                                double z00 = zg[iy * gnx + ix], z01 = zg[iy * gnx + ix + 1];
+                                double z10 = zg[(iy + 1) * gnx + ix], z11 = zg[(iy + 1) * gnx + ix + 1];
+                                if (double.IsNaN(z00) || double.IsNaN(z01) || double.IsNaN(z10) || double.IsNaN(z11)) continue;
+                                double vv = (z00 * (1 - tx) + z01 * tx) * (1 - ty) + (z10 * (1 - tx) + z11 * tx) * ty;
+                                int band = (int)Math.Floor((vv - bLo) / stp);   // banda en rejilla redonda
+                                double vq = bLo + (band + 0.5) * stp;           // valor medio de la banda
+                                bmp.SetPixel(px, py, ValColor(vq));             // color por caxis de datos
+                            }
+                        }
+                        continue;
+                    }
                     if ((p.Kind == "patch2d" || p.Kind == "line2d") && p.Xs != null && p.Xs.Length >= 2)
                     {
                         var path = new SKPath();
@@ -1566,18 +1844,27 @@ return {make:make};
                     }
                     else if (p.Kind == "text2d" && p.Xs != null && p.Xs.Length > 0)
                     {
-                        txt.Color = ParseColor(p.Color);
-                        var al = p.Align == "center" ? SKTextAlign.Center : (p.Align == "right" ? SKTextAlign.Right : SKTextAlign.Left);
-                        canvas.DrawText(p.Text ?? "", TX(p.Xs[0]), TY(p.Ys[0]), al, font, txt);
+                        pendingText.Add(p);   // diferido: se dibuja sin clip (como MATLAB)
                     }
                 }
                 canvas.Restore();   // fin del clip del area de plot (curvas dentro del box)
+                // Re-dibujar el marco encima (fieldfill por-píxel lo pudo cubrir), como MATLAB.
+                canvas.DrawRect(plotL, plotT, plotR - plotL, plotB - plotT, axis);
+                // Anotaciones de texto SIN clip (MATLAB dibuja text() fuera del box si se sale).
+                foreach (var p in pendingText)
+                {
+                    txt.Color = ParseColor(p.Color);
+                    var al = p.Align == "center" ? SKTextAlign.Center : (p.Align == "right" ? SKTextAlign.Right : SKTextAlign.Left);
+                    canvas.DrawText(p.Text ?? "", TX(p.Xs[0]), TY(p.Ys[0]), al, font, txt);
+                }
 
                 // ── COLORBAR (malla FEM coloreada por valor), como MATLAB ──
                 if (hasVals)
                 {
                     // posicion/ancho del colorbar = los de MATLAB (medidos: x≈0.818·W, ancho≈0.046·W).
-                    float cbW = (float)(0.046 * width), cbX = (float)(0.818 * width), cbH = plotB - plotT;
+                    // colorbar: contourf → fina y a la derecha del axes ancho (MATLAB); mallas → como estaba.
+                    float cbW = (float)(0.046 * width);
+                    float cbX = (float)(0.818 * width), cbH = plotB - plotT;
                     for (int i = 0; i < (int)cbH; i++)
                     {
                         double t = 1.0 - i / cbH;                 // arriba = vmax
@@ -1585,14 +1872,27 @@ return {make:make};
                         canvas.DrawRect(cbX, plotT + i, cbW, 1.2f, cbp);
                     }
                     canvas.DrawRect(cbX, plotT, cbW, cbH, axis);
-                    // densidad de ticks del colorbar ∝ altura (~1 cada 28px, como MATLAB).
-                    int cbTgt = Math.Max(4, (int)(cbH / 28));
-                    foreach (var tv in NiceTicks(vmin, vmax, cbTgt))
+                    // densidad de ticks del colorbar ∝ altura (~1 cada 55px, como MATLAB: ~5-6 ticks).
+                    int cbTgt = Math.Max(4, (int)(cbH / 55));
+                    var cbTicks = NiceTicks(vmin, vmax, cbTgt);
+                    // Factor común ×10ⁿ como MATLAB cuando los valores son muy chicos/grandes.
+                    double cbMax = 0; foreach (var tv in cbTicks) if (Math.Abs(tv) > cbMax) cbMax = Math.Abs(tv);
+                    int cbExp = 0; double cbFac = 1;
+                    if (cbMax > 0) { int e = (int)Math.Floor(Math.Log10(cbMax)); if (e <= -3 || e >= 5) { cbExp = e; cbFac = Math.Pow(10, e); } }
+                    foreach (var tv in cbTicks)
                     {
                         if (tv < vmin - 1e-9 || tv > vmax + 1e-9) continue;
                         float ty = plotB - (float)((tv - vmin) / (vmax - vmin) * cbH);
                         canvas.DrawLine(cbX + cbW, ty, cbX + cbW + 3, ty, axis);
-                        canvas.DrawText(FmtTick(tv), cbX + cbW + 5, ty + 3, SKTextAlign.Left, font, txt);
+                        canvas.DrawText(FmtTick(tv / cbFac), cbX + cbW + 5, ty + 3, SKTextAlign.Left, font, txt);
+                    }
+                    if (cbExp != 0)   // etiqueta del multiplicador ×10ⁿ arriba de la barra (como MATLAB)
+                    {
+                        float ex = cbX - 3, ey = plotT - 5;
+                        canvas.DrawText("×10", ex, ey, SKTextAlign.Left, font, txt);
+                        float w10 = font.MeasureText("×10");
+                        using var sfont = new SKFont(tface, 8);
+                        canvas.DrawText(cbExp.ToString(), ex + w10 + 1, ey - 5, SKTextAlign.Left, sfont, txt);
                     }
                 }
 

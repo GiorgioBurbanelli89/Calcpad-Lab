@@ -146,6 +146,9 @@ namespace Calcpad.Core.Matlab
                 case 'f': case 'F':
                     double fv = val is double d1 ? d1 : Convert.ToDouble(val);
                     int prec = precision < 0 ? 6 : precision;
+                    // MATLAB (MSVC printf en Windows) redondea medio hacia afuera, no a par (.NET).
+                    if (prec >= 0 && prec <= 15 && !double.IsNaN(fv) && !double.IsInfinity(fv))
+                        fv = Math.Round(fv, prec, MidpointRounding.AwayFromZero);
                     s = fv.ToString("F" + prec, inv);
                     if (plus && fv >= 0) s = "+" + s;
                     else if (space && fv >= 0) s = " " + s;
