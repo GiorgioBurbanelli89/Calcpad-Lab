@@ -510,6 +510,14 @@ namespace Calcpad.Core.Matlab
             return true;
         }
 
+        /// <summary>Nombres que el evaluador resuelve como CONSTANTES (no viven en el scope).
+        /// El JIT debe rendirse al verlos: si los trata como variables live-in, su slot
+        /// se inicializa en 0 y el resultado sale mal en silencio.</summary>
+        private static readonly HashSet<string> BuiltinConsts = new(StringComparer.Ordinal)
+        {
+            "pi", "e", "eps", "Inf", "inf", "NaN", "nan", "realmax", "realmin", "intmax", "intmin"
+        };
+
         private static TKind? InferKind(MatlabNode node, CompileCtx cc)
         {
             switch (node)
@@ -517,6 +525,13 @@ namespace Calcpad.Core.Matlab
                 case NumberLit _: return TKind.Scalar;
                 case IdentRef ir:
                     if (cc.VarKind.TryGetValue(ir.Name, out var k)) return k;
+                    // CONSTANTES BUILTIN (pi, e, eps, Inf, NaN...): NO son variables del
+                    // workspace, las resuelve el evaluador. Si se dejan pasar como "live-in",
+                    // al sembrar los slots `scope.TryGet` falla y el slot queda en 0 -> el JIT
+                    // calcula con pi=0 SIN AVISAR. Eso anulaba el angulo de friccion en un FEM
+                    // (phi*pi/180 = 0) y el talud se desmoronaba. Bail-out: que lo corra el
+                    // interprete, mas lento pero correcto.
+                    if (BuiltinConsts.Contains(ir.Name)) return null;
                     // Variable no asignada antes — asumimos scalar (live-in)
                     cc.VarKind[ir.Name] = TKind.Scalar;
                     return TKind.Scalar;
