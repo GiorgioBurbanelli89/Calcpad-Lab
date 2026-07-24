@@ -562,10 +562,11 @@ return {make:make};
                 return "";
             }
             // Captura PNG (modo export sin navegador) ANTES de consumir la figura.
+            // 560×420 = tamaño de figura por defecto de MATLAB (para paridad pixel a pixel).
             if (PngExportMode)
             {
                 if (_retActive) BuildRetainedFaces();
-                try { var _png = RasterizeFigurePng(960, 700); if (_png != null && _png.Length > 0) ExportedPngs.Add(_png); }
+                try { var _png = RasterizeFigurePng(560, 420); if (_png != null && _png.Length > 0) ExportedPngs.Add(_png); }
                 catch { /* figura no rasterizable (p.ej. 3D webgl) → se omite */ }
             }
             // Malla 2D CON valor por-cara (patch FaceVertexCData) → CANVAS interactivo con hover.
@@ -1373,6 +1374,18 @@ return {make:make};
 
         /// <summary>Rasteriza la figura 2D actual (primitives line/patch/marker/text)
         /// a RGB row-major (byte[h*w*3]) vía SkiaSharp. Para getframe → GIF.</summary>
+        /// <summary>Límites del eje extendidos al tick "bonito" que abarca los datos
+        /// (look MATLAB: sin(x) en [0,6.28] hace que el eje llegue a 7).</summary>
+        private static (double lo, double hi) NiceLimits(double min, double max, int target)
+        {
+            double range = max - min; if (range < 1e-12) range = Math.Max(1, Math.Abs(max));
+            double raw = range / Math.Max(1, target);
+            double mag = Math.Pow(10, Math.Floor(Math.Log10(raw)));
+            double norm = raw / mag;
+            double step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+            return (Math.Floor(min / step) * step, Math.Ceiling(max / step) * step);
+        }
+
         private static SKBitmap BuildFigureBitmap(int width, int height)
         {
             if (_figPrims == null || _figPrims.Count == 0) return null;
@@ -1385,13 +1398,38 @@ return {make:make};
             }
             if (xmax - xmin < 1e-9) xmax = xmin + 1;
             if (ymax - ymin < 1e-9) ymax = ymin + 1;
-            double padf = 0.06, ddx = xmax - xmin, ddy = ymax - ymin;
-            xmin -= ddx * padf; xmax += ddx * padf; ymin -= ddy * padf; ymax += ddy * padf;
-            ddx = xmax - xmin; ddy = ymax - ymin;
-            int mL = 50, mR = 20, mT = 40, mB = 30;
+            // Limites y ticks "bonitos" (estilo MATLAB: el eje abarca hasta el tick).
+            // target de ticks proporcional al tamaño del eje (~1 cada 70px en X, 48px en Y),
+            // como MATLAB (más ticks en ejes grandes).
+            // target calibrado para que en el tamaño MATLAB por defecto (560×420) den los
+            // mismos ticks: X paso 1 (~7-8 ticks), Y paso 0.2 (~11 ticks).
+            int tgtX = Math.Max(4, (int)Math.Round(width * 0.775 / 62.0));
+            int tgtY = Math.Max(4, (int)Math.Round(height * 0.815 / 34.0));
+            var (axXmin, axXmax) = NiceLimits(xmin, xmax, tgtX);
+            var (axYmin, axYmax) = NiceLimits(ymin, ymax, tgtY);
+            var ticksX = NiceTicks(axXmin, axXmax, tgtX);
+            var ticksY = NiceTicks(axYmin, axYmax, tgtY);
+            double ddx = axXmax - axXmin, ddy = axYmax - axYmin;
+            if (ddx < 1e-12) ddx = 1; if (ddy < 1e-12) ddy = 1;
+            // Margenes = posicion del axes por defecto de MATLAB [0.13 0.11 0.775 0.815]
+            // (para paridad pixel a pixel): left=0.13, bottom=0.11, right=0.095, top=0.075.
+            int mL = (int)Math.Round(0.130 * width);
+            int mB = (int)Math.Round(0.110 * height);
+            int mR = (int)Math.Round(0.095 * width);
+            int mT = (int)Math.Round(0.075 * height);
             double sx = (width - mL - mR) / ddx, sy = (height - mT - mB) / ddy;
-            float TX(double x) => (float)(mL + (x - xmin) * sx);
-            float TY(double y) => (float)(height - mB - (y - ymin) * sy);
+            double offX = 0, offY = 0;
+            if (_figAxisEqual)   // misma escala en ambos ejes (geometria, mallas) -> centrar
+            {
+                double s = Math.Min(sx, sy);
+                offX = ((width - mL - mR) - s * ddx) / 2;
+                offY = ((height - mT - mB) - s * ddy) / 2;
+                sx = s; sy = s;
+            }
+            float TX(double x) => (float)(mL + offX + (x - axXmin) * sx);
+            float TY(double y) => (float)(height - mB - offY - (y - axYmin) * sy);
+            float plotL = (float)(mL + offX), plotR = (float)(width - mR - offX);
+            float plotT = (float)(mT + offY), plotB = (float)(height - mB - offY);
 
             var bmp = new SKBitmap(width, height);
             using (var canvas = new SKCanvas(bmp))
@@ -1399,10 +1437,52 @@ return {make:make};
                 canvas.Clear(SKColors.White);
                 using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
                 using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
-                using var font = new SKFont(SKTypeface.Default, 13);
+                // MATLAB usa Helvetica; Arial es el equivalente mas cercano (vs Segoe UI default).
+                var tface = SKTypeface.FromFamilyName("Arial") ?? SKTypeface.Default;
+                using var font = new SKFont(tface, 10);
                 using var txt = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black };
+                var axisCol = new SKColor(0x26, 0x26, 0x26);
+                // ── GRID (gris claro punteado, como MATLAB con grid on) ──
+                if (_figGrid)
+                {
+                    using var grid = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke,
+                        Color = new SKColor(0x1a, 0x1a, 0x1a, 38), StrokeWidth = 1,
+                        PathEffect = SKPathEffect.CreateDash(new float[] { 2, 2 }, 0) };
+                    foreach (var t in ticksX) { if (t < axXmin - 1e-9 || t > axXmax + 1e-9) continue; float px = TX(t); canvas.DrawLine(px, plotT, px, plotB, grid); }
+                    foreach (var t in ticksY) { if (t < axYmin - 1e-9 || t > axYmax + 1e-9) continue; float py = TY(t); canvas.DrawLine(plotL, py, plotR, py, grid); }
+                }
+                // ── Ticks + numeros ──
+                using var axis = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, Color = axisCol, StrokeWidth = 1 };
+                foreach (var t in ticksX)
+                {
+                    if (t < axXmin - 1e-9 || t > axXmax + 1e-9) continue; float px = TX(t);
+                    canvas.DrawLine(px, plotB, px, plotB - 5, axis);
+                    canvas.DrawText(FmtTick(t), px, plotB + 16, SKTextAlign.Center, font, txt);
+                }
+                foreach (var t in ticksY)
+                {
+                    if (t < axYmin - 1e-9 || t > axYmax + 1e-9) continue; float py = TY(t);
+                    canvas.DrawLine(plotL, py, plotL + 5, py, axis);
+                    canvas.DrawText(FmtTick(t), plotL - 7, py + 4, SKTextAlign.Right, font, txt);
+                }
+                // ── BOX (marco) ──
+                canvas.DrawRect(plotL, plotT, plotR - plotL, plotB - plotT, axis);
+                // ── xlabel / ylabel / titulo ──
+                using var lblFont = new SKFont(tface, 11);
+                if (!string.IsNullOrEmpty(_figXLabel))
+                    canvas.DrawText(_figXLabel, (plotL + plotR) / 2f, height - 10, SKTextAlign.Center, lblFont, txt);
+                if (!string.IsNullOrEmpty(_figYLabel))
+                {
+                    canvas.Save(); canvas.RotateDegrees(-90, 13, (plotT + plotB) / 2f);
+                    canvas.DrawText(_figYLabel, 13, (plotT + plotB) / 2f, SKTextAlign.Center, lblFont, txt);
+                    canvas.Restore();
+                }
                 if (!string.IsNullOrEmpty(_figTitle))
-                    canvas.DrawText(_figTitle, width / 2f, 22, SKTextAlign.Center, new SKFont(SKTypeface.Default, 14), txt);
+                    using (var tfont = new SKFont(tface, 11) { Embolden = true })
+                        canvas.DrawText(_figTitle, (plotL + plotR) / 2f, mT - 10, SKTextAlign.Center, tfont, txt);
+                // ── Curvas / primitivas: CLIPeadas al area de plot ──
+                canvas.Save();
+                canvas.ClipRect(new SKRect(plotL, plotT, plotR, plotB));
                 foreach (var p in _figPrims)
                 {
                     if ((p.Kind == "patch2d" || p.Kind == "line2d") && p.Xs != null && p.Xs.Length >= 2)
@@ -1462,6 +1542,7 @@ return {make:make};
                         canvas.DrawText(p.Text ?? "", TX(p.Xs[0]), TY(p.Ys[0]), al, font, txt);
                     }
                 }
+                canvas.Restore();   // fin del clip del area de plot (curvas dentro del box)
             }
             return bmp;
         }
