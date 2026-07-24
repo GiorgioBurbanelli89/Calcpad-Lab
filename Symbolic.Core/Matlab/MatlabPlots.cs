@@ -1428,7 +1428,7 @@ return {make:make};
             // (para paridad pixel a pixel): left=0.13, bottom=0.11, right=0.095, top=0.075.
             int mL = (int)Math.Round(0.130 * width);
             int mB = (int)Math.Round(0.110 * height);
-            int mR = (int)Math.Round(hasVals ? 0.165 * width : 0.095 * width);  // colorbar necesita espacio
+            int mR = (int)Math.Round(hasVals ? 0.205 * width : 0.095 * width);  // MATLAB encoge el axes al añadir colorbar
             int mT = (int)Math.Round(0.075 * height);
             double sx = (width - mL - mR) / ddx, sy = (height - mT - mB) / ddy;
             double offX = 0, offY = 0;
@@ -1576,7 +1576,8 @@ return {make:make};
                 // ── COLORBAR (malla FEM coloreada por valor), como MATLAB ──
                 if (hasVals)
                 {
-                    float cbW = 14, cbX = plotR + 16, cbH = plotB - plotT;
+                    // posicion/ancho del colorbar = los de MATLAB (medidos: x≈0.818·W, ancho≈0.046·W).
+                    float cbW = (float)(0.046 * width), cbX = (float)(0.818 * width), cbH = plotB - plotT;
                     for (int i = 0; i < (int)cbH; i++)
                     {
                         double t = 1.0 - i / cbH;                 // arriba = vmax
@@ -1584,7 +1585,9 @@ return {make:make};
                         canvas.DrawRect(cbX, plotT + i, cbW, 1.2f, cbp);
                     }
                     canvas.DrawRect(cbX, plotT, cbW, cbH, axis);
-                    foreach (var tv in NiceTicks(vmin, vmax, 5))
+                    // densidad de ticks del colorbar ∝ altura (~1 cada 28px, como MATLAB).
+                    int cbTgt = Math.Max(4, (int)(cbH / 28));
+                    foreach (var tv in NiceTicks(vmin, vmax, cbTgt))
                     {
                         if (tv < vmin - 1e-9 || tv > vmax + 1e-9) continue;
                         float ty = plotB - (float)((tv - vmin) / (vmax - vmin) * cbH);
