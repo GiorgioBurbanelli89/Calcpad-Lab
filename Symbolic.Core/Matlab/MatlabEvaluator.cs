@@ -7557,14 +7557,15 @@ namespace Calcpad.Core.Matlab
         }
         private static MValue MakeFill(MValue[] a, double fill)
         {
-            int rows = 1, cols = 1;
+            int rows = 1, cols = 1, pages = 1;
             if (a.Length == 1)
             {
-                // Soporta zeros([m, n]) / ones(size(X)) — vector como single arg
+                // Soporta zeros([m, n]) / zeros([m n p]) / ones(size(X)) — vector como single arg
                 if (a[0].Data.Length >= 2 && !a[0].IsScalar)
                 {
                     rows = (int)a[0].Data[0];
                     cols = (int)a[0].Data[1];
+                    if (a[0].Data.Length >= 3) pages = (int)a[0].Data[2];
                 }
                 else
                 {
@@ -7576,6 +7577,20 @@ namespace Calcpad.Core.Matlab
             {
                 rows = (int)a[0].Scalar;
                 cols = (int)a[1].Scalar;
+                // zeros(m,n,p) → arreglo 3-D (páginas). Ignora args de tipo ('double', etc.).
+                if (a.Length >= 3 && !a[2].IsString) pages = (int)a[2].Scalar;
+            }
+            if (pages > 1)
+            {
+                var pgs = new MValue[pages];
+                for (int p = 0; p < pages; p++)
+                {
+                    var pg = new MValue(rows, cols);
+                    if (fill != 0)
+                        for (int i = 0; i < pg.Data.Length; i++) pg.Data[i] = fill;
+                    pgs[p] = pg;
+                }
+                return MValue.New3D(pgs);
             }
             var r = new MValue(rows, cols);
             if (fill != 0)
@@ -9111,6 +9126,47 @@ namespace Calcpad.Core.Matlab
         private MValue IndexedAssign(MValue m, List<MatlabNode> idxNodes, MValue v, MatlabScope scope)
         {
             int nDims = idxNodes.Count;
+            // 3D array: A(i,j,k) = v  → delegar a la página k (espejo de IndexInto)
+            if (nDims == 3)
+            {
+                if (!m.Is3D)
+                    throw new MatlabRuntimeException("Assign with 3 subscripts requires a 3-D array (create it with zeros(m,n,p))");
+                int nPages = m.Pages.Length;
+                var pageIdx = new List<int>();
+                _endCtx.Push((new MValue(1, nPages), 0, 1));
+                try
+                {
+                    var arg2 = idxNodes[2];
+                    if (arg2 is ColonAll) { for (int p = 0; p < nPages; p++) pageIdx.Add(p); }
+                    else if (arg2 is Range r3)
+                    {
+                        double s = Eval(r3.Start, scope).Scalar;
+                        double e = Eval(r3.End, scope).Scalar;
+                        double step = r3.Step != null ? Eval(r3.Step, scope).Scalar : 1.0;
+                        int cnt = (int)Math.Floor((e - s) / step + 1e-9) + 1;
+                        for (int k = 0; k < cnt; k++) pageIdx.Add((int)(s + k * step) - 1);
+                    }
+                    else
+                    {
+                        var iv = Eval(arg2, scope);
+                        if (iv.IsScalar) pageIdx.Add((int)iv.Scalar - 1);
+                        else foreach (var d in iv.Data) pageIdx.Add((int)d - 1);
+                    }
+                }
+                finally { _endCtx.Pop(); }
+                var newPages = (MValue[])m.Pages.Clone();
+                var sub2 = new List<MatlabNode> { idxNodes[0], idxNodes[1] };
+                for (int k = 0; k < pageIdx.Count; k++)
+                {
+                    int pi = pageIdx[k];
+                    if (pi < 0 || pi >= nPages)
+                        throw new MatlabRuntimeException($"Page index {pi + 1} out of 1..{nPages}");
+                    // Si el RHS es 3-D, repartir una página por índice; si no, el mismo valor a todas.
+                    MValue vk = (v.Is3D && v.Pages.Length > 0) ? v.Pages[Math.Min(k, v.Pages.Length - 1)] : v;
+                    newPages[pi] = IndexedAssign(newPages[pi], sub2, vk, scope);
+                }
+                return MValue.New3D(newPages);
+            }
             // Resolve target indices con soporte para `:`, range, end
             int[][] indices = new int[nDims][];
             for (int d = 0; d < nDims; d++)
