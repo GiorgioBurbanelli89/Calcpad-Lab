@@ -38,7 +38,7 @@ DEFAULT_EXE = os.path.abspath(os.path.join(
 MATLAB_SEG = {
     "t1_builtin":  0.0096,
     "t2_arrays3d": 0.0088,
-    "t3_fem_srm":  4.34,
+    "t3_fem_srm":  1.35,   # mediana R2017a, mejor de 4 (antes 4.34 con maquina cargada)
 }
 
 EXPECTED = {
