@@ -2935,15 +2935,51 @@ namespace Calcpad.Core.Matlab
             _builtins["quit"] = a => new MValue(0);
             _builtins["num2str"] = a => {
                 if (a[0].IsString) return a[0];
-                if (a[0].IsScalar) return new MValue(a[0].Scalar.ToString("G6", System.Globalization.CultureInfo.InvariantCulture));
+
+                // num2str(x, fmt) con fmt de texto → delega en sprintf ('%8.4f', etc.)
+                if (a.Length >= 2 && a[1].IsString)
+                    return new MValue(MatlabSprintf.Format(a[1].StringValue, new[] { a[0] }));
+
+                // num2str(x, n) → n cifras significativas.
+                // Sin n, MATLAB usa dgt = max(floor(log10(max|x|)) + 5, 5), tope 16:
+                // asi pi -> '3.1416' (5) y 123.456 -> '123.456' (7). "G6" fijo daba
+                // '3.14159', que no es lo que imprime MATLAB.
+                int prec;
+                if (a.Length >= 2 && !a[1].IsString)
+                {
+                    prec = (int)a[1].Scalar;
+                    if (prec < 1) prec = 1;
+                    if (prec > 17) prec = 17;
+                }
+                else
+                {
+                    double mx = 0;
+                    foreach (var d in a[0].Data)
+                        if (!double.IsNaN(d) && !double.IsInfinity(d) && Math.Abs(d) > mx) mx = Math.Abs(d);
+                    int dgt = mx > 0 ? (int)Math.Floor(Math.Log10(mx)) : 0;
+                    prec = Math.Min(Math.Max(dgt + 5, 5), 16);
+                }
+
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                string fmtOne(double d)
+                {
+                    if (double.IsNaN(d)) return "NaN";
+                    if (double.IsPositiveInfinity(d)) return "Inf";
+                    if (double.IsNegativeInfinity(d)) return "-Inf";
+                    // enteros exactos: MATLAB los imprime sin notacion cientifica
+                    if (d == Math.Floor(d) && Math.Abs(d) < 1e15) return ((long)d).ToString(ci);
+                    return d.ToString("G" + prec, ci).Replace("E+", "e+").Replace("E-", "e-");
+                }
+
+                if (a[0].IsScalar) return new MValue(fmtOne(a[0].Scalar));
                 var sb = new StringBuilder();
                 for (int i = 0; i < a[0].Rows; i++)
                 {
                     if (i > 0) sb.Append("\n");
                     for (int j = 0; j < a[0].Cols; j++)
                     {
-                        if (j > 0) sb.Append(" ");
-                        sb.Append(a[0].At(i, j).ToString("G6", System.Globalization.CultureInfo.InvariantCulture));
+                        if (j > 0) sb.Append("  ");
+                        sb.Append(fmtOne(a[0].At(i, j)));
                     }
                 }
                 return new MValue(sb.ToString());

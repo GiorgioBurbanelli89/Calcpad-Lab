@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Suite de regresion NUMERICA de Hekatan Lab.
+
+Por que existe: el 21-jul-2026 un commit de *optimizacion* del JIT (a4685db) hizo
+que `pi` valiera 0 dentro de cualquier bucle compilado. En un FEM eso anulaba el
+angulo de friccion y el talud se desmoronaba... SIN error, SIN warning, SIN NaN.
+El commit decia "sin regresion" y era cierto para los ejemplos que probo: ninguno
+ejercitaba una constante builtin dentro de un bucle JIT-eado.
+
+La leccion: los tests de humo graficos no detectan corrupcion numerica silenciosa.
+Esta suite compara NUMEROS contra referencias verificadas en MATLAB 2017a
+(y, para el campo elastico, contra Abaqus 2017 a 1 nm).
+
+Uso:
+    python run_tests.py                      # usa el CLI del repo (build Release)
+    python run_tests.py --exe <ruta.exe>     # o uno concreto (p.ej. el instalado)
+
+Sale con codigo != 0 si algo se desvia -> sirve como pre-commit / pre-instalador.
+"""
+import argparse
+import html
+import os
+import re
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_EXE = os.path.abspath(os.path.join(
+    HERE, "..", "..", "Symbolic.Cli", "bin", "Release", "net10.0", "CalcpadLabCli.exe"))
+
+# nombre -> (valor esperado, tolerancia absoluta)
+# Referencias verificadas en MATLAB 2017a. area/peso/uel_max ademas contra Abaqus.
+EXPECTED = {
+    "t1_builtin": {
+        "pi":        (3.14159265359, 1e-9),
+        "rad":       (0.396189740203, 1e-9),
+        "dp_alpha":  (0.131606107572, 1e-9),   # Drucker-Prager de GEO5, SOIL_1
+        "dp_k":      (8.49459223377, 1e-8),
+        "eps":       (2.220446049250313e-16, 1e-25),
+        "inv_inf":   (0.0, 0.0),
+    },
+    "t2_arrays3d": {
+        "size3d":              ("4 120 3", None),   # comparacion textual
+        "diff3d_vs_flat":      (0.0, 1e-12),
+        "diff3d_en_funcion":   (0.0, 1e-12),
+        "shape_slice":         ("4 1", None),       # MATLAB devuelve columna
+        "suma3d":              (34905.6, 1e-3),
+    },
+    "t3_fem_srm": {
+        "area":             (642.31250787, 1e-5),
+        "peso":             (12624.3134714, 1e-4),
+        "uel_max":          (22.6900651355, 1e-6),
+        "residuo_inicial":  (0.0, 1e-10),   # Fint(sig0) debe reproducir F0
+        "srf100_it":        (13, 0),
+        "srf100_conv":      (1, 0),
+        "srf100_umax":      (0.316322667544, 1e-6),
+        "srf140_it":        (66, 2),        # +-2 iteraciones de margen
+        "srf140_conv":      (1, 0),
+        "srf140_umax":      (2.37265158347, 1e-5),
+    },
+}
+
+
+def run_case(exe, folder):
+    """Ejecuta run.m con el CLI y devuelve {nombre: texto} de las lineas CHECK."""
+    d = os.path.join(HERE, folder)
+    rpt = os.path.join(d, "run.html")
+    # No se puede confiar en borrar el reporte: si quedo abierto en un visor, Windows
+    # lo bloquea. Se guarda su mtime y luego se exige que haya cambiado, asi nunca se
+    # lee por error el resultado de una corrida anterior (que daria un OK falso).
+    prev = os.path.getmtime(rpt) if os.path.exists(rpt) else None
+    try:
+        if prev is not None:
+            os.remove(rpt)
+            prev = None
+    except OSError:
+        pass
+    t0 = time.time()
+    try:
+        subprocess.run([exe, "run.m"], cwd=d, timeout=900,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return None, time.time() - t0, "TIMEOUT"
+    if not os.path.exists(rpt):
+        return None, time.time() - t0, "sin reporte HTML"
+    if prev is not None and os.path.getmtime(rpt) <= prev:
+        return None, time.time() - t0, "el reporte no se regenero (%s bloqueado?)" % rpt
+    raw = open(rpt, encoding="utf-8", errors="ignore").read()
+    i = raw.rfind("</script>")          # el HTML lleva MBs de librerias JS embebidas
+    body = raw[i:] if i > 0 else raw
+    text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", body)))
+    # OJO: Lab renderiza los comentarios % del .m como prosa dentro del reporte, o sea
+    # que entre un CHECK y el siguiente hay texto suelto. Por eso el valor se toma
+    # consumiendo SOLO tokens numericos y parando en la primera palabra que no lo sea.
+    got = {}
+    num = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
+    for m in re.finditer(r"CHECK\s+([A-Za-z0-9_]+)((?:\s+%s)+)" % num, text):
+        got[m.group(1)] = " ".join(m.group(2).split())
+    err = None
+    if re.search(r"\bError\b|Undefined:|Internal error", text):
+        err = "el script reporto un error"
+    return got, time.time() - t0, err
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--exe", default=DEFAULT_EXE)
+    args = ap.parse_args()
+    if not os.path.exists(args.exe):
+        print("no encuentro el CLI: %s" % args.exe)
+        print("compila con: dotnet build Symbolic.Cli/Symbolic.Cli.csproj -c Release")
+        return 2
+
+    print("Suite numerica de Hekatan Lab")
+    print("CLI: %s\n" % args.exe)
+    fails = []
+    for folder, expected in EXPECTED.items():
+        got, dt, err = run_case(args.exe, folder)
+        if got is None or err:
+            print("  [FALLA] %-14s  %s" % (folder, err or "sin salida"))
+            fails.append((folder, err or "sin salida"))
+            continue
+        bad = []
+        for name, (ref, tol) in expected.items():
+            if name not in got:
+                bad.append("%s: no aparecio en la salida" % name)
+                continue
+            raw = got[name]
+            if tol is None:                       # comparacion textual
+                if " ".join(raw.split()) != ref:
+                    bad.append("%s: '%s' != '%s'" % (name, raw, ref))
+                continue
+            try:
+                val = float(raw.split()[0])
+            except ValueError:
+                bad.append("%s: no es numero ('%s')" % (name, raw))
+                continue
+            if abs(val - ref) > tol:
+                bad.append("%s: %.12g  esperado %.12g  (dif %.3g > tol %.3g)"
+                           % (name, val, ref, abs(val - ref), tol))
+        if bad:
+            print("  [FALLA] %-14s  %.1fs" % (folder, dt))
+            for b in bad:
+                print("           - %s" % b)
+            fails.extend((folder, b) for b in bad)
+        else:
+            print("  [  OK  ] %-14s  %d valores  %.1fs" % (folder, len(expected), dt))
+
+    print("")
+    if fails:
+        print("FALLARON %d comprobacion(es). El motor cambio de comportamiento numerico." % len(fails))
+        print("Revisa el ultimo cambio en Symbolic.Core/Matlab/ (JIT, evaluador, indexado).")
+        return 1
+    print("TODO OK — el motor reproduce las referencias de MATLAB 2017a / Abaqus.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
