@@ -1684,11 +1684,18 @@ namespace Calcpad.Core.Matlab
             _builtins["mesh"] = _builtins["surf"];  // wireframe = surf MVP
             _builtins["contourf"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("contourf(X, Y, Z[, n])");
-                int n = a.Length >= 4 ? (int)a[3].Scalar : 10;
-                _htmlOut?.Invoke(MatlabPlots.Contourf(a[0], a[1], a[2], n, _activeColormap));
+                int n = (a.Length >= 4 && !a[3].IsString) ? (int)a[3].Scalar : 10;
+                // Solo primitivas de canvas → FinishFigure lo renderiza como PNG (alineado a MATLAB).
+                // No emitir el Plotly (daba una 2a gráfica parula sin deformar en el WPF).
+                MatlabPlots.Contourf2D(a[0], a[1], a[2], n, _activeColormap, true, false);
                 return new MValue(0);
             };
-            _builtins["contour"] = _builtins["contourf"];
+            _builtins["contour"] = a => {
+                if (a.Length < 3) throw new MatlabRuntimeException("contour(X, Y, Z[, n])");
+                int n = (a.Length >= 4 && !a[3].IsString) ? (int)a[3].Scalar : 10;
+                MatlabPlots.Contourf2D(a[0], a[1], a[2], n, _activeColormap, false, true);
+                return new MValue(0);
+            };
             _builtins["imagesc"] = a => {
                 _htmlOut?.Invoke(MatlabPlots.Imagesc(a[0], _activeColormap));
                 return new MValue(0);
@@ -3372,6 +3379,42 @@ namespace Calcpad.Core.Matlab
                 if (xq.IsScalar) return new MValue(Lerp(xq.Scalar));
                 var r = new MValue(xq.Rows, xq.Cols);
                 for (int i = 0; i < xq.Data.Length; i++) r.Data[i] = Lerp(xq.Data[i]);
+                return r;
+            };
+            _builtins["interp2"] = a => {
+                // interp2(X, Y, Z, Xq, Yq[, method]) — malla regular, bilineal/nearest.
+                // Convención MATLAB: [X,Y]=meshgrid(xv,yv); Z es [ny x nx]; Z(i,j) en (xv(j),yv(i)).
+                if (a.Length < 5) throw new MatlabRuntimeException("interp2(X, Y, Z, Xq, Yq[, method])");
+                var X = a[0]; var Y = a[1]; var Z = a[2]; var Xq = a[3]; var Yq = a[4];
+                string method = a.Length >= 6 && a[5].IsString ? a[5].StringValue.ToLowerInvariant() : "linear";
+                bool nearest = method.StartsWith("nearest");
+                int nx = Z.Cols, ny = Z.Rows;
+                var xv = new double[nx];
+                var yv = new double[ny];
+                for (int j = 0; j < nx; j++) xv[j] = (j < X.Data.Length) ? X.Data[j] : j;   // fila 0 / vector
+                bool yIsVec = (Y.Rows == 1 || Y.Cols == 1);
+                for (int i = 0; i < ny; i++) yv[i] = yIsVec ? (i < Y.Data.Length ? Y.Data[i] : i) : Y.Data[i * Y.Cols];
+                double Interp(double xq, double yq)
+                {
+                    if (xq < xv[0] || xq > xv[nx - 1] || yq < yv[0] || yq > yv[ny - 1]) return double.NaN;
+                    int j0 = 0; while (j0 < nx - 2 && xv[j0 + 1] < xq) j0++;
+                    int i0 = 0; while (i0 < ny - 2 && yv[i0 + 1] < yq) i0++;
+                    double tx = (xv[j0 + 1] == xv[j0]) ? 0 : (xq - xv[j0]) / (xv[j0 + 1] - xv[j0]);
+                    double ty = (yv[i0 + 1] == yv[i0]) ? 0 : (yq - yv[i0]) / (yv[i0 + 1] - yv[i0]);
+                    if (nearest)
+                    {
+                        int ii = ty < 0.5 ? i0 : i0 + 1, jj = tx < 0.5 ? j0 : j0 + 1;
+                        return Z.Data[ii * nx + jj];
+                    }
+                    double z00 = Z.Data[i0 * nx + j0], z01 = Z.Data[i0 * nx + j0 + 1];
+                    double z10 = Z.Data[(i0 + 1) * nx + j0], z11 = Z.Data[(i0 + 1) * nx + j0 + 1];
+                    double r0 = z00 * (1 - tx) + z01 * tx;
+                    double r1 = z10 * (1 - tx) + z11 * tx;
+                    return r0 * (1 - ty) + r1 * ty;
+                }
+                if (Xq.IsScalar) return new MValue(Interp(Xq.Scalar, Yq.Scalar));
+                var r = new MValue(Xq.Rows, Xq.Cols);
+                for (int k = 0; k < Xq.Data.Length; k++) r.Data[k] = Interp(Xq.Data[k], Yq.Data[k]);
                 return r;
             };
             _builtins["spline"] = a => {
@@ -10302,6 +10345,11 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < args.Count; i++) r[i] = Eval(args[i], scope);
             return r;
         }
+        /// <summary>Subindice apto para el fast-path de indexacion escalar: literal numerico
+        /// o identificador simple. EXCLUYE `end`, que aun siendo IdentRef necesita el
+        /// contexto _endCtx (empujado solo en el camino general) para resolverse.</summary>
+        private static bool IsFastIdx(MatlabNode n) =>
+            n is NumberLit || (n is IdentRef ir && ir.Name != "end");
         private MValue IndexInto(MValue m, List<MatlabNode> idxNodes, MatlabScope scope)
         {
             // 3D array: A(:,:,k) o A(i,j,k)
@@ -10349,11 +10397,14 @@ namespace Calcpad.Core.Matlab
             // general (int[][] + ResolveIndexArg + push/pop _endCtx) cuesta ~5x mas (medido
             // 108 vs 20 ns, contra MATLAB). Restringido a NumberLit/IdentRef para no
             // arriesgar doble evaluacion de expresiones con efectos secundarios.
+            // OJO: `end` como indice (A(end), A(end,1)) tambien es un IdentRef, pero
+            // NECESITA el contexto _endCtx (que este fast-path NO empuja). Debe caer al
+            // camino general de abajo; por eso IsFastIdx excluye el identificador `end`.
             if (!m.Is3D && !m.IsString && m.CellData == null && m.Symbolic == null
                 && m.SymCells == null && m.Fields == null && m.Imag == null && m.Data != null)
             {
                 int ndf = idxNodes.Count;
-                if (ndf == 1 && (idxNodes[0] is NumberLit || idxNodes[0] is IdentRef))
+                if (ndf == 1 && IsFastIdx(idxNodes[0]))
                 {
                     var iv = Eval(idxNodes[0], scope);
                     if (iv.IsScalar && iv.Symbolic == null && !iv.IsString)
@@ -10369,8 +10420,7 @@ namespace Calcpad.Core.Matlab
                         throw new MatlabRuntimeException($"Index {li + 1} out of bounds (1..{tot})");
                     }
                 }
-                else if (ndf == 2 && (idxNodes[0] is NumberLit || idxNodes[0] is IdentRef)
-                                  && (idxNodes[1] is NumberLit || idxNodes[1] is IdentRef))
+                else if (ndf == 2 && IsFastIdx(idxNodes[0]) && IsFastIdx(idxNodes[1]))
                 {
                     var r0 = Eval(idxNodes[0], scope);
                     var c0 = Eval(idxNodes[1], scope);

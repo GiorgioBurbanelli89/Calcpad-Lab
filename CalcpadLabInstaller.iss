@@ -1,11 +1,11 @@
 ; Inno Setup Script para Calcpad-Lab
 ; Genera un instalador setup.exe
 
-#define MyAppName "Calcpad-Lab"
-#define MyAppVersion "1.0.75"
+#define MyAppName "Hekatan Lab"
+#define MyAppVersion "1.0.78"
 #define MyAppPublisher "Jorge Burbano"
-#define MyAppURL "https://github.com/GiorgioBurbanelli89/Calcpad-Lab"
-#define MyAppExeName "CalcpadLab.exe"
+#define MyAppURL "https://github.com/GiorgioBurbanelli89/hekatan-lab"
+#define MyAppExeName "HekatanLab.exe"
 #define MyAppPublishDir "C:\Users\j-b-j\Desktop\CalcpadLab-Installer\CalcpadLab"
 
 [Setup]
@@ -16,18 +16,19 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\Calcpad-Lab
-DefaultGroupName=Calcpad-Lab
+DefaultDirName={autopf}\Hekatan Lab
+DefaultGroupName=Hekatan Lab
 AllowNoIcons=yes
 LicenseFile=LICENSE
 OutputDir=.\Installer
-OutputBaseFilename=Calcpad-Lab-Setup-{#MyAppVersion}
+OutputBaseFilename=Hekatan-Lab-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=Symbolic.Wpf\resources\calcpad.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
