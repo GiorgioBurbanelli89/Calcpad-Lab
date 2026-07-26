@@ -3416,8 +3416,48 @@ namespace Calcpad.Core.Matlab
             _builtins["interp1"] = a => {
                 // interp1(x, y, xq[, method]) — method: 'linear' (default), 'spline', 'pchip', 'nearest'
                 if (a.Length < 3) throw new MatlabRuntimeException("interp1(x, y, xq[, method])");
-                var x = a[0].Data; var y = a[1].Data; var xq = a[2];
+                var x = a[0].Data; var Y = a[1]; var xq = a[2];
                 string method = a.Length >= 4 && a[3].IsString ? a[3].StringValue : "linear";
+                // Y MATRIZ (nrows == length(x), varias columnas): interpolar cada COLUMNA
+                // independientemente (semántica MATLAB) -> resultado (length(xq) × ncol).
+                // Clave para colormap(interp1(t,anc,tq)) con anc N×3 (paleta GEO5, etc.).
+                if (Y.Rows > 1 && Y.Cols > 1 && Y.Rows == x.Length)
+                {
+                    int ncol = Y.Cols, nq = xq.Data.Length;
+                    var res = new MValue(nq, ncol);
+                    for (int c = 0; c < ncol; c++)
+                    {
+                        var yc = new double[Y.Rows];
+                        for (int i = 0; i < Y.Rows; i++) yc[i] = Y.At(i, c);
+                        MValue col;
+                        if (method == "spline") col = SplineInterp(x, yc, xq);
+                        else if (method == "pchip") col = PchipInterp(x, yc, xq);
+                        else
+                        {
+                            col = new MValue(nq, 1);
+                            for (int k = 0; k < nq; k++)
+                            {
+                                double q = xq.Data[k], val;
+                                if (method == "nearest")
+                                {
+                                    int idx = 0; double best = double.MaxValue;
+                                    for (int i = 0; i < x.Length; i++) { double d = Math.Abs(x[i] - q); if (d < best) { best = d; idx = i; } }
+                                    val = yc[idx];
+                                }
+                                else
+                                {
+                                    if (q <= x[0]) val = yc[0];
+                                    else if (q >= x[x.Length - 1]) val = yc[yc.Length - 1];
+                                    else { int lo = 0, hi = x.Length - 1; while (hi - lo > 1) { int mid = (lo + hi) / 2; if (x[mid] <= q) lo = mid; else hi = mid; } double t = (q - x[lo]) / (x[hi] - x[lo]); val = yc[lo] + t * (yc[hi] - yc[lo]); }
+                                }
+                                col.Data[k] = val;
+                            }
+                        }
+                        for (int k = 0; k < nq; k++) res.Set(k, c, col.Data[k]);
+                    }
+                    return res;
+                }
+                var y = Y.Data;
                 if (method == "spline") return SplineInterp(x, y, xq);
                 if (method == "pchip")  return PchipInterp(x, y, xq);
                 if (method == "nearest")
@@ -3484,6 +3524,52 @@ namespace Calcpad.Core.Matlab
                 if (Xq.IsScalar) return new MValue(Interp(Xq.Scalar, Yq.Scalar));
                 var r = new MValue(Xq.Rows, Xq.Cols);
                 for (int k = 0; k < Xq.Data.Length; k++) r.Data[k] = Interp(Xq.Data[k], Yq.Data[k]);
+                return r;
+            };
+            _builtins["griddata"] = a => {
+                // Vq = griddata(x, y, v, Xq, Yq[, method]) — interpolacion de datos DISPERSOS.
+                // Triangulacion de Delaunay de (x,y) + localizacion de punto + baricentrica
+                // (lineal). Fuera del casco de la malla -> NaN (igual que MATLAB). 'nearest'
+                // usa el vertice mas cercano del triangulo contenedor.
+                if (a.Length < 5) throw new MatlabRuntimeException("griddata(x, y, v, Xq, Yq[, method])");
+                var xv = a[0].Data; var yv = a[1].Data; var vv = a[2].Data;
+                var Xq = a[3]; var Yq = a[4];
+                bool nearest = a.Length >= 6 && a[5].IsString && a[5].StringValue.ToLowerInvariant().StartsWith("nearest");
+                int n = xv.Length;
+                if (yv.Length != n || vv.Length != n) throw new MatlabRuntimeException("griddata: x, y, v deben tener igual longitud");
+                if (n < 3) throw new MatlabRuntimeException("griddata: se necesitan >=3 puntos");
+                var pts = new double[n, 2];
+                for (int i = 0; i < n; i++) { pts[i, 0] = xv[i]; pts[i, 1] = yv[i]; }
+                var tris = DelaunayBowyerWatson(pts);
+                double InterpAt(double px, double py)
+                {
+                    for (int t = 0; t < tris.Count; t++)
+                    {
+                        int ia = tris[t].A, ib = tris[t].B, ic = tris[t].C;
+                        double ax = pts[ia, 0], ay = pts[ia, 1];
+                        double bx = pts[ib, 0], by = pts[ib, 1];
+                        double cx = pts[ic, 0], cy = pts[ic, 1];
+                        double det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+                        if (Math.Abs(det) < 1e-30) continue;
+                        double l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det;
+                        double l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det;
+                        double l3 = 1 - l1 - l2;
+                        const double tol = -1e-9;
+                        if (l1 >= tol && l2 >= tol && l3 >= tol)
+                        {
+                            if (nearest)
+                            {
+                                if (l1 >= l2 && l1 >= l3) return vv[ia];
+                                return l2 >= l3 ? vv[ib] : vv[ic];
+                            }
+                            return l1 * vv[ia] + l2 * vv[ib] + l3 * vv[ic];
+                        }
+                    }
+                    return double.NaN;
+                }
+                if (Xq.IsScalar) return new MValue(InterpAt(Xq.Scalar, Yq.Scalar));
+                var r = new MValue(Xq.Rows, Xq.Cols);
+                for (int k = 0; k < Xq.Data.Length; k++) r.Data[k] = InterpAt(Xq.Data[k], Yq.Data[k]);
                 return r;
             };
             _builtins["spline"] = a => {
@@ -10879,8 +10965,24 @@ namespace Calcpad.Core.Matlab
             }
             if (isMask)
             {
+                // Máscara lógica: devolver índices lineales en convención COLUMNA-MAYOR (MATLAB),
+                // enumerados en orden columna-mayor. Los consumidores (asignación 9761/slice 10840)
+                // decodifican con col=li/Rows,row=li%Rows -> hay que emitir col-major, NO la posición
+                // fila-mayor del almacenamiento (v.Data[r*Cols+c]). Antes: scramble/transpuesta en
+                // A(mask2D)=val -> "franjas" de NaN en contourf enmascarado. Para vectores (una dim=1)
+                // el resultado es idéntico al de antes.
                 var hits = new List<int>();
-                for (int i = 0; i < v.Data.Length; i++) if (v.Data[i] != 0) hits.Add(i);
+                int mr = v.Rows, mc = v.Cols;
+                if (mr <= 1 || mc <= 1)
+                {
+                    for (int i = 0; i < v.Data.Length; i++) if (v.Data[i] != 0) hits.Add(i);
+                }
+                else
+                {
+                    for (int c = 0; c < mc; c++)
+                        for (int r = 0; r < mr; r++)
+                            if (v.Data[r * mc + c] != 0) hits.Add(c * mr + r);
+                }
                 return hits.ToArray();
             }
             // Vector de índices numéricos (1-based)

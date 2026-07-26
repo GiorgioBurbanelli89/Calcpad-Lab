@@ -1598,8 +1598,13 @@ return {make:make};
             SKColor ValColor(double v)
             {
                 double t = (v - vmin) / (vmax - vmin);
-                if (cmapRev) t = 1 - t;
-                return ParseColor(JetCss(t));
+                if (double.IsNaN(t) || double.IsInfinity(t)) t = 0;
+                // Usar el colormap ACTIVO (incl. custom de colormap(matriz), p.ej. paleta GEO5)
+                // y su reversión "_r" via CmapF -> el relleno coincide con MATLAB, no jet fijo.
+                var rgb = CmapF(_figCmapName, Math.Max(0, Math.Min(1, t)));
+                return new SKColor((byte)Math.Round(255 * Math.Max(0, Math.Min(1, rgb[0]))),
+                                   (byte)Math.Round(255 * Math.Max(0, Math.Min(1, rgb[1]))),
+                                   (byte)Math.Round(255 * Math.Max(0, Math.Min(1, rgb[2]))));
             }
             // Limites y ticks "bonitos" (estilo MATLAB: el eje abarca hasta el tick).
             // target de ticks proporcional al tamaño del eje (~1 cada 70px en X, 48px en Y),
@@ -1775,8 +1780,17 @@ return {make:make};
                                 double tx = (xg[ix + 1] == xg[ix]) ? 0 : (x - xg[ix]) / (xg[ix + 1] - xg[ix]);
                                 double z00 = zg[iy * gnx + ix], z01 = zg[iy * gnx + ix + 1];
                                 double z10 = zg[(iy + 1) * gnx + ix], z11 = zg[(iy + 1) * gnx + ix + 1];
-                                if (double.IsNaN(z00) || double.IsNaN(z01) || double.IsNaN(z10) || double.IsNaN(z11)) continue;
-                                double vv = (z00 * (1 - tx) + z01 * tx) * (1 - ty) + (z10 * (1 - tx) + z11 * tx) * ty;
+                                // Celda con NaN PARCIAL (1-3 esquinas): interpolar con las esquinas
+                                // VÁLIDAS renormalizando pesos (como MATLAB contourf) -> sin "franjas"
+                                // blancas en bordes/escalones de la máscara. Solo se salta si las 4 son NaN.
+                                double w00 = (1 - tx) * (1 - ty), w01 = tx * (1 - ty), w10 = (1 - tx) * ty, w11 = tx * ty;
+                                double vs = 0, ws = 0;
+                                if (!double.IsNaN(z00)) { vs += w00 * z00; ws += w00; }
+                                if (!double.IsNaN(z01)) { vs += w01 * z01; ws += w01; }
+                                if (!double.IsNaN(z10)) { vs += w10 * z10; ws += w10; }
+                                if (!double.IsNaN(z11)) { vs += w11 * z11; ws += w11; }
+                                if (ws <= 1e-12) continue;                       // 4 esquinas NaN -> hueco real
+                                double vv = vs / ws;
                                 int band = (int)Math.Floor((vv - bLo) / stp);   // banda en rejilla redonda
                                 double vq = bLo + (band + 0.5) * stp;           // valor medio de la banda
                                 bmp.SetPixel(px, py, ValColor(vq));             // color por caxis de datos
@@ -1876,7 +1890,11 @@ return {make:make};
                     for (int i = 0; i < (int)cbH; i++)
                     {
                         double t = 1.0 - i / cbH;                 // arriba = vmax
-                        using var cbp = new SKPaint { Style = SKPaintStyle.Fill, Color = ParseColor(JetCss(cmapRev ? 1 - t : t)) };
+                        var cbr = CmapF(_figCmapName, t);         // MISMO colormap que el relleno (incl. custom GEO5)
+                        using var cbp = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(
+                            (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cbr[0]))),
+                            (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cbr[1]))),
+                            (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cbr[2]))) ) };
                         canvas.DrawRect(cbX, plotT + i, cbW, 1.2f, cbp);
                     }
                     canvas.DrawRect(cbX, plotT, cbW, cbH, axis);
