@@ -1520,7 +1520,12 @@ namespace Calcpad.Core.Matlab
                         for (int j = 0; j < scc; j++)
                         {
                             if (j > 0) sbSym.Append("  ");
-                            sbSym.Append(symCells[i, j].Simplify().ToInfix());
+                            // ToHtml (typeset: fracciones/superíndices/ν) envuelto en
+                            // sentinels PUA () para que EncodeWithHtmlSegments lo
+                            // pase CRUDO sin escapar — mismo patrón que char(sym) más abajo.
+                            // Antes usaba ToInfix() → salía texto plano "(E*t^3)/(12*(-nu^2+1))".
+                            var cellSym = symCells[i, j] ?? new SymConst(0);
+                            sbSym.Append((char)0xE001).Append(cellSym.Simplify().ToHtml()).Append((char)0xE002);
                         }
                         sbSym.Append(']');
                         sbSym.Append('\n');   // \n (no CRLF): TryParseMatrixRow exige que la línea termine en ']'

@@ -42,8 +42,18 @@ namespace Calcpad.Core.Matlab
         public static SymNode Expand(SymNode n)
         {
             var sop = ExpandToSop(n);
-            // Reconstruir desde sum-of-products + simplify final (colecta like-terms)
-            return SopToNode(sop).Simplify();
+            var node = SopToNode(sop);
+            // Aplanar TODO el árbol de sumas en monomios crudos, simplificar cada
+            // monomio (x·x·x → x^3) y colectar like-terms UNA sola vez SIN extracción
+            // de factor común. Así expand() da el polinomio plano ordenado por grado
+            // (x^4+4·x^3+6·x^2+4·x+1) como MATLAB, y nunca la forma Horner que produce
+            // TryExtractCommonFactor al re-simplificar sub-sumas parciales.
+            var raw = new List<SymNode>();
+            SymAdd.FlattenAdd(node, raw);
+            var flat = new List<SymNode>();
+            foreach (var t in raw)
+                SymAdd.FlattenAdd(t.Simplify(), flat);
+            return SymAdd.CollectLikeTermsAdd(flat, factor: false);
         }
         /// <summary>Sum-of-products: cada elemento exterior es un término (sumando);
         /// cada término es una lista de factores multiplicados.</summary>
@@ -367,8 +377,11 @@ namespace Calcpad.Core.Matlab
             }
             return (1.0, n.ToInfix(), n);
         }
-        internal static SymNode CollectLikeTermsAdd(System.Collections.Generic.List<SymNode> terms)
+        internal static SymNode CollectLikeTermsAdd(System.Collections.Generic.List<SymNode> terms, bool factor = true)
         {
+            // Preservar el orden de primera aparición de las claves (Dictionary<>.Keys
+            // no lo garantiza) para que la salida sea estable/predecible.
+            var order = new System.Collections.Generic.List<string>();
             var groups = new System.Collections.Generic.Dictionary<string, (double Coef, SymNode Expr)>();
             double constSum = 0;
             foreach (var t in terms)
@@ -378,18 +391,34 @@ namespace Calcpad.Core.Matlab
                 if (groups.TryGetValue(key, out var existing))
                     groups[key] = (existing.Coef + coef, existing.Expr);
                 else
-                    groups[key] = (coef, expr);
+                { groups[key] = (coef, expr); order.Add(key); }
             }
+            // En modo !factor (expand): ordenar por grado polinómico descendente
+            // (x^4 + 4·x^3 + ... + 1), como MATLAB. En modo factor: orden de aparición.
+            if (!factor)
+                order.Sort((k1, k2) => PolyDegree(groups[k2].Expr).CompareTo(PolyDegree(groups[k1].Expr)));
             var pieces = new System.Collections.Generic.List<SymNode>();
-            foreach (var kv in groups)
+            foreach (var key in order)
             {
-                var (coef, expr) = kv.Value;
+                var (coef, expr) = groups[key];
                 if (coef == 0) continue;
                 if (coef == 1) pieces.Add(expr);
                 else if (coef == -1) pieces.Add(new SymMul(new SymConst(-1), expr));
                 else pieces.Add(new SymMul(new SymConst(coef), expr));
             }
-            if (constSum != 0) pieces.Add(new SymConst(constSum));
+            if (constSum != 0)
+            {
+                var constNode = new SymConst(constSum);
+                // Legibilidad: si el primer término es negativo y la constante es
+                // positiva, poner la constante ADELANTE para evitar un menos líder:
+                //   -ν²+1  →  1-ν²  (forma estándar de la rigidez de placa D).
+                // Polinomios cuyo término líder ya es positivo (x⁴+…+1) NO se tocan
+                // → constante al final, como MATLAB.
+                if (constSum > 0 && pieces.Count > 0 && TryNegativeForm(pieces[0], out _))
+                    pieces.Insert(0, constNode);
+                else
+                    pieces.Add(constNode);
+            }
             if (pieces.Count == 0) return new SymConst(0);
             if (pieces.Count == 1) return pieces[0];
             // Reconstruir add chain
@@ -397,8 +426,25 @@ namespace Calcpad.Core.Matlab
             for (int i = 1; i < pieces.Count; i++) acc = new SymAdd(acc, pieces[i]);
             // Phase 1 de factoring: intentar extraer factor comun multiplicativo
             // (denominador racional + monomios comunes) para reducir el output.
+            // expand() pasa factor=false para NUNCA re-factorizar a forma Horner.
+            if (!factor) return acc;
             var factored = TryExtractCommonFactor(pieces);
             return factored ?? acc;
+        }
+
+        /// <summary>Grado polinómico total de un monomio (suma de exponentes de variables).
+        /// x^3 → 3, x·y² → 3, 5 → 0. Usado para ordenar términos en expand().</summary>
+        internal static double PolyDegree(SymNode n)
+        {
+            switch (n)
+            {
+                case SymConst: return 0;
+                case SymVar: return 1;
+                case SymPow p when p.Exp is SymConst pe: return pe.Value * PolyDegree(p.Base);
+                case SymMul m: return PolyDegree(m.A) + PolyDegree(m.B);
+                case SymDiv d: return PolyDegree(d.A) - PolyDegree(d.B);
+                default: return 0;
+            }
         }
 
         // ── Phase 1: Common factor extraction ──────────────────────────────

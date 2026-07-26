@@ -256,7 +256,10 @@ namespace Calcpad.Core.Matlab
                     for (int j = 0; j < snc; j++)
                     {
                         sbSym.Append("<span class=\"td\">");
-                        sbSym.Append(HttpUtility.HtmlEncode(v.SymCells[i, j].ToInfix()));
+                        // ToHtml (typeset: fracciones/superíndices/ν) = HTML crudo, NO HtmlEncode.
+                        // Antes: HtmlEncode(ToInfix()) → texto plano "(E*t^3)/(12*(-nu^2 + 1))".
+                        var cellSym = v.SymCells[i, j] ?? new SymConst(0);
+                        sbSym.Append(cellSym.Simplify().ToHtml());
                         sbSym.Append("</span>");
                     }
                     sbSym.Append("<span class=\"td\"></span></span>");
