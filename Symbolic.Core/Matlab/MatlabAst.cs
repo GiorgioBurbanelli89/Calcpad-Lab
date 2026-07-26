@@ -38,6 +38,10 @@ namespace Calcpad.Core.Matlab
         // El evaluator decide en runtime mirando el binding de `Target`.
         public MatlabNode Target;       // típicamente IdentRef
         public List<MatlabNode> Args;
+        // QW-1: cache de resolución a función de usuario (llenado en la 1ª llamada).
+        // Evita re-buscar en _classes/_userFunctions en cada llamada del hot-loop. Solo se
+        // usa si el nombre NO es una variable en el scope (el chequeo de shadowing va antes).
+        public FunctionDef CachedUserFn;
     }
     public sealed class Range : MatlabNode
     {

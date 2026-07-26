@@ -10759,12 +10759,21 @@ namespace Calcpad.Core.Matlab
                     }
                     return IndexInto(v, c.Args, scope);
                 }
+                // QW-1: resolución CACHEADA (no es variable) -> saltar los lookups de
+                // _classes/_userFunctions. El nombre ya se verificó que no es variable arriba.
+                if (c.CachedUserFn != null)
+                {
+                    var ce = EvalArgs(c.Args, scope);
+                    int cbf = c.CachedUserFn.BodyFlags ??= ComputeBodyFlags(c.CachedUserFn);
+                    return CallUserFunction(c.CachedUserFn, ce, (cbf & 8) != 0 ? ArgNames(c.Args) : null);
+                }
                 // 2) Class constructor
                 if (_classes.TryGetValue(id.Name, out var cls))
                     return ConstructInstance(cls, EvalArgs(c.Args, scope), scope);
                 // 3) User function definida
                 if (_userFunctions.TryGetValue(id.Name, out var def))
                 {
+                    c.CachedUserFn = def;   // QW-1: cachear para llamadas futuras
                     var eargs = EvalArgs(c.Args, scope);
                     int dbf = def.BodyFlags ??= ComputeBodyFlags(def);
                     return CallUserFunction(def, eargs, (dbf & 8) != 0 ? ArgNames(c.Args) : null);
