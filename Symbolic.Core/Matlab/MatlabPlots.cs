@@ -124,6 +124,10 @@ namespace Calcpad.Core.Matlab
         private static double _figCLo = 0, _figCHi = 1;
         public static void SetColorbar(bool on) { _figColorbar = on; }
         public static bool ColorbarState => _figColorbar;
+        // colorbar('Direction','reverse') -> min arriba (estilo GEO5); 'Ticks' -> valores custom.
+        private static bool _cbReverse = false;
+        private static double[] _cbTicks = null;
+        public static void SetColorbarOptions(bool reverse, double[] ticks) { _cbReverse = reverse; _cbTicks = ticks; }
         // view(2): cámara CENITAL (top-down) sobre el canvas 3D → aspecto 2D como MATLAB.
         private static bool _figView2 = false;
         public static void SetView2(bool on) { _figView2 = on; }
@@ -554,7 +558,7 @@ return {make:make};
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
             _figGrid = false;
-            _figColorbar = false;
+            _figColorbar = false; _cbReverse = false; _cbTicks = null;
             _figAxisEqual = false;
             _figShowLegend = false; _figLegendLoc = null; _figLegendNames = null;
             return prev;
@@ -1887,10 +1891,16 @@ return {make:make};
                     // colorbar: contourf → fina y a la derecha del axes ancho (MATLAB); mallas → como estaba.
                     float cbW = (float)(0.046 * width);
                     float cbX = (float)(0.818 * width), cbH = plotB - plotT;
+                    // Colormap custom pequeño (p.ej. 12 colores GEO5) -> barra DISCRETA (bloques),
+                    // no gradiente. _cbReverse -> vmin arriba (GEO5: -0.4 azul arriba, 5 rojo abajo).
+                    bool cbDiscrete = _figCmapName == "custom" && _customCmapRgb != null && _customCmapRgb.Length <= 24;
+                    int cbN = cbDiscrete ? _customCmapRgb.Length : 0;
                     for (int i = 0; i < (int)cbH; i++)
                     {
-                        double t = 1.0 - i / cbH;                 // arriba = vmax
-                        var cbr = CmapF(_figCmapName, t);         // MISMO colormap que el relleno (incl. custom GEO5)
+                        double t = _cbReverse ? (i / cbH) : (1.0 - i / cbH);   // t: 0=vmin, 1=vmax
+                        float[] cbr;
+                        if (cbDiscrete) { int band = (int)(t * cbN); if (band < 0) band = 0; if (band >= cbN) band = cbN - 1; cbr = _customCmapRgb[band]; }
+                        else cbr = CmapF(_figCmapName, t);
                         using var cbp = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(
                             (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cbr[0]))),
                             (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cbr[1]))),
@@ -1900,7 +1910,7 @@ return {make:make};
                     canvas.DrawRect(cbX, plotT, cbW, cbH, axis);
                     // densidad de ticks del colorbar ∝ altura (~1 cada 55px, como MATLAB: ~5-6 ticks).
                     int cbTgt = Math.Max(4, (int)(cbH / 55));
-                    var cbTicks = NiceTicks(vmin, vmax, cbTgt);
+                    var cbTicks = _cbTicks != null && _cbTicks.Length > 0 ? new System.Collections.Generic.List<double>(_cbTicks) : NiceTicks(vmin, vmax, cbTgt);
                     // Factor común ×10ⁿ como MATLAB cuando los valores son muy chicos/grandes.
                     double cbMax = 0; foreach (var tv in cbTicks) if (Math.Abs(tv) > cbMax) cbMax = Math.Abs(tv);
                     int cbExp = 0; double cbFac = 1;
@@ -1908,7 +1918,8 @@ return {make:make};
                     foreach (var tv in cbTicks)
                     {
                         if (tv < vmin - 1e-9 || tv > vmax + 1e-9) continue;
-                        float ty = plotB - (float)((tv - vmin) / (vmax - vmin) * cbH);
+                        float frac = (float)((tv - vmin) / (vmax - vmin) * cbH);
+                        float ty = _cbReverse ? (plotT + frac) : (plotB - frac);   // reverse: vmin arriba
                         canvas.DrawLine(cbX + cbW, ty, cbX + cbW + 3, ty, axis);
                         canvas.DrawText(FmtTick(tv / cbFac), cbX + cbW + 5, ty + 3, SKTextAlign.Left, font, txt);
                     }

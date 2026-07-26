@@ -395,6 +395,17 @@ namespace Calcpad.Core.Matlab
         public void RegisterClass(ClassDef cd) => _classes[cd.Name] = cd;
         /// <summary>Variables persistent — guardadas por (funcName + varName) entre invocaciones.</summary>
         private readonly Dictionary<string, MValue> _persistentVars = new(StringComparer.Ordinal);
+        /// <summary>POOL de scopes: reusa MatlabScope (Parent=Globals) en llamadas a funciones
+        /// SIN anidadas -> evita alocar un Dictionary por llamada. En return-maps con ~2M
+        /// llamadas esto quita ~2 us/call de overhead (medido vs MATLAB). Recursion segura:
+        /// el scope no se devuelve hasta que su cuerpo termina.</summary>
+        private readonly Stack<MatlabScope> _scopePool = new();
+        private MatlabScope RentGlobalScope()
+        {
+            if (_scopePool.Count > 0) { var s = _scopePool.Pop(); s.Vars.Clear(); if (s.GlobalNames.Count > 0) s.GlobalNames.Clear(); return s; }
+            return new MatlabScope(Globals);
+        }
+        private void ReturnGlobalScope(MatlabScope s) { if (_scopePool.Count < 256) _scopePool.Push(s); }
         /// <summary>Para tic/toc.</summary>
         private System.Diagnostics.Stopwatch _ticStopwatch;
         /// <summary>RNG estable (seed determinístico para repetibilidad).</summary>
@@ -2127,6 +2138,18 @@ namespace Calcpad.Core.Matlab
             string JsonEscape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
             _builtins["colorbar"] = a => {
                 MatlabPlots.SetColorbar(true);
+                // Parsear pares nombre-valor: colorbar('Direction','reverse','Ticks',v)
+                bool rev = false; double[] ticks = null;
+                for (int i = 0; i + 1 < a.Length; i++)
+                {
+                    if (a[i] == null || !a[i].IsString) continue;
+                    var key = a[i].StringValue.ToLowerInvariant();
+                    if (key == "direction" && a[i + 1] != null && a[i + 1].IsString)
+                        rev = a[i + 1].StringValue.ToLowerInvariant().StartsWith("rev");
+                    else if (key == "ticks" && a[i + 1] != null && a[i + 1].Data != null)
+                        ticks = (double[])a[i + 1].Data.Clone();
+                }
+                MatlabPlots.SetColorbarOptions(rev, ticks);
                 // MATLAB: colorbar tras el plot enciende la barra en el plot YA dibujado.
                 var r = MatlabPlots.RestyleLastColorbar(true);
                 if (r != null) _htmlOut?.Invoke(r);
@@ -9209,11 +9232,15 @@ namespace Calcpad.Core.Matlab
 
         private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)
         {
-            // función ANIDADA: corre en el scope del padre (workspace compartido); si no, scope propio.
-            var local = def.ClosureScope ?? new MatlabScope(Globals);
+            int bf = def.BodyFlags ??= ComputeBodyFlags(def);
+            // función ANIDADA: scope del padre. Si tiene nested (bit1) el scope puede escapar en
+            // un closure -> no poolear. Si no, RENTAR del pool (evita alocar Dictionary por llamada).
+            bool pooled = false; MatlabScope local;
+            if (def.ClosureScope != null) local = def.ClosureScope;
+            else if ((bf & 1) != 0) local = new MatlabScope(Globals);
+            else { local = RentGlobalScope(); pooled = true; }
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
-            int bf = def.BodyFlags ??= ComputeBodyFlags(def);
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
             BindParams(def, args, local);
             // MATLAB nargin / nargout: solo se crean si la función los usa (sobre-aprox segura).
@@ -9230,9 +9257,9 @@ namespace Calcpad.Core.Matlab
                         _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
             _currentFunctionName = savedFn;
             // Output principal: primer nombre de output
-            if (def.OutputNames.Count > 0 && local.TryGet(def.OutputNames[0], out var v))
-                return v;
-            return new MValue(0);  // procedure void → 0
+            MValue result = (def.OutputNames.Count > 0 && local.TryGet(def.OutputNames[0], out var v)) ? v : new MValue(0);
+            if (pooled) ReturnGlobalScope(local);
+            return result;
         }
         /// <summary>Vincula los args a los parámetros formales. Soporta `varargin`
         /// (MATLAB): si el ÚLTIMO parámetro se llama varargin, recoge todos los args
