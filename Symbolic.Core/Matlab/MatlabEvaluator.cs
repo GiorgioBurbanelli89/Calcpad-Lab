@@ -1926,7 +1926,9 @@ namespace Calcpad.Core.Matlab
             _builtins["hist"] = _builtins["histogram"];
             _builtins["histogram2"] = a => {
                 if (a.Length < 2) throw new MatlabRuntimeException("histogram2(X, Y[, nbins])");
-                int nb = a.Length >= 3 ? (int)a[2].Scalar : 20;
+                // nbins solo si el 3er arg es un escalar numérico; si es par nombre-valor
+                // ('DisplayStyle','tile') dejar el default (antes (int)a[2].Scalar → crash con string).
+                int nb = (a.Length >= 3 && a[2] != null && !a[2].IsString && a[2].IsScalar) ? (int)a[2].Scalar : 20;
                 _htmlOut?.Invoke(MatlabPlots.Histogram2D(a[0], a[1], nb));
                 return new MValue(0);
             };
@@ -4471,8 +4473,18 @@ namespace Calcpad.Core.Matlab
             _builtins["sym"] = a => {
                 if (a.Length == 0) throw new MatlabRuntimeException("sym(name) or sym(expr)");
                 if (a[0].IsString) return MValue.NewSymbolic(new SymVar(a[0].StringValue));
-                if (a[0].IsSymbolic) return a[0];
+                if (a[0].IsSymbolic || a[0].IsSymMatrix) return a[0];
                 if (a[0].IsScalar) return MValue.NewSymbolic(new SymConst(a[0].Scalar));
+                // sym([2 1 -1; ...]) — matriz numérica → SymMatrix de constantes (antes: error).
+                if (a[0].Data != null && a[0].Rows * a[0].Cols >= 1)
+                {
+                    int r = a[0].Rows, c = a[0].Cols;
+                    var cells = new SymNode[r, c];
+                    for (int i = 0; i < r; i++)
+                        for (int j = 0; j < c; j++)
+                            cells[i, j] = new SymConst(a[0].At(i, j));
+                    return MValue.NewSymMatrix(cells);
+                }
                 throw new MatlabRuntimeException("sym: unsupported argument");
             };
             _builtins["syms"] = a => {
@@ -6560,10 +6572,45 @@ namespace Calcpad.Core.Matlab
             _builtins["mkoctfile"] = _builtins["mex"];
             _builtins["norm"] = a => {
                 var v = a[0];
-                int p = a.Length > 1 ? (int)a[1].Scalar : 2;
-                double s = 0;
-                foreach (var x in v.Data) s += Math.Pow(Math.Abs(x), p);
-                return new MValue(Math.Pow(s, 1.0 / p));
+                // 2º arg: numérico (1,2,p), inf, o string 'fro'/'inf'. Antes hacía
+                // (int)a[1].Scalar → crash con norm(A,'fro') (string, Data vacío) y
+                // usaba la p-norma VECTORIAL para matrices (incorrecto).
+                bool isFro = false, pInf = false; double p = 2;
+                if (a.Length > 1 && a[1] != null)
+                {
+                    if (a[1].IsString)
+                    {
+                        var s = a[1].StringValue.Trim().ToLowerInvariant();
+                        if (s == "fro") isFro = true;
+                        else if (s == "inf") pInf = true;
+                        else throw new MatlabRuntimeException("norm: opcion desconocida '" + a[1].StringValue + "'");
+                    }
+                    else { double pv = a[1].Scalar; if (double.IsInfinity(pv)) pInf = true; else p = pv; }
+                }
+                // Frobenius = raíz de suma de cuadrados de TODOS los elementos (vector o matriz)
+                if (isFro) { double s2 = 0; foreach (var x in v.Data) s2 += x * x; return new MValue(Math.Sqrt(s2)); }
+                bool isVector = v.Rows <= 1 || v.Cols <= 1;
+                if (isVector)
+                {
+                    if (pInf) { double m = 0; foreach (var x in v.Data) m = Math.Max(m, Math.Abs(x)); return new MValue(m); }
+                    if (p == 1) { double s1 = 0; foreach (var x in v.Data) s1 += Math.Abs(x); return new MValue(s1); }
+                    if (p == 2) { double s2 = 0; foreach (var x in v.Data) s2 += x * x; return new MValue(Math.Sqrt(s2)); }
+                    double sp = 0; foreach (var x in v.Data) sp += Math.Pow(Math.Abs(x), p); return new MValue(Math.Pow(sp, 1.0 / p));
+                }
+                // MATRIZ (MATLAB): 1 = max suma de columna ; inf = max suma de fila ; 2 = mayor valor singular
+                if (pInf) { double best = 0; for (int i = 0; i < v.Rows; i++) { double s = 0; for (int j = 0; j < v.Cols; j++) s += Math.Abs(v.At(i, j)); best = Math.Max(best, s); } return new MValue(best); }
+                if (p == 1) { double best = 0; for (int j = 0; j < v.Cols; j++) { double s = 0; for (int i = 0; i < v.Rows; i++) s += Math.Abs(v.At(i, j)); best = Math.Max(best, s); } return new MValue(best); }
+                double mx = 0; foreach (var x in SingularValuesOf(v)) mx = Math.Max(mx, x); return new MValue(mx);
+            };
+            _builtins["cond"] = a => {
+                // Número de condición 2-norma = mayor valor singular / menor valor singular.
+                // cond(eye(n)) = 1. Matriz singular → Inf. (No existía como builtin.)
+                // SVD(A).S es la matriz DIAGONAL de valores singulares → tomar SOLO la
+                // diagonal (min sobre .Data agarraba un 0 fuera de diagonal → Inf falso).
+                var sv = SingularValuesOf(a[0]);
+                double mx = 0, mn = double.PositiveInfinity;
+                foreach (var x in sv) { if (x > mx) mx = x; if (x < mn) mn = x; }
+                return new MValue(mn <= 0 ? double.PositiveInfinity : mx / mn);
             };
             _builtins["dot"] = a => {
                 if (a[0].Data.Length != a[1].Data.Length) throw new MatlabRuntimeException("dot: length mismatch");
@@ -7833,6 +7880,21 @@ namespace Calcpad.Core.Matlab
         /// <summary>sum/prod sobre valores simbólicos. Un escalar simbólico se reduce a sí
         /// mismo; un vector/matriz simbólico (p.ej. el resultado de factor()) se colapsa
         /// sumando/multiplicando todas sus celdas. Devuelve un escalar simbólico.</summary>
+        /// <summary>Valores singulares de A como arreglo limpio. MatlabLinAlg.SVD(A).S puede
+        /// devolver la matriz DIAGONAL m×n (con ceros fuera de diagonal); aquí se extrae solo
+        /// la diagonal. Si S ya viene como vector, se usa tal cual. Usado por norm(A,2) y cond.</summary>
+        private static double[] SingularValuesOf(MValue A)
+        {
+            var S = MatlabLinAlg.SVD(A).S;
+            if (S.Rows > 1 && S.Cols > 1)
+            {
+                int n = System.Math.Min(S.Rows, S.Cols);
+                var d = new double[n];
+                for (int i = 0; i < n; i++) d[i] = S.At(i, i);
+                return d;
+            }
+            return (double[])S.Data.Clone();
+        }
         private static MValue ReduceSym(MValue v, bool isProd)
         {
             var cells = new List<SymNode>();
@@ -8371,6 +8433,9 @@ namespace Calcpad.Core.Matlab
         {
             if (v.IsScalar) return v;
             if (v.IsSparseReal) return SparseTranspose(v);   // FIX: At() no funciona en sparse (Data=null) -> transpuesta CSR->CSC directa (mantiene disperso, ej. Fint=Bg'*x en FEM vectorizado)
+            // SymMatrix: At() lee el buffer numérico (ceros) → transponer las SymCells.
+            // Sin esto, sol2' de un A\b simbólico salía [0 0 0].
+            if (v.IsSymMatrix) return MValue.NewSymMatrix(SymMatOps.Transpose(v.SymCells));
             var r = new MValue(v.Cols, v.Rows);
             for (int i = 0; i < v.Rows; i++)
                 for (int j = 0; j < v.Cols; j++)
@@ -9309,9 +9374,15 @@ namespace Calcpad.Core.Matlab
                 {
                     int newLen = Math.Max(idx, curLen);
                     var grown = isRow ? new MValue[1, newLen] : new MValue[newLen, 1];
+                    // Copia acotada a las dimensiones REALES de cd: antes cd[t,0]/cd[0,t]
+                    // con t hasta curLen=max(r,c) se salía cuando cd no era vector puro
+                    // (p.ej. repmat({''},N,1) N×1 con c>r) → IndexOutOfRange.
+                    int cdR = cd.GetLength(0), cdC = cd.GetLength(1);
                     for (int t = 0; t < curLen; t++)
                     {
-                        var old = isRow ? cd[0, t] : cd[t, 0];
+                        MValue old = null;
+                        if (isRow) { if (t < cdC) old = cd[0, t]; }
+                        else       { if (t < cdR) old = cd[t, 0]; }
                         if (isRow) grown[0, t] = old; else grown[t, 0] = old;
                     }
                     cd = grown;
@@ -10045,6 +10116,20 @@ namespace Calcpad.Core.Matlab
                 var L = CoerceToSymMatrix(l, lR, lC);
                 var R = CoerceToSymMatrix(r, rR, rC);
                 return MValue.NewSymMatrix(SymMatOps.Mul(L, R));
+            }
+            // mldivide simbólico A\B por Cramer (A cuadrada n×n, B n×c). Antes caía al
+            // element-wise → "sym matrix op: shape mismatch 2×1 vs 2×2".
+            if (op == "\\")
+            {
+                int aR = l.IsSymMatrix ? l.SymCells.GetLength(0) : l.Rows;
+                int aC = l.IsSymMatrix ? l.SymCells.GetLength(1) : l.Cols;
+                int bR = r.IsSymMatrix ? r.SymCells.GetLength(0) : r.Rows;
+                int bC = r.IsSymMatrix ? r.SymCells.GetLength(1) : r.Cols;
+                if (aR != aC || aR != bR)
+                    throw new MatlabRuntimeException($"sym mldivide: dim mismatch {aR}×{aC} \\ {bR}×{bC}");
+                var A = CoerceToSymMatrix(l, aR, aC);
+                var Bm = CoerceToSymMatrix(r, bR, bC);
+                return MValue.NewSymMatrix(SymMatOps.Solve(A, Bm));
             }
             // Element-wise: +, -, .*, ./, .^
             // Determinar shape común
@@ -11470,6 +11555,54 @@ namespace Calcpad.Core.Matlab
                     R[i, j] = acc.Simplify();
                 }
             return R;
+        }
+        /// <summary>Determinante simbólico por expansión de cofactores (n pequeño).</summary>
+        public static SymNode Det(SymNode[,] A)
+        {
+            int n = A.GetLength(0);
+            if (A.GetLength(1) != n) throw new MatlabRuntimeException("sym det: matriz no cuadrada");
+            if (n == 1) return A[0, 0];
+            if (n == 2) return new SymSub(new SymMul(A[0, 0], A[1, 1]), new SymMul(A[0, 1], A[1, 0])).Simplify();
+            SymNode acc = new SymConst(0);
+            for (int j = 0; j < n; j++)
+            {
+                var term = new SymMul(A[0, j], Det(SymMinor(A, 0, j)));
+                acc = (j % 2 == 0) ? new SymAdd(acc, term) : (SymNode)new SymSub(acc, term);
+            }
+            return acc.Simplify();
+        }
+        private static SymNode[,] SymMinor(SymNode[,] A, int skipR, int skipC)
+        {
+            int n = A.GetLength(0);
+            var m = new SymNode[n - 1, n - 1];
+            int ri = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (i == skipR) continue;
+                int cj = 0;
+                for (int j = 0; j < n; j++) { if (j == skipC) continue; m[ri, cj] = A[i, j]; cj++; }
+                ri++;
+            }
+            return m;
+        }
+        /// <summary>mldivide simbólico A\B por regla de Cramer: x_i = det(A_i)/det(A),
+        /// donde A_i es A con la columna i reemplazada por b. A n×n, B n×c.</summary>
+        public static SymNode[,] Solve(SymNode[,] A, SymNode[,] B)
+        {
+            int n = A.GetLength(0);
+            if (A.GetLength(1) != n) throw new MatlabRuntimeException("sym mldivide: A no es cuadrada");
+            if (B.GetLength(0) != n) throw new MatlabRuntimeException("sym mldivide: dimensiones incompatibles");
+            int bc = B.GetLength(1);
+            var detA = Det(A);
+            var X = new SymNode[n, bc];
+            for (int col = 0; col < bc; col++)
+                for (int i = 0; i < n; i++)
+                {
+                    var Ai = (SymNode[,])A.Clone();
+                    for (int r = 0; r < n; r++) Ai[r, i] = B[r, col];
+                    X[i, col] = new SymDiv(Det(Ai), detA).Simplify();
+                }
+            return X;
         }
         public static SymNode[,] ScalarMul(SymNode s, SymNode[,] A)
         {
