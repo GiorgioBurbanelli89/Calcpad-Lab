@@ -9193,12 +9193,13 @@ namespace Calcpad.Core.Matlab
         }
         private static void ScanBodyFlags(MatlabNode n, ref int flags)
         {
-            if (n == null || (flags & 6) == 6) return;             // nargin+nargout ya hallados → corta
+            if (n == null || (flags & 14) == 14) return;           // nargin+nargout+inputname hallados → corta
             switch (n)
             {
                 case IdentRef id:
                     if (id.Name == "nargin") flags |= 2;
                     else if (id.Name == "nargout") flags |= 4;
+                    else if (id.Name == "inputname") flags |= 8;    // solo entonces hace falta ArgNames
                     break;
                 case UnaryOp u: ScanBodyFlags(u.Operand, ref flags); break;
                 case BinaryOp b: ScanBodyFlags(b.Left, ref flags); ScanBodyFlags(b.Right, ref flags); break;
@@ -10763,7 +10764,11 @@ namespace Calcpad.Core.Matlab
                     return ConstructInstance(cls, EvalArgs(c.Args, scope), scope);
                 // 3) User function definida
                 if (_userFunctions.TryGetValue(id.Name, out var def))
-                    return CallUserFunction(def, EvalArgs(c.Args, scope), ArgNames(c.Args));
+                {
+                    var eargs = EvalArgs(c.Args, scope);
+                    int dbf = def.BodyFlags ??= ComputeBodyFlags(def);
+                    return CallUserFunction(def, eargs, (dbf & 8) != 0 ? ArgNames(c.Args) : null);
+                }
                 // 4) Builtin función
                 var args = EvalArgs(c.Args, scope);
                 if (_builtins.TryGetValue(id.Name, out var fn))
