@@ -1248,19 +1248,59 @@ namespace Calcpad.Core.Matlab
                 if (a.Length < 2) throw new MatlabRuntimeException("atan2d(y,x)");
                 return MapBinary(a[0], a[1], (y, x) => Math.Atan2(y, x) * 180 / Math.PI);
             };
-            _builtins["cumsum"] = a => {
-                var v = a[0];
+            _builtins["cumsum"] = a => CumScan(a, false);
+            _builtins["cumprod"] = a => CumScan(a, true);
+            _builtins["cummax"] = a => CumMinMax(a, true);
+            _builtins["cummin"] = a => CumMinMax(a, false);
+            // tril(A[,k]) / triu(A[,k]) — triangular inferior/superior (k = diagonal offset).
+            _builtins["tril"] = a => {
+                var v = a[0]; int k = a.Length >= 2 ? (int)a[1].Scalar : 0;
                 var r = new MValue(v.Rows, v.Cols);
-                double acc = 0;
-                for (int i = 0; i < v.Data.Length; i++) { acc += v.Data[i]; r.Data[i] = acc; }
+                for (int i = 0; i < v.Rows; i++) for (int j = 0; j < v.Cols; j++) if (j <= i + k) r.Set(i, j, v.At(i, j));
                 return r;
             };
-            _builtins["cumprod"] = a => {
+            _builtins["triu"] = a => {
+                var v = a[0]; int k = a.Length >= 2 ? (int)a[1].Scalar : 0;
+                var r = new MValue(v.Rows, v.Cols);
+                for (int i = 0; i < v.Rows; i++) for (int j = 0; j < v.Cols; j++) if (j >= i + k) r.Set(i, j, v.At(i, j));
+                return r;
+            };
+            // circshift(X, n[, dim]) — desplazamiento circular.
+            _builtins["circshift"] = a => {
                 var v = a[0];
                 var r = new MValue(v.Rows, v.Cols);
-                double acc = 1;
-                for (int i = 0; i < v.Data.Length; i++) { acc *= v.Data[i]; r.Data[i] = acc; }
+                int Mod(int x, int m) { int y = x % m; return y < 0 ? y + m : y; }
+                if (v.Rows == 1 || v.Cols == 1)
+                {
+                    int n = v.Data.Length, s = (int)(a[1].IsScalar ? a[1].Scalar : a[1].Data[0]);
+                    for (int i = 0; i < n; i++) r.Data[Mod(i + s, n)] = v.Data[i];
+                    return r;
+                }
+                int sr = 0, sc = 0;
+                if (a.Length >= 3) { int d = (int)a[2].Scalar; int sh = (int)a[1].Scalar; if (d == 1) sr = sh; else sc = sh; }
+                else { sr = (int)a[1].Data[0]; sc = a[1].Data.Length >= 2 ? (int)a[1].Data[1] : 0; }
+                for (int i = 0; i < v.Rows; i++) for (int j = 0; j < v.Cols; j++) r.Set(Mod(i + sr, v.Rows), Mod(j + sc, v.Cols), v.At(i, j));
                 return r;
+            };
+            // flip(X[,dim]) — invierte a lo largo de dim (default: primera no-singleton).
+            _builtins["flip"] = a => {
+                var v = a[0];
+                int dim = a.Length >= 2 ? (int)a[1].Scalar : (v.Rows == 1 ? 2 : 1);
+                var r = new MValue(v.Rows, v.Cols);
+                for (int i = 0; i < v.Rows; i++) for (int j = 0; j < v.Cols; j++)
+                    r.Set(dim == 1 ? v.Rows - 1 - i : i, dim == 2 ? v.Cols - 1 - j : j, v.At(i, j));
+                return r;
+            };
+            _builtins["gcd"] = a => {
+                double G(double x, double y) { x = Math.Abs(x); y = Math.Abs(y); while (y > 1e-12) { double t = x % y; x = y; y = t; } return Math.Round(x); }
+                if (a[0].IsScalar && a[1].IsScalar) return new MValue(G(a[0].Scalar, a[1].Scalar));
+                return MapBinary(a[0], a[1], G);
+            };
+            _builtins["lcm"] = a => {
+                double G(double x, double y) { x = Math.Abs(x); y = Math.Abs(y); while (y > 1e-12) { double t = x % y; x = y; y = t; } return x; }
+                double L(double x, double y) { double g = G(x, y); return g == 0 ? 0 : Math.Round(Math.Abs(x * y) / g); }
+                if (a[0].IsScalar && a[1].IsScalar) return new MValue(L(a[0].Scalar, a[1].Scalar));
+                return MapBinary(a[0], a[1], L);
             };
             _builtins["diff"] = a => {
                 var v = a[0];
@@ -1465,14 +1505,8 @@ namespace Calcpad.Core.Matlab
                     r.Data[i] = setBm.Contains(a[0].Data[i]) ? 1 : 0;
                 return r;
             };
-            _builtins["any"] = a => {
-                foreach (var x in a[0].Data) if (x != 0) return new MValue(1);
-                return new MValue(0);
-            };
-            _builtins["all"] = a => {
-                foreach (var x in a[0].Data) if (x == 0) return new MValue(0);
-                return new MValue(1);
-            };
+            _builtins["any"] = a => AnyAll(a, false);
+            _builtins["all"] = a => AnyAll(a, true);
             _builtins["isempty"] = a => new MValue(a[0].Data.Length == 0 ? 1 : 0);
             _builtins["isscalar"] = a => new MValue(a[0].IsScalar ? 1 : 0);
             _builtins["isvector"] = a => new MValue((a[0].Rows == 1 || a[0].Cols == 1) ? 1 : 0);
@@ -6453,7 +6487,113 @@ namespace Calcpad.Core.Matlab
                     return MValue.NewSymMatrix(SymMatOps.Expm(a[0].SymCells));
                 return MatlabLinAlg.Expm(a[0]);
             };
-            _builtins["svd"] = a => MatlabLinAlg.SVD(a[0]).S;
+            _builtins["svd"] = a => {
+                // svd(A) 1-salida = VECTOR COLUMNA de valores singulares (MATLAB); [U,S,V] va aparte.
+                var S = MatlabLinAlg.SVD(a[0]).S;
+                int n = Math.Min(S.Rows, S.Cols);
+                var r = new MValue(n, 1);
+                for (int i = 0; i < n; i++) r.Set(i, 0, S.At(i, i));
+                return r;
+            };
+            // cell2mat: concatena una matriz de celdas en una matriz numérica.
+            _builtins["cell2mat"] = a => {
+                var C = a[0];
+                if (!C.IsCell) return C;
+                int cr = C.CellData.GetLength(0), cc = C.CellData.GetLength(1);
+                if (cr == 0 || cc == 0) return new MValue(0, 0);
+                // altura de cada fila de bloque, ancho de cada col de bloque
+                var rowH = new int[cr]; var colW = new int[cc];
+                for (int i = 0; i < cr; i++) rowH[i] = C.CellData[i, 0].Rows;
+                for (int j = 0; j < cc; j++) colW[j] = C.CellData[0, j].Cols;
+                int R = 0, Cw = 0; foreach (var h in rowH) R += h; foreach (var w in colW) Cw += w;
+                var outM = new MValue(R, Cw);
+                int ro = 0;
+                for (int i = 0; i < cr; i++)
+                {
+                    int co = 0;
+                    for (int j = 0; j < cc; j++)
+                    {
+                        var blk = C.CellData[i, j];
+                        for (int bi = 0; bi < blk.Rows; bi++) for (int bj = 0; bj < blk.Cols; bj++) outM.Set(ro + bi, co + bj, blk.At(bi, bj));
+                        co += colW[j];
+                    }
+                    ro += rowH[i];
+                }
+                return outM;
+            };
+            // blkdiag(A,B,...): matriz diagonal por bloques.
+            _builtins["blkdiag"] = a => {
+                int R = 0, C = 0; foreach (var m in a) { R += m.Rows; C += m.Cols; }
+                var outM = new MValue(R, C); int ro = 0, co = 0;
+                foreach (var m in a) { for (int i = 0; i < m.Rows; i++) for (int j = 0; j < m.Cols; j++) outM.Set(ro + i, co + j, m.At(i, j)); ro += m.Rows; co += m.Cols; }
+                return outM;
+            };
+            // toeplitz(c[,r]): matriz de Toeplitz.
+            _builtins["toeplitz"] = a => {
+                var col = a[0].Data; var row = a.Length >= 2 ? a[1].Data : a[0].Data;
+                int m = col.Length, n = row.Length; var outM = new MValue(m, n);
+                for (int i = 0; i < m; i++) for (int j = 0; j < n; j++) outM.Set(i, j, i >= j ? col[i - j] : row[j - i]);
+                return outM;
+            };
+            // vander(v): matriz de Vandermonde (MATLAB: columnas potencias decrecientes).
+            _builtins["vander"] = a => {
+                var v = a[0].Data; int n = v.Length; var outM = new MValue(n, n);
+                for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) outM.Set(i, j, Math.Pow(v[i], n - 1 - j));
+                return outM;
+            };
+            _builtins["primes"] = a => {
+                int n = (int)a[0].Scalar; var list = new List<double>();
+                for (int k = 2; k <= n; k++) { bool p = true; for (int d = 2; (long)d * d <= k; d++) if (k % d == 0) { p = false; break; } if (p) list.Add(k); }
+                var r = new MValue(1, list.Count); for (int i = 0; i < list.Count; i++) r.Data[i] = list[i]; return r;
+            };
+            _builtins["factor"] = a => {
+                long n = (long)Math.Round(a[0].Scalar); var list = new List<double>();
+                for (long d = 2; d * d <= n; d++) while (n % d == 0) { list.Add(d); n /= d; }
+                if (n > 1) list.Add(n);
+                if (list.Count == 0) list.Add(a[0].Scalar);
+                var r = new MValue(1, list.Count); for (int i = 0; i < list.Count; i++) r.Data[i] = list[i]; return r;
+            };
+            // histc(x, edges): conteo por bins [edges(k), edges(k+1)); último = igualdad exacta.
+            _builtins["histc"] = a => {
+                var x = a[0].Data; var e = a[1].Data; int n = e.Length;
+                var r = new MValue(a[1].Rows == 1 ? 1 : n, a[1].Rows == 1 ? n : 1);
+                foreach (var xv in x)
+                {
+                    for (int k = 0; k < n; k++)
+                    {
+                        if (k < n - 1) { if (xv >= e[k] && xv < e[k + 1]) { r.Data[k] += 1; break; } }
+                        else { if (xv == e[k]) r.Data[k] += 1; }
+                    }
+                }
+                return r;
+            };
+            // prctile(x, p): percentil p (interpolación lineal, método MATLAB).
+            _builtins["prctile"] = a => {
+                var src = (double[])a[0].Data.Clone(); Array.Sort(src); int n = src.Length;
+                double One(double p)
+                {
+                    if (n == 0) return double.NaN; if (n == 1) return src[0];
+                    double pos = p / 100.0 * n - 0.5;
+                    if (pos <= 0) return src[0]; if (pos >= n - 1) return src[n - 1];
+                    int lo = (int)Math.Floor(pos); double fr = pos - lo;
+                    return src[lo] + fr * (src[lo + 1] - src[lo]);
+                }
+                var P = a[1];
+                if (P.IsScalar) return new MValue(One(P.Scalar));
+                var r = new MValue(P.Rows, P.Cols); for (int i = 0; i < P.Data.Length; i++) r.Data[i] = One(P.Data[i]); return r;
+            };
+            _builtins["bin2dec"] = a => {
+                string s = a[0].IsString ? a[0].StringValue.Replace(" ", "") : "";
+                double val = 0; foreach (char ch in s) if (ch == '0' || ch == '1') val = val * 2 + (ch - '0');
+                return new MValue(val);
+            };
+            _builtins["dec2bin"] = a => {
+                long n = (long)Math.Round(a[0].Scalar); int minLen = a.Length >= 2 ? (int)a[1].Scalar : 1;
+                string s = n == 0 ? "0" : "";
+                long t = n; while (t > 0) { s = (char)('0' + (t & 1)) + s; t >>= 1; }
+                while (s.Length < minLen) s = "0" + s;
+                return new MValue(s);
+            };
             _multiOutBuiltins["svd"] = a => {
                 var (U, S, V) = MatlabLinAlg.SVD(a[0]);
                 return new[] { U, S, V };
@@ -7978,6 +8118,59 @@ namespace Calcpad.Core.Matlab
             return new MValue(acc);
         }
 
+        // cumsum/cumprod respetando dim y COLUMNA-MAYOR (MATLAB). Antes acumulaba todo el
+        // array row-major ignorando dim -> resultado incorrecto para matrices.
+        private static MValue CumScan(MValue[] a, bool prod)
+        {
+            var v = a[0]; double seed = prod ? 1.0 : 0.0;
+            Func<double, double, double> f = prod ? (Func<double, double, double>)((x, y) => x * y) : ((x, y) => x + y);
+            int dim = a.Length >= 2 && a[1] != null && !a[1].IsString && a[1].Data.Length > 0 ? (int)a[1].Scalar
+                    : (v.Rows == 1 ? 2 : 1);   // vector fila -> a lo largo de la fila; si no, por columna
+            var r = new MValue(v.Rows, v.Cols);
+            if (dim == 2)
+                for (int i = 0; i < v.Rows; i++) { double acc = seed; for (int j = 0; j < v.Cols; j++) { acc = f(acc, v.At(i, j)); r.Set(i, j, acc); } }
+            else
+                for (int j = 0; j < v.Cols; j++) { double acc = seed; for (int i = 0; i < v.Rows; i++) { acc = f(acc, v.At(i, j)); r.Set(i, j, acc); } }
+            return r;
+        }
+
+        private static MValue CumMinMax(MValue[] a, bool wantMax)
+        {
+            var v = a[0]; Func<double, double, double> f = wantMax ? Math.Max : Math.Min;
+            int dim = a.Length >= 2 && a[1] != null && !a[1].IsString && a[1].Data.Length > 0 ? (int)a[1].Scalar : (v.Rows == 1 ? 2 : 1);
+            var r = new MValue(v.Rows, v.Cols);
+            if (dim == 2)
+                for (int i = 0; i < v.Rows; i++) { double acc = v.At(i, 0); for (int j = 0; j < v.Cols; j++) { acc = j == 0 ? v.At(i, 0) : f(acc, v.At(i, j)); r.Set(i, j, acc); } }
+            else
+                for (int j = 0; j < v.Cols; j++) { double acc = v.At(0, j); for (int i = 0; i < v.Rows; i++) { acc = i == 0 ? v.At(0, j) : f(acc, v.At(i, j)); r.Set(i, j, acc); } }
+            return r;
+        }
+
+        // any/all por dim (MATLAB): vector->escalar; matriz->1×Cols (dim1) o Rows×1 (dim2).
+        // Antes reducian TODO el array a un escalar -> incorrecto para matrices.
+        private static MValue AnyAll(MValue[] a, bool wantAll)
+        {
+            var v = a[0];
+            bool isVec = v.Rows <= 1 || v.Cols <= 1;
+            int dim = a.Length >= 2 && a[1] != null && !a[1].IsString && a[1].Data.Length > 0 ? (int)a[1].Scalar : 0;
+            if (dim == 0 && isVec)
+            {
+                bool res = wantAll;
+                foreach (var x in v.Data) { bool b = x != 0; if (wantAll && !b) { res = false; break; } if (!wantAll && b) { res = true; break; } }
+                return new MValue(res ? 1 : 0);
+            }
+            if (dim == 0) dim = 1;
+            if (dim == 1)
+            {
+                var r = new MValue(1, v.Cols);
+                for (int j = 0; j < v.Cols; j++) { bool res = wantAll; for (int i = 0; i < v.Rows; i++) { bool b = v.At(i, j) != 0; if (wantAll && !b) { res = false; break; } if (!wantAll && b) { res = true; break; } } r.Set(0, j, res ? 1 : 0); }
+                return r;
+            }
+            var rr = new MValue(v.Rows, 1);
+            for (int i = 0; i < v.Rows; i++) { bool res = wantAll; for (int j = 0; j < v.Cols; j++) { bool b = v.At(i, j) != 0; if (wantAll && !b) { res = false; break; } if (!wantAll && b) { res = true; break; } } rr.Set(i, 0, res ? 1 : 0); }
+            return rr;
+        }
+
         /// <summary>sum/prod respetando la DIMENSIÓN de MATLAB (crucial para código vectorizado
         /// como <c>sum(A.^2,2)</c> = norma por fila). dim=0 → auto (vector→escalar, matriz→por columna);
         /// dim=1 → por columna (1×Cols); dim=2 → por fila (Rows×1). Antes se ignoraba dim y todo
@@ -8062,10 +8255,14 @@ namespace Calcpad.Core.Matlab
         {
             double init = isMax ? double.NegativeInfinity : double.PositiveInfinity;
             Func<double, double, double> op = isMax ? Math.Max : Math.Min;
-            if (a.Length == 1) return Reduce(a[0], init, op);
-            // min(X, [], dim) → reducción (segundo argumento vacío)
+            // max(X): auto (vector->escalar, matriz->por COLUMNA como MATLAB, no global).
+            if (a.Length == 1) return ReduceNumDim(a[0], 0, init, op);
+            // max(X, [], dim) → reducción por dim (2do arg vacío; dim opcional = 3er arg).
             if (a[1] != null && !a[1].IsString && a[1].Rows * a[1].Cols == 0)
-                return Reduce(a[0], init, op);
+            {
+                int dim = a.Length >= 3 && a[2] != null ? (int)a[2].Scalar : 0;
+                return ReduceNumDim(a[0], dim, init, op);
+            }
             // min(X, Y) elementwise con broadcast escalar
             var X = a[0]; var Y = a[1];
             if (X.IsScalar && Y.IsScalar) return new MValue(op(X.Scalar, Y.Scalar));
@@ -10120,7 +10317,9 @@ namespace Calcpad.Core.Matlab
                 "-" => MapBinaryFast(l, r, '-') ?? MapBinary(l, r, (a, c) => a - c),
                 "*" => MatMul(l, r),
                 ".*" => MapBinaryFast(l, r, '*') ?? MapBinary(l, r, (a, c) => a * c),
-                "/" => MapBinaryFast(l, r, '/') ?? MapBinary(l, r, (a, c) => a / c),  // MVP — full would do mrdivide
+                "/" => (l.IsScalar || r.IsScalar)
+                        ? (MapBinaryFast(l, r, '/') ?? MapBinary(l, r, (a, c) => a / c))   // A/escalar = element-wise
+                        : Transpose(MatlabLinAlg.Linsolve(Transpose(r), Transpose(l))),     // B/A = (A'\B')' (mrdivide real)
                 "./" => MapBinaryFast(l, r, '/') ?? MapBinary(l, r, (a, c) => a / c),
                 // MATLAB \: mldivide. Si ambos son matrices, resolver A*x = b.
                 // Si alguno es scalar, fallback a element-wise reverse-div.
@@ -10130,8 +10329,7 @@ namespace Calcpad.Core.Matlab
                         ? MapBinary(l, r, (a, c) => c / a)
                         : MatlabLinAlg.Linsolve(l, r),
                 ".\\" => MapBinary(l, r, (a, c) => c / a),
-                "^" => l.IsScalar && r.IsScalar ? new MValue(Math.Pow(l.Scalar, r.Scalar))
-                       : MapBinary(l, r, Math.Pow), // MVP — full would do matrix power
+                "^" => MPowerOp(l, r),
                 ".^" => MapBinary(l, r, Math.Pow),
                 "==" => MapBinary(l, r, (a, c) => a == c ? 1 : 0),
                 "~=" => MapBinary(l, r, (a, c) => a != c ? 1 : 0),
@@ -10331,6 +10529,29 @@ namespace Calcpad.Core.Matlab
                 }
             }
             throw new MatlabRuntimeException($"sym matrix op '{op}' not supported");
+        }
+
+        // A^p (mpower): escalar^escalar = pow; matriz cuadrada ^ entero = producto
+        // matricial repetido (p<0 -> inv). Antes hacia element-wise (A^2 daba A.^2 -> BUG).
+        private static MValue MPowerOp(MValue l, MValue r)
+        {
+            if (l.IsScalar && r.IsScalar) return new MValue(Math.Pow(l.Scalar, r.Scalar));
+            if (r.IsScalar && !l.IsScalar)
+            {
+                if (l.Rows != l.Cols) throw new MatlabRuntimeException("^: la matriz debe ser cuadrada");
+                double p = r.Scalar;
+                if (p != Math.Floor(p)) throw new MatlabRuntimeException("^: potencia no entera de matriz no soportada (usa eig)");
+                int n = (int)p, N = l.Rows;
+                var acc = new MValue(N, N); for (int i = 0; i < N; i++) acc.Set(i, i, 1.0);   // identidad
+                if (n == 0) return acc;
+                MValue baseM = l;
+                if (n < 0) { baseM = MatlabLinAlg.Inverse(l); n = -n; }
+                // exponenciacion binaria
+                for (; n > 0; n >>= 1) { if ((n & 1) == 1) acc = MatMul(acc, baseM); if (n > 1) baseM = MatMul(baseM, baseM); }
+                return acc;
+            }
+            if (l.IsScalar && !r.IsScalar) throw new MatlabRuntimeException("^: escalar^matriz no soportado (usa expm/eig)");
+            throw new MatlabRuntimeException("^: formas de operandos no soportadas");
         }
 
         private static MValue MatMul(MValue a, MValue b)
@@ -10857,15 +11078,26 @@ namespace Calcpad.Core.Matlab
                 // Si el INDICE es una matriz 2D, el resultado toma SU forma (MATLAB:
                 // A(M) tiene el size de M). Sin esto, newid(elems) con elems ne×4
                 // aplanaba la conectividad -> rompia el ensamblaje FEM.
-                int idxR = 0, idxC = 0;
+                int idxR = 0, idxC = 0; bool idxIsMask = false;
                 if (!isFullColon && lin.Length > 1)
                 {
-                    try { var idxM = Eval(idxNodes[0], scope); idxR = idxM.Rows; idxC = idxM.Cols; } catch { }
+                    try
+                    {
+                        var idxM = Eval(idxNodes[0], scope); idxR = idxM.Rows; idxC = idxM.Cols;
+                        // Máscara LÓGICA (todos 0/1 y del tamaño del target) -> A(mask) es VECTOR
+                        // columna (no la forma de la máscara). Antes devolvía una matriz 4×4.
+                        if (idxM.Data != null && idxM.Data.Length == m.Rows * m.Cols)
+                        {
+                            bool bin = true; foreach (var x in idxM.Data) if (x != 0 && x != 1) { bin = false; break; }
+                            idxIsMask = bin;
+                        }
+                    }
+                    catch { }
                 }
                 MValue r;
                 if (isFullColon)
                     r = new MValue(lin.Length, 1);   // column vector
-                else if (idxR > 1 && idxC > 1)
+                else if (idxR > 1 && idxC > 1 && !idxIsMask)
                     r = new MValue(idxR, idxC);      // indice matriz 2D -> forma del indice
                 else if (sourceIsRow)
                     r = new MValue(1, lin.Length);   // mantener row si source es row
