@@ -643,6 +643,10 @@ return {make:make};
                 _figTraces = null; _figAnnotations = null; _figPrims = null;
                 return canvasHtml;
             }
+            // Guarda defensiva: si llegamos aquí sin trazas (doble-finish, prims ya
+            // consumidos, etc.) no hay nada que serializar en Plotly → evitar el
+            // NullReferenceException en _figTraces.Count.
+            if (_figTraces == null) { _figAnnotations = null; _figPrims = null; return ""; }
             var sb = new StringBuilder();
             sb.Append($"<div id=\"matlab_plot_{_figId}\" class=\"matlab-plot\" style=\"width:720px;height:560px\"></div>\n");
             sb.Append("<script>(function() {\n  var data = [\n");
@@ -708,7 +712,11 @@ return {make:make};
                   .Append($"]}}, [{idxs}]);\n");
             }
             sb.Append("})();</script>\n");
-            _figTraces = null; _figAnnotations = null;
+            // Limpiar _figPrims TAMBIÉN (las otras rutas de retorno ya lo hacían). Antes se
+            // dejaba con los line2d de este panel → en subplot, el siguiente FinishFigure
+            // veía traces=NULL + un prim rancio, no retornaba temprano, y crasheaba en la
+            // serialización Plotly (_figTraces.Count sobre null).
+            _figTraces = null; _figAnnotations = null; _figPrims = null;
             return sb.ToString();
         }
         public static void AddTrace(string traceJson) {
