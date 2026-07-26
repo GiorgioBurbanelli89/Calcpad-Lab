@@ -334,6 +334,9 @@ namespace Calcpad.Core.Matlab
             /// argumentos se resuelve como la longitud de ESE arreglo.</summary>
             public string EndArray;
             public Dictionary<string, ParameterExpression> Locals = new(StringComparer.Ordinal);
+            /// <summary>Label de salida de la FUNCIÓN (JIT de funciones): `return` hace Goto aquí.
+            /// null en contexto de bucle (el `return` no se soporta ahí → bailout).</summary>
+            public LabelTarget ReturnLabel;
         }
 
         /// <summary>Acceso (lectura/escritura) a una variable escalar: local IL si
@@ -500,6 +503,7 @@ namespace Calcpad.Core.Matlab
                 foreach (var p in def.ParamNames) if (p == "varargin") return null;
                 foreach (var o in def.OutputNames) if (o == "varargout") return null;
                 var cc = new CompileCtx { Evaluator = ev, UseLocals = true };
+                cc.ReturnLabel = Expression.Label("ret");   // Phase 1: `return` -> Goto aquí
                 foreach (var p in def.ParamNames) cc.VarKind[p] = TKind.Scalar;
                 foreach (var o in def.OutputNames) cc.VarKind[o] = TKind.Scalar;
                 if (!ClassifyBody(def.Body, cc)) return null;
@@ -520,6 +524,7 @@ namespace Calcpad.Core.Matlab
                     if (e == null) return null;                     // construcción no soportada → fallback
                     body.Add(e);
                 }
+                body.Add(Expression.Label(cc.ReturnLabel));         // destino de los `return` tempranos
                 var outArr = Expression.Variable(typeof(double[]), "out");
                 body.Add(Expression.Assign(outArr, Expression.NewArrayBounds(typeof(double), Expression.Constant(def.OutputNames.Count))));
                 for (int i = 0; i < def.OutputNames.Count; i++)
@@ -600,6 +605,8 @@ namespace Calcpad.Core.Matlab
                     return ClassifyBody(fl.Body, cc);
                 case ExprStmt es:
                     return InferKind(es.Expr, cc) != null;
+                case ReturnStmt:
+                    return true;               // `return` no clasifica variables
                 default:
                     return false;
             }
@@ -844,6 +851,10 @@ namespace Calcpad.Core.Matlab
                         }
                         return elseE;
                     }
+                case ReturnStmt:
+                    // `return` temprano (JIT de funciones): Goto al label de salida. En contexto
+                    // de bucle (ReturnLabel null) no se soporta -> bailout.
+                    return cc.ReturnLabel != null ? Expression.Goto(cc.ReturnLabel) : null;
                 case ForLoop fl:
                     {
                         // Bucle anidado: for v = start:end  (step 1). Emite un Loop IL con
