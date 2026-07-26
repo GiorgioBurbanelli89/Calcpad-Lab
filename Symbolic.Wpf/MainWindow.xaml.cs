@@ -4084,7 +4084,7 @@ namespace Calcpad.Wpf
         {
             var info = new ProcessStartInfo
             {
-                FileName = "https:// calcpad.eu",
+                FileName = "https://github.com/GiorgioBurbanelli89/hekatan-lab",
                 UseShellExecute = true
             };
             Process.Start(info);

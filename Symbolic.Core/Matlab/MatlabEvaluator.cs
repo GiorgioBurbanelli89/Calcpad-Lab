@@ -1504,6 +1504,30 @@ namespace Calcpad.Core.Matlab
                 if (a[0].IsString) { _output?.Invoke(a[0].StringValue); return a[0]; }
                 // Para simbolico: mostrar la expresion simplificada como texto
                 if (a[0].IsSymbolic) { _output?.Invoke(a[0].Symbolic.Simplify().ToInfix()); return a[0]; }
+                // Matriz simbólica: cada celda es un SymNode. Emitir filas `[c00  c01 …]`
+                // (celdas separadas por 2 espacios) igual que el path numérico de abajo,
+                // para que RenderDispWithMatrices la muestre como MATRIZ rica con las
+                // entradas simbólicas vivas. Sin este caso caía al bucle numérico que lee
+                // a[0].At(i,j) — el buffer Data (todo ceros) — y mostraba [0 0 0; …].
+                if (a[0].IsSymMatrix)
+                {
+                    var symCells = a[0].SymCells;
+                    int scr = symCells.GetLength(0), scc = symCells.GetLength(1);
+                    var sbSym = new StringBuilder();
+                    for (int i = 0; i < scr; i++)
+                    {
+                        sbSym.Append('[');
+                        for (int j = 0; j < scc; j++)
+                        {
+                            if (j > 0) sbSym.Append("  ");
+                            sbSym.Append(symCells[i, j].Simplify().ToInfix());
+                        }
+                        sbSym.Append(']');
+                        sbSym.Append('\n');   // \n (no CRLF): TryParseMatrixRow exige que la línea termine en ']'
+                    }
+                    _output?.Invoke(sbSym.ToString().TrimEnd());
+                    return a[0];
+                }
                 if (a[0].IsScalar) { _output?.Invoke(a[0].Scalar.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)); return a[0]; }
                 if (a[0].IsStruct)
                 {
@@ -6461,6 +6485,74 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i < n; i++) D.Set(i, i, vals.At(i, 0));
                 return new[] { vecs, D };
             };
+            // ── MEX MVP nativo: compila una funcion C++ y la registra como builtin nativo ──
+            // Opt-in: un .m normal corre igual (MATLAB no se rompe). `mex('f.cpp')` compila
+            // f.cpp -> f.dll con g++ y registra `f` como funcion llamable. Al llamar
+            // `y = f(A, B)` se marshalan las matrices row-major, se invoca hkmex por memoria
+            // y se envuelve la salida en un MValue-matriz. Errores de compilacion/carga =
+            // error real del motor (no texto fabricado).
+            _builtins["mex"] = a => {
+                if (a.Length < 1 || !a[0].IsString)
+                    throw new MatlabRuntimeException("mex(filename): se espera el nombre de un archivo .cpp");
+                string cpp = a[0].StringValue;
+                string dll;
+                try { dll = Calcpad.Core.MexInterop.Compile(cpp); }
+                catch (Exception ex) { throw new MatlabRuntimeException("mex: " + ex.Message); }
+
+                // Detecta que ABI exporta el DLL: mexFunction (MATLAB), hkmex (numerica), hkmex_str.
+                var abi = Calcpad.Core.MexInterop.Probe(dll);
+
+                string baseName = System.IO.Path.GetFileNameWithoutExtension(cpp);
+                // Registra <base> como builtin nativo. Sobre-escribe si ya existia (recompila).
+                _builtins[baseName] = args => {
+                    int nin = args.Length;
+                    // Ruta STRING (opt-in): si TODOS los argumentos son strings, se usa la ABI
+                    // `hkmex_str` (p.ej. CAS simbolico via giac) y se devuelve un MValue-string.
+                    bool allStr = nin > 0;
+                    for (int i = 0; i < nin && allStr; i++)
+                        allStr = args[i] != null && args[i].IsString;
+                    if (allStr && abi.hasStr)
+                    {
+                        var sIn = new string[nin];
+                        for (int i = 0; i < nin; i++) sIn[i] = args[i].StringValue;
+                        string sres;
+                        try { sres = Calcpad.Core.MexInterop.CallStr(dll, sIn); }
+                        catch (Exception ex) { throw new MatlabRuntimeException(baseName + " (mex): " + ex.Message); }
+                        return new MValue(sres);
+                    }
+                    // Ruta NUMERICA: matrices row-major. Se prefiere mexFunction (fiel a MATLAB)
+                    // si el DLL la exporta; si no, la ABI MVP `hkmex`.
+                    var inputs = new double[nin][];
+                    var inRows = new int[nin];
+                    var inCols = new int[nin];
+                    for (int i = 0; i < nin; i++)
+                    {
+                        var m = args[i];
+                        if (m == null || m.IsString || m.CellData != null || m.Fields != null)
+                            throw new MatlabRuntimeException($"{baseName} (mex): el argumento {i + 1} debe ser una matriz numerica real (o TODOS strings para la ABI hkmex_str)");
+                        inRows[i] = m.Rows; inCols[i] = m.Cols;
+                        inputs[i] = ToRowMajor(m);
+                    }
+                    System.Collections.Generic.List<(double[] data, int rows, int cols)> outs;
+                    try
+                    {
+                        if (abi.hasMex)
+                            outs = Calcpad.Core.MexInterop.CallMx(dll, inputs, inRows, inCols, 1);
+                        else if (abi.hasHk)
+                            outs = Calcpad.Core.MexInterop.Call(dll, inputs, inRows, inCols, 1);
+                        else
+                            throw new Exception("el DLL no exporta una entrada conocida (mexFunction / hkmex / hkmex_str)");
+                    }
+                    catch (Exception ex) { throw new MatlabRuntimeException(baseName + " (mex): " + ex.Message); }
+                    var o = outs[0];
+                    return new MValue(o.rows, o.cols, o.data);
+                };
+                return new MValue(0, 0); // `mex(...)` no produce salida visible (esta en _sinSalida)
+            };
+            // Alias idiomatico de Octave: `mkoctfile('f.cc')` == `mex('f.cc')`. Mismo mecanismo
+            // MVP (Compile por extension + ABI hkmex). Octave documenta mkoctfile; Lab documenta mex.
+            // .cc ya se trata como C++ en MexInterop.Compile. Ambos quedan disponibles.
+            _builtins["mkoctfile"] = _builtins["mex"];
             _builtins["norm"] = a => {
                 var v = a[0];
                 int p = a.Length > 1 ? (int)a[1].Scalar : 2;
@@ -7034,7 +7126,7 @@ namespace Calcpad.Core.Matlab
             "colorbar", "colormap", "subplot", "drawnow", "clf", "cla", "close",
             "shading", "lighting", "material", "camlight", "view", "rotate3d", "box",
             "set", "disp", "fprintf", "printf", "warning", "error", "pause", "clc",
-            "clear", "format", "hoverdata", "datacursormode", "print", "saveas"
+            "clear", "format", "hoverdata", "datacursormode", "print", "saveas", "mex", "mkoctfile"
         };
 
         /// <summary>true si la expresion es una llamada que no produce salida visible:
@@ -9762,6 +9854,16 @@ namespace Calcpad.Core.Matlab
             if ((l.IsDoubleQuoted || l.IsStringArray) || (r.IsDoubleQuoted || r.IsStringArray))
             {
                 return EvalBinaryStringOp(b.Op, l, r);
+            }
+            // Escalar-simbólico combinado con una matriz NUMÉRICA (no escalar): promover
+            // al path de matriz simbólica. Sin esto, la rama escalar de abajo tomaba
+            // `matriz.Scalar` (= primer elemento) y descartaba el resto — p.ej.
+            // `a*[1 2 3]` colapsaba a `a` en vez de `[a 2*a 3*a]`. EvalBinarySymMatrix
+            // levanta la matriz numérica a SymConst por celda y opera correctamente.
+            if ((l.IsSymbolic && !r.IsSymbolic && !r.IsScalar && !r.IsString && r.Rows * r.Cols > 1) ||
+                (r.IsSymbolic && !l.IsSymbolic && !l.IsScalar && !l.IsString && l.Rows * l.Cols > 1))
+            {
+                return EvalBinarySymMatrix(b.Op, l, r);
             }
             // Symbolic propagation: si alguno es simbólico, construir SymNode
             if (l.IsSymbolic || r.IsSymbolic)

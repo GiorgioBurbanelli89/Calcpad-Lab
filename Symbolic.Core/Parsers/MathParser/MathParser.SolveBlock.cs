@@ -645,9 +645,11 @@ namespace Calcpad.Core
 
                     if (_type == SolverTypes.Slope || _type == SolverTypes.Derivative)
                     {
+                        // Multivariable expression \u2192 partial-derivative symbol (\u2202).
+                        var d = IsPartialDerivative() ? "\u2202" : "d";
                         return writer.AddBrackets(
                             string.Concat(
-                                writer.FormatDivision("<em>d</em>", $"<em>d</em>\u200A{_items[1].Html}", 0),
+                                writer.FormatDivision($"<em>{d}</em>", $"<em>{d}</em>\u200A{_items[1].Html}", 0),
                                 "&nbsp;",
                                 _items[0].Html), 1,' ','|') +
                             $"<span class=\"low\"><em>{_items[1].Input}</em>\u200A=\u200A{_items[2].Html}</span>";
@@ -699,6 +701,42 @@ namespace Calcpad.Core
                 return sb.ToString();
             }
 
+            // A Slope/Derivative is treated as a PARTIAL derivative when the derived
+            // expression (_items[0]) references at least one FREE SYMBOL other than the
+            // derivation variable (_items[1]). Detection walks the compiled RPN of the
+            // expression. A free symbol appears either as a Variable token (a defined
+            // variable) or as a Unit token — Calcpad's fallback for a bare, otherwise
+            // undefined identifier, which is exactly how the symbolic "y" in x^2*y is
+            // tokenized. Numeric constants and math constants (pi, e, ...) are Constant
+            // tokens and function names are Function tokens, so neither can produce a
+            // false positive. Note: a genuine physical unit written inline (e.g. m, s)
+            // is also a Unit token and would be counted — an acceptable edge case, since
+            // mixing physical units into a symbolic derivative is uncommon and the
+            // displayed result does depend on that symbol.
+            private bool IsPartialDerivative()
+            {
+                var rpn = _items[0].Rpn;
+                if (rpn is null)
+                    return false;
+
+                var dVar = _items[1].Input;
+                foreach (var t in rpn)
+                {
+                    if (t.Type != TokenTypes.Variable && t.Type != TokenTypes.Unit)
+                        continue;
+
+                    // Unit tokens built from a real unit carry italic markup in Content
+                    // (e.g. "<i>y</i>"); strip it before comparing to the plain var name.
+                    var name = t.Content;
+                    if (name.Contains('<'))
+                        name = name.Replace("<i>", string.Empty).Replace("</i>", string.Empty);
+
+                    if (!string.Equals(name, dVar, StringComparison.Ordinal))
+                        return true;
+                }
+                return false;
+            }
+
             internal string ToXml()
             {
                 var len = _items.Length;
@@ -734,8 +772,12 @@ namespace Calcpad.Core
 
                 if (_type == SolverTypes.Slope || _type == SolverTypes.Derivative)
                 {
+                    // If the derived expression depends on any variable other than the
+                    // derivation variable, render the partial-derivative symbol (\u2202) instead
+                    // of the straight "d". Detection uses the compiled RPN of _items[0].
+                    var dSymbol = IsPartialDerivative() ? "\u2202" : "d";
                     return writer.FormatSubscript(writer.AddBrackets(
-                        writer.FormatDivision(XmlWriter.Run("d"), $"{XmlWriter.Run("d")}{_items[1].Xml}", 0) +
+                        writer.FormatDivision(XmlWriter.Run(dSymbol), $"{XmlWriter.Run(dSymbol)}{_items[1].Xml}", 0) +
                             _items[0].Xml, 1, ' ', '|'),
                         $"{XmlWriter.Run(_items[1].Input)}{XmlWriter.Run("\u2009=\u2009")}{_items[2].Xml}");
                 }

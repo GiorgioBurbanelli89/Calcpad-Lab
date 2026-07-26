@@ -577,7 +577,7 @@ namespace Calcpad.Core.Matlab
             html = null;
             if (string.IsNullOrEmpty(commentText)) return false;
             var t = commentText.Trim();
-            var expr = ParseDirective(t, out bool compute);
+            var expr = ParseDirective(t, out string mode);
             if (expr == null || expr.Length == 0) return false;
             try
             {
@@ -594,9 +594,12 @@ namespace Calcpad.Core.Matlab
                 //          valor) con los escalares MATLAB inyectados, para que un
                 //          operador numérico ($Area/$Slope/…) evalúe con los
                 //          valores reales que calculó MATLAB.
-                string source = compute
-                    ? BuildScalarInjection(expr) + expr
-                    : "#noc\n" + expr;
+                // mode = directiva de salida Calcpad REAL: #noc (solo fórmula),
+                // #val (solo valor), #equ (ecuación + valor). Solo #noc es
+                // simbólico (no inyecta los escalares MATLAB); #val/#equ calculan.
+                bool symbolic = mode == "#noc";
+                string source = mode + "\n" +
+                    (symbolic ? "" : BuildScalarInjection(expr)) + expr;
                 renderer.Parse(source, calculate: true, getXml: false);
                 var result = renderer.HtmlResult;
                 if (string.IsNullOrEmpty(result)) return false;
@@ -624,16 +627,20 @@ namespace Calcpad.Core.Matlab
         /// <summary>
         /// Reconoce el marcador de directiva Calcpad al inicio de un comentario
         /// MATLAB y devuelve la expresión que sigue (o null si no es directiva).
-        /// <paramref name="compute"/> = true si hay que EVALUAR (modo cálculo:
-        /// <c>#val</c> o <c>$Op</c> directo); false si es SIMBÓLICO (<c>#noc</c>).
+        /// <paramref name="mode"/> = directiva de salida Calcpad real:
+        /// <c>#noc</c> (No calculation: solo la fórmula),
+        /// <c>#val</c> (Values only: solo el resultado),
+        /// <c>#equ</c> (Equations: fórmula = sustitución = resultado).
+        /// Un operador <c>$Op</c> directo sin marcador se muestra en modo <c>#equ</c>.
         /// </summary>
-        private static string ParseDirective(string t, out bool compute)
+        private static string ParseDirective(string t, out string mode)
         {
-            compute = false;
-            if (TryMarker(t, "#noc", out var rest)) { compute = false; return rest; }
-            if (TryMarker(t, "#val", out rest))     { compute = true;  return rest; }
-            // Operador Calcpad directo: `% $Area{…}` / `% R = $Slope{…}` sin marcador.
-            if (t.StartsWith("$", StringComparison.Ordinal)) { compute = true; return t; }
+            if (TryMarker(t, "#noc", out var rest)) { mode = "#noc"; return rest; }
+            if (TryMarker(t, "#val", out rest))     { mode = "#val"; return rest; }
+            if (TryMarker(t, "#equ", out rest))     { mode = "#equ"; return rest; }
+            // Operador Calcpad directo (`% $Area{…}`): ecuación + valor.
+            if (t.StartsWith("$", StringComparison.Ordinal)) { mode = "#equ"; return t; }
+            mode = null;
             return null;
         }
 
