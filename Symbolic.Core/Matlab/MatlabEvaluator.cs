@@ -6741,11 +6741,35 @@ namespace Calcpad.Core.Matlab
             };
             _multiOutBuiltins["sort"] = a => {
                 var v = a[0];
-                var pairs = v.Data.Select((x, i) => (x, i + 1)).OrderBy(p => p.x).ToArray();
-                var data = new double[pairs.Length];
-                var idx = new double[pairs.Length];
-                for (int k = 0; k < pairs.Length; k++) { data[k] = pairs[k].x; idx[k] = pairs[k].Item2; }
-                return new[] { new MValue(v.Rows, v.Cols, data), new MValue(v.Rows, v.Cols, idx) };
+                // [S,I]=sort(X) | sort(X,dim) | sort(X,'ascend'|'descend') | sort(X,dim,dir).
+                // Antes IGNORABA 'descend' y dim (siempre ascendente 1-D) → cualquier
+                // [s,i]=sort(x,'descend') salía invertido (rompía p.ej. return-maps).
+                bool descend = false; int dim = 0;
+                for (int i = 1; i < a.Length; i++)
+                {
+                    if (a[i] != null && a[i].IsString) { var s = a[i].StringValue.ToLowerInvariant(); descend = (s == "descend"); }
+                    else if (a[i] != null && a[i].Data.Length > 0) dim = (int)Math.Round(a[i].Data[0]);
+                }
+                int R = v.Rows, C = v.Cols;
+                if (dim == 0) dim = (R == 1) ? 2 : 1;   // vector fila → dim2; si no → dim1 (como MATLAB)
+                var outv = new MValue(R, C); var outi = new MValue(R, C);
+                if (dim == 2)
+                    for (int r = 0; r < R; r++)
+                    {
+                        var pr = new (double x, int i)[C];
+                        for (int c = 0; c < C; c++) pr[c] = (v.At(r, c), c + 1);
+                        var srt = descend ? pr.OrderByDescending(p => p.x).ToArray() : pr.OrderBy(p => p.x).ToArray();
+                        for (int c = 0; c < C; c++) { outv.Set(r, c, srt[c].x); outi.Set(r, c, srt[c].i); }
+                    }
+                else
+                    for (int c = 0; c < C; c++)
+                    {
+                        var pc = new (double x, int i)[R];
+                        for (int r = 0; r < R; r++) pc[r] = (v.At(r, c), r + 1);
+                        var srt = descend ? pc.OrderByDescending(p => p.x).ToArray() : pc.OrderBy(p => p.x).ToArray();
+                        for (int r = 0; r < R; r++) { outv.Set(r, c, srt[r].x); outi.Set(r, c, srt[r].i); }
+                    }
+                return new[] { outv, outi };
             };
 
             // unique multi-output (MATLAB):  [C, ia, ic] = unique(A)
