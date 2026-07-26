@@ -161,6 +161,13 @@ namespace Calcpad.Core.Matlab
         /// llamada (crítico en bucles cerrados con funciones anidadas). null = aún no computado.
         /// Bit0 = tiene FunctionDef anidada; Bit1 = referencia nargin; Bit2 = referencia nargout.</summary>
         public int? BodyFlags;
+        /// <summary>JIT de cuerpo de función (Phase 0, pura-escalar): delegado compilado
+        /// (in[] -> out[]) para funciones cuyos params y locals son TODOS escalares y el cuerpo
+        /// es compatible con el JIT. null + JitTried=true => no compilable (fallback al intérprete,
+        /// SIN riesgo). Especializado a "todos los args escalares"; si algún arg no es escalar en
+        /// una llamada, se usa el intérprete.</summary>
+        public System.Func<double[], double[]> JitBody;
+        public bool JitTried;
     }
 
     // ─── Class definitions ──────────────────────────────────────────────────

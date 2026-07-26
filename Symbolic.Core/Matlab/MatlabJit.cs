@@ -486,6 +486,52 @@ namespace Calcpad.Core.Matlab
         }
 
         // ─── Pass 1: classification ──────────────────────────────────────
+        /// <summary>Phase 0 del JIT de FUNCIONES: compila una función cuyos params, locals y
+        /// outputs son TODOS escalares y cuyo cuerpo es compatible con el JIT (aritmética,
+        /// if/for, math inline, llamadas escalares). Devuelve un delegado in[]→out[] o null
+        /// (fallback al intérprete, sin riesgo). NO soporta: matrices, cells, sort, strings,
+        /// return temprano, multi-construcciones no escalares → esas devuelven null.</summary>
+        public static Func<double[], double[]> TryCompileScalarFunction(FunctionDef def, MatlabEvaluator ev)
+        {
+            try
+            {
+                if (def.ClosureScope != null) return null;
+                if (def.OutputNames.Count == 0) return null;
+                foreach (var p in def.ParamNames) if (p == "varargin") return null;
+                foreach (var o in def.OutputNames) if (o == "varargout") return null;
+                var cc = new CompileCtx { Evaluator = ev, UseLocals = true };
+                foreach (var p in def.ParamNames) cc.VarKind[p] = TKind.Scalar;
+                foreach (var o in def.OutputNames) cc.VarKind[o] = TKind.Scalar;
+                if (!ClassifyBody(def.Body, cc)) return null;
+                foreach (var kv in cc.VarKind) if (kv.Value != TKind.Scalar) return null;   // algo no-escalar → fallback
+                foreach (var kv in cc.VarKind)
+                    if (!cc.Locals.ContainsKey(kv.Key)) cc.Locals[kv.Key] = Expression.Variable(typeof(double), kv.Key);
+
+                var inP = Expression.Parameter(typeof(double[]), "in");
+                var body = new List<Expression>();
+                for (int i = 0; i < def.ParamNames.Count; i++)      // bind params: local = in[i]
+                    body.Add(Expression.Assign(cc.Locals[def.ParamNames[i]], Expression.ArrayIndex(inP, Expression.Constant(i))));
+                foreach (var o in def.OutputNames)                  // outputs = 0 por defecto
+                    body.Add(Expression.Assign(cc.Locals[o], Expression.Constant(0.0)));
+                foreach (var st in def.Body)
+                {
+                    if (st is CommentStmt) continue;
+                    var e = ConvertStmt(st, cc);
+                    if (e == null) return null;                     // construcción no soportada → fallback
+                    body.Add(e);
+                }
+                var outArr = Expression.Variable(typeof(double[]), "out");
+                body.Add(Expression.Assign(outArr, Expression.NewArrayBounds(typeof(double), Expression.Constant(def.OutputNames.Count))));
+                for (int i = 0; i < def.OutputNames.Count; i++)
+                    body.Add(Expression.Assign(Expression.ArrayAccess(outArr, Expression.Constant(i)), cc.Locals[def.OutputNames[i]]));
+                body.Add(outArr);
+                var allLocals = new List<ParameterExpression>(cc.Locals.Values) { outArr };
+                var block = Expression.Block(typeof(double[]), allLocals, body);
+                return Expression.Lambda<Func<double[], double[]>>(block, inP).Compile();
+            }
+            catch { return null; }
+        }
+
         private static bool ClassifyBody(IEnumerable<MatlabNode> stmts, CompileCtx cc)
         {
             foreach (var s in stmts) if (!ClassifyStmt(s, cc)) return false;

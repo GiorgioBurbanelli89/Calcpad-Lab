@@ -9234,6 +9234,27 @@ namespace Calcpad.Core.Matlab
         private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)
         {
             int bf = def.BodyFlags ??= ComputeBodyFlags(def);
+            // ── Phase 0 JIT de funciones (pura-escalar) ──
+            // Intenta compilar el cuerpo 1 vez; si compiló y TODOS los args son escalares (y el
+            // # coincide), ejecuta el delegado in[]→out[] (evita rentar scope + interpretar el AST).
+            // Cualquier otro caso (matrices, nested, aridad distinta) → intérprete (fallback seguro).
+            if (!def.JitTried)
+            {
+                if (def.ClosureScope == null && (bf & 1) == 0) def.JitBody = MatlabJit.TryCompileScalarFunction(def, this);
+                def.JitTried = true;
+            }
+            if (def.JitBody != null && args.Length == def.ParamNames.Count)
+            {
+                bool allScalar = true;
+                for (int i = 0; i < args.Length; i++) if (!args[i].IsScalar) { allScalar = false; break; }
+                if (allScalar)
+                {
+                    var din = new double[args.Length];
+                    for (int i = 0; i < args.Length; i++) din[i] = args[i].Scalar;
+                    var dout = def.JitBody(din);
+                    return new MValue(dout[0]);   // single-output: primer output
+                }
+            }
             // función ANIDADA: scope del padre. Si tiene nested (bit1) el scope puede escapar en
             // un closure -> no poolear. Si no, RENTAR del pool (evita alocar Dictionary por llamada).
             bool pooled = false; MatlabScope local;
