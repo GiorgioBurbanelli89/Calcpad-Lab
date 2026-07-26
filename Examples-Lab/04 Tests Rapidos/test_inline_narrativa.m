@@ -1,4 +1,4 @@
-%% Inline texto + simbolico en Calcpad-Lab
+%% Inline texto + simbolico en Hekatan Lab
 % Mismo ejemplo que el test de MATLAB R2017a, para comparar la renderizacion.
 
 syms x q L E I

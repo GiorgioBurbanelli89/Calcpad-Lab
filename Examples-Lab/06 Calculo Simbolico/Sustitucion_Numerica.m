@@ -1,5 +1,5 @@
 % Sustitucion_Numerica.m — Evaluar expresiones simbolicas en valores concretos
-% NOTA: Calcpad-Lab MVP usa subs(expr, var, val) en encadenadas (no cells).
+% NOTA: Hekatan Lab MVP usa subs(expr, var, val) en encadenadas (no cells).
 clear; clc;
 syms x a b
 

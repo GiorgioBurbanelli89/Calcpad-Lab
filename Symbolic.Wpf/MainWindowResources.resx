@@ -62,7 +62,7 @@
         <value>https:// calcpad.eu/download/help.html</value>
     </data>
   <data name="TryRestoreState_Recovered_SavePrompt" xml:space="preserve">
-        <value>Calcpad recovered from unexpected shutdown.
+        <value>Hekatan recovered from unexpected shutdown.
 Would you like to restore your unsaved data?</value>
     </data>
   <data name="TryRestoreState_Failed" xml:space="preserve">
@@ -81,13 +81,13 @@ You can find your unsaved data in
         <value>Stop! Inline Html elements must not cross text lines.</value>
     </data>
   <data name="Command_Open_Text_File" xml:space="preserve">
-        <value>MATLAB Script (*.m)|*.m|Text File (*.txt)|*.txt|Calcpad Worksheet (*.cpd)|*.cpd|Calcpad Compiled (*.cpdz)|*.cpdz</value>
+        <value>MATLAB Script (*.m)|*.m|Fortran (*.f90)|*.f90|Text File (*.txt)|*.txt|Hekatan Worksheet (*.cpd)|*.cpd|Hekatan Compiled (*.cpdz)|*.cpdz</value>
     </data>
   <data name="Command_Open_Calcpad_Worksheet" xml:space="preserve">
-        <value>MATLAB Script (*.m)|*.m|Calcpad Worksheet (*.cpd)|*.cpd|Calcpad Compiled (*.cpdz)|*.cpdz|Text File (*.txt)|*.txt</value>
+        <value>MATLAB Script (*.m)|*.m|Fortran (*.f90)|*.f90|Hekatan Worksheet (*.cpd)|*.cpd|Hekatan Compiled (*.cpdz)|*.cpdz|Text File (*.txt)|*.txt</value>
     </data>
   <data name="FileSaveAs_Calcpad_Compiled" xml:space="preserve">
-        <value>Calcpad Compiled (*.cpdz)|*.cpdz</value>
+        <value>Hekatan Compiled (*.cpdz)|*.cpdz</value>
     </data>
   <data name="SavePrompt" xml:space="preserve">
         <value>File not saved. Save?</value>

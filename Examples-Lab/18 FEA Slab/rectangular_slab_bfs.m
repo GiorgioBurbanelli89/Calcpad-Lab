@@ -1,6 +1,6 @@
 %% Rectangular Slab FEA — BFS (Bogner-Fox-Schmit, 16 DOF/elem)
 %-- Benchmark de placa rectangular simply-supported, carga uniforme q.
-%-- Equivalente al Rectangular Slab FEA.cpd de Calcpad.
+%-- Equivalente al Rectangular Slab FEA.cpd de Hekatan.
 %-- Compara: deflexion central w(a/2, b/2) — el dato canonico.
 
 clear; clc;

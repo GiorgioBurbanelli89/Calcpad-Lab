@@ -8,7 +8,7 @@ function [Mxx4, Myy4, Mxy4] = shell_gauss(elm, u, x, y, E, nu, t)
 % 15x en CsiGo2.dll (verificado con Ghidra), + sqrt(3) para la extrapolacion.
 % El centroide (xi=eta=0) cae donde el twist Mxy es minimo => subestima el pico.
 %
-% MATLAB R2017a compatible (validacion cruzada Calcpad-Lab <-> MATLAB).
+% MATLAB R2017a compatible (validacion cruzada Hekatan Lab <-> MATLAB).
 a = (max(x) - min(x)) / 2;
 b = (max(y) - min(y)) / 2;
 D = E * t^3 / (12 * (1 - nu^2));

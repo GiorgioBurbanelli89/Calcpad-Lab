@@ -1,4 +1,4 @@
-%% Plate Thin - Calculo de Deflexion (Calcpad Lab v1)
+%% Plate Thin - Calculo de Deflexion (Hekatan Lab v1)
 % Reproduce el calculo de placa SS con carga uniforme usando:
 %   - Expresiones MATLAB en sintaxis nativa
 %   - Solucion analitica de Navier (no requiere matrix assembly)

@@ -1,0 +1,25 @@
+============================================================================
+
+TEST IV - Cascaron hemisferico con hueco de 18 grados (MacNeal-Harder)
+
+Shell = membrana ITW + placa DKQ. Cuarto de modelo, doble simetria.
+
+E=68.25e6, nu=0.3, R=10, t=0.04. Cargas puntuales +-P=1 en el ecuador.
+
+Paper Tabla IV (D-type): 4x4=0.0875 8x8=0.0937 12x12=0.0937 16x16=0.0936
+
+Referencia (MacNeal-Harder) = 0.094.
+
+============================================================================
+
+==== TEST IV HEMISFERIO (shell ITW+DKQ) ==== ref = 0.094
+
+4x4 : u_carga = 0.03915
+
+8x8 : u_carga = 0.09068
+
+12x12 : u_carga = 0.09329
+
+16x16 : u_carga = 0.09352
+
+CHECK t_seg 0.6336

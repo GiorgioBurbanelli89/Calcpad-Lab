@@ -1,0 +1,23 @@
+============================================================================
+
+TEST III - Membrana de Cook (elemento ITW-1990 con drilling)
+
+Viga trapezoidal en voladizo a cortante. Test clasico de distorsion de malla.
+
+Paper Tabla III (D-type): 1x1=14.065 2x2=20.682 4x4=22.984 8x8=23.626
+
+Referencia (malla fina) = 23.91.
+
+============================================================================
+
+Cook 1x1 : delta_tip = 16.1059 (paper D-type ref)
+
+Cook 2x2 : delta_tip = 21.6150 (paper D-type ref)
+
+Cook 4x4 : delta_tip = 23.1657 (paper D-type ref)
+
+Cook 8x8 : delta_tip = 23.6567 (paper D-type ref)
+
+referencia malla fina = 23.91
+
+CHECK t_seg 0.1014

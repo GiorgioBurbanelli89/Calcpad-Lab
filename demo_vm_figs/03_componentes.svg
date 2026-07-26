@@ -1,0 +1,70 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='780' height='800' viewBox='0 0 780 800'>
+  <rect x='0' y='0' width='780' height='800' fill='white'/>
+  <rect x='60' y='50' width='690' height='690' fill='none' stroke='#ccc'/>
+  <text x='390' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>\sigma_{vm}  (max = 663.5 MPa)</text>
+  <text x='405' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>x [mm]</text>
+  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>y [mm]</text>
+  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>30</text>
+  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>30</text>
+  <line x1='60' y1='50' x2='60' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <line x1='60' y1='740' x2='750' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='198' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>118</text>
+  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>118</text>
+  <line x1='198' y1='50' x2='198' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <line x1='60' y1='602' x2='750' y2='602' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='336' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>206</text>
+  <text x='55' y='468' text-anchor='end' font-family='sans-serif' font-size='10'>206</text>
+  <line x1='336' y1='50' x2='336' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <line x1='60' y1='464' x2='750' y2='464' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='474' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>294</text>
+  <text x='55' y='330' text-anchor='end' font-family='sans-serif' font-size='10'>294</text>
+  <line x1='474' y1='50' x2='474' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <line x1='60' y1='326' x2='750' y2='326' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='612' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>382</text>
+  <text x='55' y='192' text-anchor='end' font-family='sans-serif' font-size='10'>382</text>
+  <line x1='612' y1='50' x2='612' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <line x1='60' y1='188' x2='750' y2='188' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='750' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>470</text>
+  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>470</text>
+  <line x1='750' y1='50' x2='750' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <line x1='60' y1='50' x2='750' y2='50' stroke='#d0d0d0' stroke-width='0.7'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='690' height='690'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+    <polyline points='169.77,630.23 640.23,630.23 640.23,159.77 169.77,159.77 169.77,630.23' fill='none' stroke='black' stroke-width='1.5'/>
+    <circle cx='91.36' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <polyline points='169.77,630.23 640.23,630.23 640.23,159.77 169.77,159.77 169.77,630.23' fill='none' stroke='black' stroke-width='1.5'/>
+    <circle cx='91.36' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <polyline points='169.77,630.23 640.23,630.23 640.23,159.77 169.77,159.77 169.77,630.23' fill='none' stroke='black' stroke-width='1.5'/>
+    <circle cx='91.36' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <polyline points='169.77,630.23 640.23,630.23 640.23,159.77 169.77,159.77 169.77,630.23' fill='none' stroke='black' stroke-width='1.5'/>
+    <circle cx='91.36' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='708.64' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='395.00' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='91.36' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='405.00' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+    <circle cx='718.64' cy='81.36' r='3.50' fill='white' stroke='black' stroke-width='1'/>
+  </g>
+</svg>

@@ -1,0 +1,654 @@
+INTERNATIONALJOURNAL FOR NUMERICAL METHODS IN ENGINEERING, VOL. 30,445-457 (1990)
+
+     A ROBUST QUADRILATERAL MEMBRANE FINITE
+
+zyxwvuztysxrw ELEMENT WITH DRILLING DEGREES OF FREEDOM
+                          ADNAN IBRAHIMBEGOVIC,*ROBERT L. TAYLOR' AND EDWARD L. WILSON'
+            Department of Civil Engineering, University of California, Davis Hall, Berkeley, C A 94720, U.S.A.
+    zyxwzyvxutws SUMMARY
+
+A quadrilateral membrane finite element with drilling degrees of freedom is derived from variational
+principles employing an independent rotation field. Both displacement based and mixed approaches are
+investigated.The element exhibits excellent accuracy characteristics.When combined with a plate bending
+element, the element provides an efficient tool for linear analysis of shells.
+
+                                            1. INTRODUCTION
+The need for membrane elements with drilling degrees of freedom (see Figure 1) arises in many
+
+practical engineering problems (e.g. in-filled frames, folded plates, etc.). When combined with
+
+a bending element, a membrane element of this kind provides a versatile tool for analysis of shells.
+
+While early efforts to construct an element of this type were unsuccessful, more recent works,
+
+zyxwvutsrqpo including the independent approaches of Allman' and Bergan and Fellipa,' opened the prospec-
+
+tives for a successful solution. As a result, the revived interest of the engineering community in
+membrane elements with drilling degrees of freedom is manifested by a series of papers on the
+subject.2.3, 6, 15, 19,2 0 However, most of the proposed solutions are based on some form of `free
+formulation', which concentrates solely on the choice of the finite element interpolation fields.
+
+The clever procedures of the finite element `technology'are used to improve the performance of
+
+proposed elements.
+
+A novel approach, which relies on a variational formulation employing an independent
+
+rotation field, has been presented recently by Hughes and Brezzi." Reissner" was the first to
+
+'zyxwv suggest a variational formulation which utilized the skew-symmetricpart of the stress tensor as
+
+a Lagrange multiplier to enforce the equality of independent rotations with the skew-symmetric
+part of the displacement gradient. A similar formulation is also given by de Veubeke.8 In
+a significant contribution to the solution of this problem, Hughes and Brezzi" have extended
+Reissner's formulation by recognizing the instability of discrete approximations and suggested
+a way in which the discrete approximation can be stabilized. Some membrane elements with
+drilling degrees of freedom, derived from the displacement-type formulation of Hughes and
+
+Brezzi, are presented by Hughes et d.' Their work has assumed that the variational formulation
+employs an independent rotation field, i.e. strictly speaking it is based on the separate kinematics
+
+variables of displacement and rotation.
+
+zyxwvut *AssistantResearch Engineer
+
+t Professor
+0029-5981/90/110445-13$06.50             Received 30 August 1989
+                                         Revised 26 January 1990
+0 1990 by John Wiley & Sons, Ltd.
+zyxwvzuzytysxrwxqv 446
+     A. IBRAHIMBEGOVIC. R. L. TAYLOR AND E. L. WILSON
+
+     ' 12h i l 2 33       w  4
+
+XZA
+
+Figure 1. A quadrilateral element with drilling degrees of freedom
+
+  In this work, we extend the applications of Hughes and Brezzi" to combine an Allman-type
+interpolation for the displacement field with an independently interpolated rotation field.
+A mixed-type variational formulation is presented with the skew-symmetric part of the stress
+tensor introduced as a Lagrange multiplier to enforce the equality of independent rotations with
+the skew-symmetric components of the displacement gradient. A penalty displacement-type
+formulation with selective reduced integration is also employed. The displacement and rotation
+
+zyxwzyvxu fieldsare the samein both formulations.In the mixed-typeformulation the skew-symmetricpart
+
+of stress is chosen constant over each element.
+  An outline of the paper is as follows. In Section 2 we give a short review for both the
+
+displacement-typeand the mixed-typevariational formulation. Our consideration follows closely
+the work of Hughes and Brezzi. The finite element interpolation and the discrete versions for both
+variational formulations are given in Section 3. Numerical evaluations of the derived membrane
+elements are presented in Section 4.Some closing remarks are given in Section 5.
+
+                                  2. VARIATIONAL FORMULATION
+
+In this section we followclosely the work of Hughes and Brezzi." The same index-freenotation is
+utilized. For the sake of brevity, the discussion of boundary conditions is omitted. Inclusion of
+boundary conditions presents no difficulties for considerations to follow,and it can be handled in
+a standard manner (e.g. see Hughesg). We also limit ourselves to linear elastostatic problems.
+
+  Let R be a region occupied by a body. The boundary value problem under consideration is: For
+all x ~ S 2
+
+     diva+f=O                                                       (1)
+
+     skew a = 0                                                     (2)
+
+           \Ir = skew Vu                                            (3)
+     - symm a = C symm Vu
+                                                                    (4)
+
+where (1) to (4)are, respehvely, the equilibrium equations, the symmetry conditions for stress, the
+
+definition of rotation in terms of displacement gradient and the constitutive equations.
+       zyxzywzxyvwxzuvzwyty A ROBUST QUADRILATERAL MEMBRANE FE
+us In (1) to (4) the Euclidian decomposition of second-rank tensors is employed, e.g.447
+
+zyxw where
+              a = symm a + skew a                                               (5)
+
+zyx For the isotropic case and plane stress state, the constitutive modulus tensor C = { C i j k l }has
+
+the form
+              + symm a = 3(a )'a
+
+              skew a = +(a - a')                                                (7)
+              zzyxywxvuw + p=- E
+where              2(1 v)
+
+while E and v are Young's modulus and Poisson's ratio, respectively.
+
+Reissner" presented a variational formulation for the boundary value problem (1)to (4).This
+
+principle leads to a formulation which is inappropriate for numerical applications. Essentially,
+
+too many parameters for the skew-symmetricpart of a exist and the numerical problem fails the
+
+LBB conditions as well as the counts for the mixed patch test (e.g. see Zienkiewicz and Taylorz4).
+
+zyxwvutsrqp Hughes and Brezzi modified variational problem of Reissner in order to preserve the stability of
+
+the discrete problem. The modification (see Hughes and Brezzi") preserves (1) to (4) as the
+Euler-Lagrange equations. In addition, the symmetrical components of stress are eliminated
+using the constitutive equations (4) to give
+
+Problem ( M )
+: I - I+ n,(v, a,skew t) = - symm (Vv) C a (symm Vv) dRskew tT (skew Vv - a)dR
+
+       - T1Y  ln Jskew% I 2 dR - v*fdR                                          (11)
+
+where v E V, w E W,t E T are spaces of trial displacements,rotations and stresses. This variational
+
+formulation requires that the rotations w and stresses t,together with the displacement generaliz-
+ed derivatives Vv, belong to the space of square-integrable functions over the region R.
+
+  The variational equation which results from variations on (11)
+
+              - J - r
+
+          0 = Dn, (u, JI, skew a) (v, w, skew t) = * (symm Vv) * C (symm Vu) dR
+
+    I* - + skew 7' *(skewVu - JI) dR + (skew Vv' skew a - a' -skew a)dR
+
+    jn I - 7-l skew tT*skewa dR - v * fdR
+
+  In the next section the variational equation (12) is used to construct a mixed-type discrete
+formulation. It is possible to eliminate the skew-symmetric part of the stress tensor (see Hughes
+zzyyxxzwwzyzzvyyvyxxuxuwxwtwstvwvruvqtspr 448
+surtvuqs and Brezzi") by substituting
+               A. IBRAHIMBEGOVIC, R. L. TAYLOR AND E. L. WILSON
+
+                            y-l skew G = skew Vu - $
+
+into Problem (M) to obtain
+
+Problem ( D )
+
+The corresponding variational equation now is
+
+               I 0 = Dfi,(u,$)*(v,m)= (symmVv).C.(symmVu)dR
+               jQ s, + y (skew Vv - * (skew Vu - $) dR - v * f dR
+                                                                              (15)
+
+zyxw The variational equation (15) is taken as the basis for constructing the displacement-type
+
+discrete formulation which is presented in the next section.
+  The parameter y, which appears in the formulations is problem dependent (see Hughes and
+
+Brezzi''). For isotropic elasticity and Dirichlet boundary value problems Hughes et al." suggest
+y be taken as the shear modulus value, i.e. y = p. However, the numerical studies we have
+performed have shown that the formulation is insensitive to the value of y used (at least for several
+                                                                              zyx
+orders of magnitude which bound the shear modulus).
+                              3. FINITE ELEMENT INTERPOLATION
+
+The particular choice for finite dimensional spaces Vh,Wh,Th(subspacesof V, W,T, respectively)
+
+is presented in this section along with the resulting discrete formulations.
+
+We first consider the discrete version of Problem (M)
+
+Problem (M")
+
+  We consider a 4-node quadrilateral element with degrees of freedom shown in Figure 1. The
+independent rotation field is interpolated as a standard bilinear field over each element. Accord-
+
+ingly
+
+                                                                                                         4
+                  zyxwvu A ROBUST QUADRILATERAL MEMBRANE FE
+           zzyxywxvwuv N,"(r,s)=$(l+rIr)(l+sIs); I=1,2,3,4                                                 449
+
+where (e.g. see Zienkiewicz and Taylorz4)
+
+                  zzyyxwzxzyvwxuywtvsvxuruqtwstps c 1 4                                                    (18)
+
+                                         zyxwvur e 1=5
+The in-plane displacement approximation is taken as an Allman-type interpolation (see
+
+Figure 1)
+
+                                                8
+
+           =Uh=z     N J ( ~ , ~ ) ~ I + c~ ~ ; ( r , s ) % ( $ K - + , ) n j K
+
+                  1 + N B ; (r, s) Au9
+
+                  e
+
+where 1, and nJK are the length and the outward unit normal vector on the element side
+
+associated with the corner nodes J and K, i.e.
+
+and a FORTRAN-like definition of adjacent corner nodes
+
+                  + J = 1 - 4; K = mod(I, 4) 1                                                             (21)
+
+In (19) we also employ serendipity shape functions defined by (see Zienkiewicz and Taylorz4)
+
+                     + N S ; ( r , S) = i(1 - r2)(1 s,s); I = 5, 7
+                    + NSF(r, S) = $(1 rIr)(l - s2); I = 6 , 8
+
+To reflect the superior performance of the 9-node Lagrangian element over that for the 8-node
+serendipity element, a hierarchical bubble function interpolation is added in (19) where
+
+                     NB',(r, s) = (1 - ?)(1 - 2 )                                                          (24)
+
+The terms in the element stiffness matrix arising from this interpolation may be eliminated at the
+
+element level by static condensation (see Wilson23).
+  The skew-symmetric stress field is chosen constant over the element, i.e.
+
+                                         C skew zh = z$
+
+                                                                                        e
+
+We further define matrix notation
+
+                     + symm Vue = B,"uI G,"                                                                (26)
+
+where uI and $I are nodal values of the displacement and the rotation fields, respectively. The
+
+B,"matrix in (26) has the standard form
+            [ w,x,
+                                                                                           I = 1, 2, 3, 4  (27)
+           B,"= 0 N ; x 2 ] ;
+                     N,qx, N,qX,
+
+and the part of the displacement interpolation associated with the rotation defines
+zyxwvutsrqpon 450
+where, in (28) above
+       I = l , 2 , 3 , 4 ; M = I + 4 ; L = M - l + 4 a i n t ( l / f ) ; K = m o d ( M , 4 ) + 1 ; J = L - 4 (29)
+
+zyzxywxvuw Furthermore, we denote
+A. IBRAHIMBEGOVIC, R. L. TAYLOR AND E. L. WILSON
+
++ skewVu" - $' = b;u, g;$,                                                           (30)
+
+zyxzwyxvwuvt withindicesJ,K,L,M againdefined by (29).
+u The first term in the discrete formulation (16) of Problem ( M ") gives rise to the element stiffness
+
+matrix
+zyxwvut [Be G'ITCIBe Ge]dR
+                                                                                     (33)
+
+The second term in (16) is denoted
+
+he = (be; ge)TdR                                                                     (34)
+
+With this notation at hand, the discrete mixed-type formulation can be rewritten as
+
+  Since the skew-symmetric part of the stress is interpolated independently in each element, the
+corresponding part of the stiffness matrix (35), may be eliminated at the element level using static
+
+zyxw condensation to yield
+  In a completely analogous manner we can construct an approximation for the displacement-
+
+type variational formulation. The discrete version of Problem (D)follows from (15)
+
+Problem (D")
+
+  The rotation and displacement fields are again interpolated by (17) and (19), respectively.
+  The first term in the displacement-type formulation (37) produces the same element stiffness
+matrix K' defined by (33). The second term in (37), however, is different. Note that using the
+zyxwv A ROBUST QUADRILATERAL MEMBRANE FE
+zzI;{zyyxxywzwy Hencethe matrix counterpart of (37)for oneelementin a displacement-typeformulation is45 1
+
+interpolations for displacement(19)and rotation (17), this term can be directly obtained via (30):
+
+                 xv a =
+  The parts of the element stiffness matrix K' and he in (35) and (39) are computed using 3 x 3+ [K' P"]a = f;(39)
+
+zyxwv Gaussian quadrature. The matrix P"in (39)is integrated by a single point Gaussian quadrature.
+By fully integrating K' and combining with P' or he heTy/Q' the spurious zero energy modes are
+
+prevented; and no additional devices are needed (see,e.g. MacNeal and Harder15).The 'equival-
+
+ence theorem' of Malkus and HughesI6 may be used to show that this approach of selective
+
+reduced integration is equivalent to the mixed formulation (36). The only difference in our case,
+
+however, occurs owing to hierarchical interpolation of the displacement field by the bubble
+
+function (see (19)).For selective reduced integration of the displacement-typeinterpolation the
+
+bubble function gives no contribution to the penalty stiffness P', as opposed to its analogue of
+
+a rank-one update (h'heT y/fi") in the mixed-type approach. This difference occurs only for
+
+skewed elements, and, as demonstrated by the numerical examples, it is of minor importance.
+
+                                    4. NUMERICAL EVALUATION
+
+Several numerical examples are presented to demonstrate the accuracy of the membrane element
+
+zyxwvuztysrxqpwo presented herein. The element is also combined with the well known DKQ plate bending
+
+element4 and used to solve a spherical shell with a hole, one of the problems in the set posed by
+MacNeal and Harder.14To avoid the membrane locking the modificationsuggested by Taylor19
+is performed. In addition, the 8-point integration rule on K' is used. However, the modification of
+J e t t e d 3 for a warped element is not needed.
+
+  Both mixed-type (36) and displacement-type formulations (39) are evaluated. In results to
+follow they are denoted as M-type and D-type, respectively.
+
+4.1. The patch test
+
+   First a patch test2' is performed on a one-element test. This will not only test the coding for our
+elements but can also detect any spurious modes which may exist in the elements. A skewed
+element (see Figure 2) is fixed with a minimum number of constraints and exposed to uniform
+tension. Both displacement-type and mixed-type formulations pass the patch test.
+
+                                                                                                                                   P
+
+Figure 2. The patch test-One-element test
+zyzxywxzwyvvxuutwstrvsquprotqn 452
+                       A. IBRAHIMBEGOVIC, R. L. TAYLOR AND E. L. WILSON
+
+  Similar formulations with an Allman-type interpolation field,', 'O however, do not pass the
+one-element patch test. The reason is the presence of a spurious mode which occurs for constant
+values of nodal rotations.
+
+4.2. A simple beam: The higher order patch test
+
+A simple beam with a length to height aspect ratio of 10 is subjected to a pure bending state.
+
+The beam is modelled by one row of six membrane elements with drilling degrees of freedom, as
+shown in Figure 3. No drilling degree of freedom is restrained; only a minimum number of
+restraints is imposed. Two load cases are considered.The first load case is a unit couple applied at
+the free end and represents a higher order patch test." When a regular mesh is used, the solution
+is exact. For a distorted mesh (see Figure 3) the accuracy is still good. The second load case is, to
+our knowledge, a novel test. The loading is again a unit moment, but this time applied as
+
+zy a concentrated moment at the drilling degrees of freedom at both ends. The value of parameter
+
+y set equal to the shear modulus yields excellentresults. The difference from the exact solution, for
+a regular mesh, is due to the fact that a single concentrated moment at a drilling degree of freedom
+
+zy is not a consistent loading (whichfollowsfrom displacementinterpolation (19)).The results of the
+
+analysiscan be compared with the beam theory exact solution of 1.5 for vertical displacementand
+0-6 for end rotation.
+
+The same analysis is repeated for the membrane element of Taylor and Simo." To prevent the
+
+occurrence of the spurious mode, besides the minimum number of restraints (see Figure 3), one
+
+zy drilling degree of freedom is fixed as well. The results of this analysis are also presented in Table I.
+
+Note that, in this case, the computed rotations are wrong as dictated by the need to restrain the
+spurious singular rotation mode.
+
+4.3. A cantilever beam
+A shear-loaded cantilever beam is selected as a test problem by many auth01-s.~.    The
+
+elasticity solution (e.g. see Timoshenko and Goodier") for the tip displacement is
+
+                           + pi3 (4 5v)Pl        = 0.3553
+                       U'  =-
+                                  +  2Eh
+                             3EI
+
+                                                           load load
+
+                           regular mesh
+
+                                                           I = 10
+                                                           h=l
+
+                           distorted mesh
+
+                           Figure 3. A simple beam
+                   zyzxywxzvwuytsxvrqwupotv A ROBUST QUADRILATERAL MEMBRANE FE         453
+
+                   Table I. A simple beam (Figure 3)
+
+Formulation                Mesh Load case Vert. displ.                       End rot.
+
+M-type                         reg.                1        1.5              0.6
+M-type                                                      1.14185          057255
+M-type                         dist.               1        1.5              062070
+M-type                                                      1.39220          050612
+                               reg.                2
+
+                               dist.               2
+
+D-type                         reg.                1        1.5              0.6
+D-type                                                      1.14045          0-57247
+D-type                         dist.               1        1.5              062070
+D-type                                                      1.39200          049508
+                               reg.                2
+
+                               dist.               2
+
+Taylor and Simoz0              reg.                1        1.5              1.2
+                                                            1.14195          1.10485
+Taylor and Sirno"              dist.               1        1.5              2-18980
+                                                            1.39300          2.30490
+Taylor and Sirno"              reg.                2
+
+Taylor and SimoZo              dist.               2
+
+                                          I
+
+                                     regular mesh           zyxwv zyxwvu E=J0000
+
+                                                            y = 0.25
+                                                            P=40
+
+                                                            h =12
+
+                           12  , , distorted mesh1212 L 12
+
+                               1-            1- 1
+
+                                        20 -t
+
+                           Figure 4. Short cantilever beam
+
+                   Table 11. Short cantilever beam (Figure 4)
+
+Mesh                       MacNeal                            D-tYpe
+             Allmad and Harder" M-type
+4x1
+8x2                03026              03409           03445          0.3445
+16 x 4             0.3394               -             0.3504         0.3504
+                                                                     0.3543
+                   0.3512               -             0.3543
+
+4 x 1*             -                  0.2978          0.3066         0.3065
+
+*Irregular mesh after MacNeal and Harder"
+zyxzwyvxuwtsrvqup 454
+                     zzyyxxwwzvuyvtuxsrwtqsprvqo A. IBRAHIMBEGOVIC, R. L. TAYLOR AND E. L. WILSON
+                     zyxwvzutysrxqpwonvmlu zyxwvuts c I 4
+                     I      I                          E=l
+
+                                                       v= 1/3
+
+                                                       P:l
+
+                                                       1-48
+
+                                                       hl =I6
+
+                                                       h2 = 44
+
+                            Figure 5. Cook's membrane
+
+                     Table 111. Cook's membrane (Figure 5)
+
+Mesh                 Allman3 Simo et a/." M-type                D-type
+
+1x1                   -     16.743               14.066         14.065
+2x2                         21.124               20.683         20.682
+4x4                  20.27  23-018               22993          22.984
+8x8                  22.78  23.685               23-668         23.626
+                     23.56
+
+for the properties selected (see Figure 4 for details, and also pages 219-220 and 254-255 of
+Hughes').
+
+  The finite element solution is obtained for a coarse mesh of four square elements and also for
+finer meshes constructed by bisection. The results obtained are compared with some of the results
+available in the literature. All are presented in Table 11.
+
+4.4. Cook's problem
+
+A trapezoidal membrane (Figure 5), suggested by  is another popular test p r ~ b l e m . ~ . ~ . ' ~
+
+Besides the shear dominated behaviour (similar to that of the previous test), it also displays the
+
+effectsof mesh distortion. The results for the tip deflection (see Table 111) can be compared to the
+
+reference value 23.91, obtained by numerical analysis for a refined model.
+
+4.5. Hemispherical shell with 18" hole
+
+  The membrane presented herein is cambined with a DKQ plate element4 to construct a flat
+quadrilateral shell element. The performance of the shell element is evaluated on a standard test
+         zyxwv A ROBUST QUADRILATERAL MEMBRANE FE
+                   zyxwzvzuyytxsxrwqwpovnmul A '2            455
+
+                                      E = 68250 OOO
+
+                                      v=OJ
+
+                   0,x       svrnrn.
+
+         zzyyxxzwyxvwutvs Figure6. Pinchedhemisphericalshellwithahole
+           Table IV. Hemispherical shell (Figure 6)
+Mesh Taylorlg Simo et al.'* M-type                   D-type
+
+                                      ~
+
+ 4x4     0.086524  0.093372           0.087548       zyxw 0.087528
+ 8x 8    0094153   0092814            0093714
+12 x 12  0.093679                     0.093 587      0093701
+16 x 16               -               0.093488       0093584
+         0093501                                     0093487
+                   0092907
+
+Table V. Hemispherical shell (Figure 6)-Mesh 8 x 8
+
+         YIP       M-type                   D-type
+
+            0.001  0093967                  0093853
+             0.05  0093813                  009371 1
+                   0093714                  0093701
+           1.o     0.093700                 0.093700
+                   0.093700
+           50.0                             0093700
+
+         loo00
+
+problem of a hemispherical shell with a hole14 (see Figure 6). It is important to establish that the
+proposed formulation causes no membrane locking when applied to shell analysis. The results of
+this analysis should be compared with the solution of 0.094 given by MacNeal and HarderI4 and
+the value of 0.093 suggested recently by Simo et al." The performance of the shell element (see
+Table IV) is only slightly better than the one of Taylor,lg since the difference consists only in the
+new membrane formulation. Even for a relatively coarse mesh, the accuracy of the element is
+
+' comparable to the geometrically exact shell model of Simo et al.'
+
+  The analysis of this problem is repeated for different values of y, other than y = p used to obtain
+the results presented in Table IV. The finite element model with the 8 x 8 mesh is used for this
+zyxwvzuytxsrwqvpuo 456
+purpose. The results of the analysis are presented in Table V. Note that the formulation is rather
+
+zyxw insensitive to the chosen value of y. For the higher values of y the results exhibit an asymptotic
+zyxw behaviour. This is a consequenceof enforcingthe equality between the independent rotation field
+A. IBRAHIMBEGOVIC, R. L. TAYLOR AND E. L. WILSON
+
+and skew-symmetric part of the displacement gradient.
+
+                                                 5. CLOSURE
+
+We have presented a novel membrane element with drilling degrees of freedom based on
+a variational formulation which employs an independent rotation field. The equality of the
+independent rotation field and skew-symmetric part of the displacement gradient is enforced in
+both the displacement-type and the mixed-type formulations. This novelty enables a robust
+element performance in the problems where the loading is a concentrated moment directly
+applied at the drilling degree of freedom. It also provides a consistency in combining the element
+into the general finite element model for in-filled frames, folded plates or similar complex
+structural systems. The element exhibits excellent accuracy characteristics for both regular and
+distorted meshes. When the membrane element of this kind is combined with a plate bending
+element, a flat shell element is formed which also performs with high accuracy. The quadrilateral
+element formulation presented herein can be expanded to the adequate triangular element, so
+
+zyxwvutzysxrw that both elements can be accommodated within a single computer program modulus. This we
+
+address in our forthcoming paper.'
+
+                                                               REFERENCES
+
+ 1. D. J. Allman, `A compatible triangular element including vertex rotations for plane elasticity problems', Comp. Struct.,
+     19, 1-8 (1984).
+
+ 2. D. I. Allman, `The constant strain triangle with drilling rotations: A simple prospect for shell analysis', in J. R.
+
+     Whiteman (ed.). Proceedings The Mathematics of Finite Elements and Applications, Academic Press, New York, 1987,
+     pp. 23C236.
+ 3. D. J. Allman, `A quadrilateral finite element including vertex rotations for plane elasticity problems', Int. j. numer.
+    methods eng., 26, 717-739 (1988).
+ 4. J. L. Batoz and M. B. Tahar, `Evaluation of a new quadrilateral thin plate bending element', Int.j. numer. methods eng.,
+     18, 1655-1677 (1982).
+ 5. P. G. Bergan and C. A. Felhpa, `A triangular membrane element with rotational degrees of freedom', Comp. Methods
+     Appl. Mech., 50, 25-60 (1985).
+ 6. N. Carpenter, H. Stolarski and T. Belytschko, `A flat triangular shell element with improved membrane interpolation',
+     Commun. appl. numer. methods, 1, 161-168 (1985).
+
+zyxwvu 7. R.D. Cook, `Improved two-dimensional finite element', .I. Struct. Dio. ASCE, 100, 1851-1865 (1974).
+
+ 8. F. de Veubeke, `Stress function approach', Proceedings World Congress on Finite Element Methods in Solid
+     Mechanics, Vol. I , Bournemouth, England, 1975, pp.1-5.
+
+ 9. T. J. R. Hughes, The Finite Element Method Linear Static and Dynamic Analysis, Prentice-Hall, Englewood Cliffs,
+
+zyxwv N.J., 1987.
+
+10. T. J. R. Hughes and F. Brezzi, `On drilling degrees of freedom', Comp. Methods Appl. Mech. Eng., 72, 105-121 (1989).
+11. T. J. R. Hughes, F. Brezzi, A. Masud and I. Harari, `Finite element with drilling degrees of freedom: Theory and
+
+     numerical evaluation', Preprint, 1989.
+12. A. Ibrahimbegovic, E. L. Wilson and R. L. Taylor, `A unified formulation for quadrilateral and triangular flat shell
+
+     elements with drilling degrees of freedom', Commun. appl. numer. methods, submitted.
+13. P. Jetteur, `Improvement of the quadrilateral `jet' shell element for a particular class of problems', IREM Internal
+
+zyxwvutsrqpo Report 87/1,Ecole Polytechnique Federale de Laussane, Laussane, 1987.
+
+14. R.H. MacNeal and R. L. Harder, `A proposed standard set of problems to test finite element accuracy',J . Finite Elem.
+
+     Anal. Des., 1, 3-20 (1985).
+
+15. R.H. MacNeal and R.L. Harder, `A refined four-noded membrane element with rotational degrees of freedom', Comp.
+
+zyxwvut Struct., 18, 75-84 (1988).
+
+16. D. S. Malkus and T. J. R. Hughes, `Mixed finite element methods-Reduced and selective integration techniques:
+    A unification of concepts', Comp. Methods Appl. Mech. Eng., 15, 68-81 (1978).
+
+17. E. Reissner, `A note on variational principles in elasticity', Int. .I. Solids Struct., 1, 93-95 (1965).
+18. J. C. Simo, D. D. Fox and M.S. Rif& `On a stress resultant geometrically exact shell model Part 11:The linear theory;
+
+    computational aspects', Comp. methods Appl. Mech. Eng., 73, 53-92 (1989).
+zzyyxxwzwyvv A ROBUST QUADRILATERAL MEMBRANE FE                                  457
+
+19. R. L. Taylor, `Finite element analysis of linear shell problems', in J. R. Whiteman (ed.), Proceedings The Mathematics
+
+@Finite Elements and Applications, Academic Press, New York, 1987, pp. 211-223.
+
+zzyyxxww 20. R. L. Taylor and J. C. Simo, `Bending and membrane elements for analysisof thick and thin shells', in J. Middelton
+    and G. N. Pande (eds.), Proceedings N U M E T A 85, 1985, pp. 587-591.
+21. R. L. Taylor, J. C. Simo, 0.C. Zienkiewicz and A. C. Chan, `The patch test: A condition for assessing finite element
+
+    convergence', Int. j. numer. methods eng., 22, 3 9 4 2 (1986).
+22. S. Timoshenko and J. N. Goodier, Theory ofElasticity, McGraw-Hill, New York, 1951.
+23. E. L. Wilson, `The static condensation algorithm', Int. j . numer. methods eng., 8, 199-203 (1974).
+24. 0.C. Zienkiewicz and R. L. Taylor, The Finite Element Method: Basic Formulation and Linear Problems, Vot. I ,
+
+McGraw-Hill, New York, 1989.
+

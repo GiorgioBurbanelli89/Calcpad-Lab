@@ -1,0 +1,45 @@
+ 
+To get started, type one of these: helpwin, helpdesk, or demo.
+For product information, visit www.mathworks.com.
+ 
+
+a =
+
+    10
+
+
+b =
+
+    10
+
+
+h =
+
+    0.1500
+
+
+p0 =
+
+       -1000
+
+
+E =
+
+   1.0000e+10
+
+
+nu =
+
+    0.2500
+
+
+D =
+
+   3.0000e+06
+
+
+w_max_mm =
+
+   13.1653
+
+ML figs 1

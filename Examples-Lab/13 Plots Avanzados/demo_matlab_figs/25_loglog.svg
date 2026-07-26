@@ -1,0 +1,56 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
+  <rect x='0' y='0' width='800' height='800' fill='white'/>
+  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>25. log-log — y = x^{2.5}</text>
+  <text x='415' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>log10(x)</text>
+  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>log10(y)</text>
+  <text x='92.27272727272728' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='92.27272727272728' y1='740' x2='92.27272727272728' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='92.27272727272728' y1='50' x2='92.27272727272728' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='199.84848484848484' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0.5</text>
+  <line x1='199.84848484848484' y1='740' x2='199.84848484848484' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='199.84848484848484' y1='50' x2='199.84848484848484' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='307.4242424242424' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='307.4242424242424' y1='740' x2='307.4242424242424' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='307.4242424242424' y1='50' x2='307.4242424242424' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='415' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1.5</text>
+  <line x1='415' y1='740' x2='415' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='415' y1='50' x2='415' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='522.5757575757575' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='522.5757575757575' y1='740' x2='522.5757575757575' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='522.5757575757575' y1='50' x2='522.5757575757575' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='630.1515151515151' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2.5</text>
+  <line x1='630.1515151515151' y1='740' x2='630.1515151515151' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='630.1515151515151' y1='50' x2='630.1515151515151' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='737.7272727272727' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='737.7272727272727' y1='740' x2='737.7272727272727' y2='744' stroke='#333' stroke-width='0.8'/>
+  <line x1='737.7272727272727' y1='50' x2='737.7272727272727' y2='740' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='712.6363636363636' text-anchor='end' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='56' y1='708.6363636363636' x2='60' y2='708.6363636363636' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='708.6363636363636' x2='770' y2='708.6363636363636' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='629' text-anchor='end' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='56' y1='625' x2='60' y2='625' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='625' x2='770' y2='625' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='545.3636363636364' text-anchor='end' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='56' y1='541.3636363636364' x2='60' y2='541.3636363636364' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='541.3636363636364' x2='770' y2='541.3636363636364' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='461.7272727272727' text-anchor='end' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='56' y1='457.7272727272727' x2='60' y2='457.7272727272727' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='457.7272727272727' x2='770' y2='457.7272727272727' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='378.09090909090907' text-anchor='end' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='56' y1='374.09090909090907' x2='60' y2='374.09090909090907' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='374.09090909090907' x2='770' y2='374.09090909090907' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='294.45454545454544' text-anchor='end' font-family='sans-serif' font-size='10'>5</text>
+  <line x1='56' y1='290.45454545454544' x2='60' y2='290.45454545454544' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='290.45454545454544' x2='770' y2='290.45454545454544' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='210.81818181818176' text-anchor='end' font-family='sans-serif' font-size='10'>6</text>
+  <line x1='56' y1='206.81818181818176' x2='60' y2='206.81818181818176' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='206.81818181818176' x2='770' y2='206.81818181818176' stroke='#d0d0d0' stroke-width='0.7'/>
+  <text x='53' y='127.18181818181813' text-anchor='end' font-family='sans-serif' font-size='10'>7</text>
+  <line x1='56' y1='123.18181818181813' x2='60' y2='123.18181818181813' stroke='#333' stroke-width='0.8'/>
+  <line x1='60' y1='123.18181818181813' x2='770' y2='123.18181818181813' stroke='#d0d0d0' stroke-width='0.7'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+    <polyline points='92.27,708.64 105.45,695.83 118.62,683.03 131.79,670.23 144.96,657.43 158.14,644.63 171.31,631.83 184.48,619.03 197.65,606.22 210.83,593.42 224.00,580.62 237.17,567.82 250.34,555.02 263.52,542.22 276.69,529.42 289.86,516.61 303.03,503.81 316.21,491.01 329.38,478.21 342.55,465.41 355.72,452.61 368.90,439.81 382.07,427.00 395.24,414.20 408.41,401.40 421.59,388.60 434.76,375.80 447.93,363.00 461.10,350.19 474.28,337.39 487.45,324.59 500.62,311.79 513.79,298.99 526.97,286.19 540.14,273.39 553.31,260.58 566.48,247.78 579.66,234.98 592.83,222.18 606.00,209.38 619.17,196.58 632.35,183.78 645.52,170.97 658.69,158.17 671.86,145.37 685.04,132.57 698.21,119.77 711.38,106.97 724.55,94.17 737.73,81.36' fill='none' stroke='#FF0000' stroke-width='1.5'/>
+  </g>
+</svg>

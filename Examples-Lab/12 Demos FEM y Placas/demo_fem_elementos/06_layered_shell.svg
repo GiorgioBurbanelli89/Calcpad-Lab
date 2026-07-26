@@ -1,25 +1,57 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
-  <rect x='0' y='0' width='800' height='800' fill='white'/>
-  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='754' viewBox='0 0 800 754'>
+  <rect x='0' y='0' width='800' height='754' fill='white'/>
+  <rect x='60' y='50' width='644' height='644' fill='none' stroke='#ccc'/>
   <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>6. LAYERED SHELL — 3 capas separadas, σ por capa</text>
-  <text x='415' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>x</text>
-  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>y</text>
-  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.55</text>
-  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>-0.05</text>
-  <text x='201.99999999999986' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.33</text>
-  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>0.17</text>
-  <text x='344' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.11</text>
-  <text x='55' y='468' text-anchor='end' font-family='sans-serif' font-size='10'>0.39</text>
-  <text x='486' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.89</text>
-  <text x='55' y='330' text-anchor='end' font-family='sans-serif' font-size='10'>0.61</text>
-  <text x='628' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.67</text>
-  <text x='55' y='192' text-anchor='end' font-family='sans-serif' font-size='10'>0.83</text>
-  <text x='770' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.45</text>
-  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>1.05</text>
-  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+  <text x='382' y='739' text-anchor='middle' font-family='sans-serif' font-size='12'>x</text>
+  <text x='15' y='372' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 372)'>y</text>
+  <text x='89.27272727272717' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.5</text>
+  <line x1='89.27272727272717' y1='694' x2='89.27272727272717' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='147.81818181818176' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.4</text>
+  <line x1='147.81818181818176' y1='694' x2='147.81818181818176' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='206.36363636363637' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.3</text>
+  <line x1='206.36363636363637' y1='694' x2='206.36363636363637' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='264.909090909091' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.2</text>
+  <line x1='264.909090909091' y1='694' x2='264.909090909091' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='323.45454545454555' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-2.1</text>
+  <line x1='323.45454545454555' y1='694' x2='323.45454545454555' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='382.00000000000017' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-2</text>
+  <line x1='382.00000000000017' y1='694' x2='382.00000000000017' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='440.5454545454548' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.9</text>
+  <line x1='440.5454545454548' y1='694' x2='440.5454545454548' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='499.0909090909094' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.8</text>
+  <line x1='499.0909090909094' y1='694' x2='499.0909090909094' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='557.636363636364' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.7</text>
+  <line x1='557.636363636364' y1='694' x2='557.636363636364' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='616.1818181818186' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.6</text>
+  <line x1='616.1818181818186' y1='694' x2='616.1818181818186' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='674.7272727272732' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>-1.5</text>
+  <line x1='674.7272727272732' y1='694' x2='674.7272727272732' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='668.7272727272727' text-anchor='end' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='56' y1='664.7272727272727' x2='60' y2='664.7272727272727' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='610.1818181818181' text-anchor='end' font-family='sans-serif' font-size='10'>0.1</text>
+  <line x1='56' y1='606.1818181818181' x2='60' y2='606.1818181818181' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='551.6363636363636' text-anchor='end' font-family='sans-serif' font-size='10'>0.2</text>
+  <line x1='56' y1='547.6363636363636' x2='60' y2='547.6363636363636' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='493.0909090909091' text-anchor='end' font-family='sans-serif' font-size='10'>0.3</text>
+  <line x1='56' y1='489.0909090909091' x2='60' y2='489.0909090909091' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='434.54545454545456' text-anchor='end' font-family='sans-serif' font-size='10'>0.4</text>
+  <line x1='56' y1='430.54545454545456' x2='60' y2='430.54545454545456' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='376' text-anchor='end' font-family='sans-serif' font-size='10'>0.5</text>
+  <line x1='56' y1='372' x2='60' y2='372' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='317.4545454545455' text-anchor='end' font-family='sans-serif' font-size='10'>0.6</text>
+  <line x1='56' y1='313.4545454545455' x2='60' y2='313.4545454545455' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='258.909090909091' text-anchor='end' font-family='sans-serif' font-size='10'>0.7</text>
+  <line x1='56' y1='254.909090909091' x2='60' y2='254.909090909091' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='200.36363636363643' text-anchor='end' font-family='sans-serif' font-size='10'>0.8</text>
+  <line x1='56' y1='196.36363636363643' x2='60' y2='196.36363636363643' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='141.81818181818187' text-anchor='end' font-family='sans-serif' font-size='10'>0.9</text>
+  <line x1='56' y1='137.81818181818187' x2='60' y2='137.81818181818187' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='83.27272727272748' text-anchor='end' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='56' y1='79.27272727272748' x2='60' y2='79.27272727272748' stroke='#333' stroke-width='0.8'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='644' height='644'/></clipPath></defs>
   <g clip-path='url(#plot)'>
-    <text x='92.27' y='708.64' fill='black' font-family='sans-serif' font-size='11' text-anchor='start' dominant-baseline='central'>Capa 1 (0°)</text>
-    <text x='92.27' y='708.64' fill='black' font-family='sans-serif' font-size='11' text-anchor='start' dominant-baseline='central'>Capa 2 (90°)</text>
-    <text x='92.27' y='708.64' fill='black' font-family='sans-serif' font-size='11' text-anchor='start' dominant-baseline='central'>Capa 3 (45°)</text>
+    <text x='89.27' y='664.73' fill='#000000' font-family='sans-serif' font-size='11' text-anchor='start' dominant-baseline='central'>Capa 1 (0°)</text>
+    <text x='89.27' y='664.73' fill='#000000' font-family='sans-serif' font-size='11' text-anchor='start' dominant-baseline='central'>Capa 2 (90°)</text>
+    <text x='89.27' y='664.73' fill='#000000' font-family='sans-serif' font-size='11' text-anchor='start' dominant-baseline='central'>Capa 3 (45°)</text>
   </g>
 </svg>

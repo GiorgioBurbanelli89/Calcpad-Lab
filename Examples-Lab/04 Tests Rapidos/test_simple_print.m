@@ -6,7 +6,7 @@ fprintf('Linea 2\n');
 fprintf('Linea 3\n');
 
 %% (2) fprintf con formato (numeros, strings, escapes)
-nombre = 'Calcpad Lab';
+nombre = 'Hekatan Lab';
 version = 1.0;
 fprintf('\n--- Identificacion ---\n');
 fprintf('Producto: %s\n', nombre);

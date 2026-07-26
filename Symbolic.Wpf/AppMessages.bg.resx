@@ -66,7 +66,7 @@
   <data name="ReportUnhandledExceptionAndClose_NoUnsavedData_RecoveryAttempted" xml:space="preserve">
     <value>
 
-Calcpad запази вашите данни и се опита да се възстанови автоматчно.</value>
+Hekatan запази вашите данни и се опита да се възстанови автоматчно.</value>
   </data>
   <data name="ReportUnhandledExceptionAndClose_UnsavedData_RecoveryFailed" xml:space="preserve">
     <value>
@@ -81,7 +81,7 @@ Calcpad запази вашите данни и се опита да се въз
 "{0}"</value>
   </data>
   <data name="UnexpectedErrorOccurred" xml:space="preserve">
-    <value>В Calcpad възникна неочаквана грешка: "{0}"
+    <value>В Hekatan възникна неочаквана грешка: "{0}"
 
 Източник: "{1}"</value>
   </data>

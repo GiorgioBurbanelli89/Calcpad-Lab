@@ -1,42 +1,58 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
-  <rect x='0' y='0' width='800' height='800' fill='white'/>
-  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
-  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>Torsion T en vigas [kN m]  (max=NaN)</text>
-  <text x='415' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>x [m]</text>
-  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>y [m]</text>
-  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-0.3</text>
-  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>-0.3</text>
-  <text x='201.99999999999997' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1.02</text>
-  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>1.02</text>
-  <text x='343.99999999999994' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2.34</text>
-  <text x='55' y='468.00000000000006' text-anchor='end' font-family='sans-serif' font-size='10'>2.34</text>
-  <text x='485.9999999999999' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3.66</text>
-  <text x='55' y='330.0000000000001' text-anchor='end' font-family='sans-serif' font-size='10'>3.66</text>
-  <text x='627.9999999999999' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>4.98</text>
-  <text x='55' y='192.0000000000001' text-anchor='end' font-family='sans-serif' font-size='10'>4.98</text>
-  <text x='770' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>6.3</text>
-  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>6.3</text>
-  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='754' viewBox='0 0 800 754'>
+  <rect x='0' y='0' width='800' height='754' fill='white'/>
+  <rect x='60' y='50' width='644' height='644' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>Torsion T en vigas [kN m]  (max=22.8)</text>
+  <text x='382' y='739' text-anchor='middle' font-family='sans-serif' font-size='12'>x [m]</text>
+  <text x='15' y='372' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 372)'>y [m]</text>
+  <text x='89.27272727272728' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='89.27272727272728' y1='694' x2='89.27272727272728' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='186.84848484848487' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='186.84848484848487' y1='694' x2='186.84848484848487' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='284.4242424242424' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='284.4242424242424' y1='694' x2='284.4242424242424' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='382' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='382' y1='694' x2='382' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='479.57575757575756' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='479.57575757575756' y1='694' x2='479.57575757575756' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='577.1515151515151' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>5</text>
+  <line x1='577.1515151515151' y1='694' x2='577.1515151515151' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='674.7272727272727' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>6</text>
+  <line x1='674.7272727272727' y1='694' x2='674.7272727272727' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='668.7272727272727' text-anchor='end' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='56' y1='664.7272727272727' x2='60' y2='664.7272727272727' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='571.1515151515151' text-anchor='end' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='56' y1='567.1515151515151' x2='60' y2='567.1515151515151' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='473.5757575757576' text-anchor='end' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='56' y1='469.5757575757576' x2='60' y2='469.5757575757576' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='376' text-anchor='end' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='56' y1='372' x2='60' y2='372' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='278.42424242424244' text-anchor='end' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='56' y1='274.42424242424244' x2='60' y2='274.42424242424244' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='180.84848484848487' text-anchor='end' font-family='sans-serif' font-size='10'>5</text>
+  <line x1='56' y1='176.84848484848487' x2='60' y2='176.84848484848487' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='83.27272727272725' text-anchor='end' font-family='sans-serif' font-size='10'>6</text>
+  <line x1='56' y1='79.27272727272725' x2='60' y2='79.27272727272725' stroke='#333' stroke-width='0.8'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='644' height='644'/></clipPath></defs>
   <g clip-path='url(#plot)'>
-    <polyline points='92.27,708.64 221.36,708.64' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='221.36,708.64 350.45,708.64' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='350.45,708.64 479.55,708.64' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='479.55,708.64 608.64,708.64' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='608.64,708.64 737.73,708.64' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='737.73,708.64 737.73,583.18' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='737.73,583.18 737.73,457.73' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='737.73,457.73 737.73,332.27' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='737.73,332.27 737.73,206.82' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='737.73,206.82 737.73,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='92.27,81.36 221.36,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='221.36,81.36 350.45,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='350.45,81.36 479.55,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='479.55,81.36 608.64,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='608.64,81.36 737.73,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='92.27,708.64 92.27,583.18' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='92.27,583.18 92.27,457.73' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='92.27,457.73 92.27,332.27' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='92.27,332.27 92.27,206.82' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
-    <polyline points='92.27,206.82 92.27,81.36' fill='none' stroke='rgb(0,51,0)' stroke-width='8'/>
+    <polyline points='89.27,664.73 206.36,664.73' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='206.36,664.73 323.45,664.73' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='323.45,664.73 440.55,664.73' fill='none' stroke='rgb(0,51,254)' stroke-width='8'/>
+    <polyline points='440.55,664.73 557.64,664.73' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='557.64,664.73 674.73,664.73' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='674.73,664.73 674.73,547.64' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='674.73,547.64 674.73,430.55' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='674.73,430.55 674.73,313.45' fill='none' stroke='rgb(0,51,254)' stroke-width='8'/>
+    <polyline points='674.73,313.45 674.73,196.36' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='674.73,196.36 674.73,79.27' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='89.27,79.27 206.36,79.27' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='206.36,79.27 323.45,79.27' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='323.45,79.27 440.55,79.27' fill='none' stroke='rgb(0,51,254)' stroke-width='8'/>
+    <polyline points='440.55,79.27 557.64,79.27' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='557.64,79.27 674.73,79.27' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='89.27,664.73 89.27,547.64' fill='none' stroke='rgb(254,51,0)' stroke-width='8'/>
+    <polyline points='89.27,547.64 89.27,430.55' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='89.27,430.55 89.27,313.45' fill='none' stroke='rgb(0,51,254)' stroke-width='8'/>
+    <polyline points='89.27,313.45 89.27,196.36' fill='none' stroke='rgb(163,51,91)' stroke-width='8'/>
+    <polyline points='89.27,196.36 89.27,79.27' fill='none' stroke='rgb(255,51,0)' stroke-width='8'/>
   </g>
 </svg>

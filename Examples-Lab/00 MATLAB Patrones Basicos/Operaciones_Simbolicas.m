@@ -2,10 +2,10 @@
 % =========================================================================
 % EJEMPLO 2 — Operaciones simbolicas + texto en una linea
 % =========================================================================
-% Demuestra los patrones para combinar simbolico y texto en MATLAB / Calcpad-Lab.
+% Demuestra los patrones para combinar simbolico y texto en MATLAB / Hekatan Lab.
 % Clave: char(expr) convierte la expresion simbolica a string para fprintf.
 %
-% En Calcpad-Lab MATLAB-mode, char() devuelve HTML con CSS Calcpad: las
+% En Hekatan Lab MATLAB-mode, char() devuelve HTML con CSS Hekatan: las
 % expresiones se renderizan con fracciones apiladas, variables azules,
 % exponentes como superindice, etc.
 % =========================================================================
@@ -37,7 +37,7 @@ fprintf('=== 4) Limite ===\n');
 fprintf('lim x->0 de sin(x)/x = %s\n\n', char(limit(sin(x)/x, x, 0)));
 
 % ---- Resolver ecuacion (sin == — pasar la expresion asumiendo =0) ----
-% NOTA: Calcpad-Lab MVP no soporta `solve(expr == 0, x)`.
+% NOTA: Hekatan Lab MVP no soporta `solve(expr == 0, x)`.
 %       Usar `solve(expr, x)` (asume = 0).
 fprintf('=== 5) Resolver ecuacion (sin ==) ===\n');
 sol = solve(x^2 - 4, x);

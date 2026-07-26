@@ -1,0 +1,25 @@
+============================================================================
+
+TEST 0 - PATCH TEST (deformacion constante) - elemento ITW-1990
+
+Malla 2x2 con el nudo interior DISTORSIONADO. Se prescribe en el borde un
+
+campo lineal u = a*x, v = d*y (deformacion constante ex=a, ey=d, rz=0).
+
+El elemento PASA si el nudo interior reproduce el campo lineal EXACTO.
+
+============================================================================
+
+malla 2x2 (nudos 3x3); nudo central (5) distorsionado
+
+==== TEST 0 PATCH TEST (ITW) ====
+
+nudo interior: u = 1.300000e-03 (exacto 1.300000e-03)
+
+v = 4.000000e-04 (exacto 4.000000e-04)
+
+error maximo = 2.883e-13
+
+PATCH TEST: PASA (reproduce deformacion constante exacto)
+
+CHECK t_seg 0.0577

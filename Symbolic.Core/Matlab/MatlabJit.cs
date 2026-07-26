@@ -108,6 +108,14 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < args.Length; i++) mArgs[i] = new MValue(args[i]);
             return Evaluator.JitCall(name, mArgs);
         }
+        /// <summary>Llamada a función de usuario con args MValue (mezcla matriz/escalar) que
+        /// devuelve UN output (matriz). Para sub-llamadas del return-map: mc_stress no la usa,
+        /// pero completa el par con CallMultiMV.</summary>
+        public MValue CallMV(string name, MValue[] args) => Evaluator.JitCall(name, args);
+        /// <summary>Llamada MULTI-OUTPUT con args MValue: [a,b,...]=f(args). Devuelve MValue[]
+        /// (cada salida opaca: matriz, escalar o STRING — el consumidor decide). Así `reg` (string)
+        /// del return-map fluye sin soporte de strings en el JIT.</summary>
+        public MValue[] CallMultiMV(string name, MValue[] args) => Evaluator.JitCallMulti(name, args);
 
         // ─── Funciones matematicas INLINE (sin MValue ni dispatch) ─────────
         // MATLAB mod(a,b) = a - b*floor(a/b);  mod(a,0) = a.
@@ -166,6 +174,8 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MSetMatElem2 = typeof(JitCtx).GetMethod(nameof(SetMatElem2));
         internal static readonly MethodInfo MCallScalar  = typeof(JitCtx).GetMethod(nameof(CallScalar));
         internal static readonly MethodInfo MCallMatrix  = typeof(JitCtx).GetMethod(nameof(CallMatrix));
+        internal static readonly MethodInfo MCallMV      = typeof(JitCtx).GetMethod(nameof(CallMV));
+        internal static readonly MethodInfo MCallMultiMV = typeof(JitCtx).GetMethod(nameof(CallMultiMV));
         internal static readonly MethodInfo MGetMatVar   = typeof(JitCtx).GetMethod(nameof(GetMatrixVar));
         internal static readonly MethodInfo MSetMatVar   = typeof(JitCtx).GetMethod(nameof(SetMatrixVar));
         internal static readonly FieldInfo  FSlots       = typeof(JitCtx).GetField(nameof(Slots));
@@ -537,6 +547,78 @@ namespace Calcpad.Core.Matlab
             catch { return null; }
         }
 
+        /// <summary>JIT de función GENERAL (matrices + escalares): resultado compilado + metadatos
+        /// para enlazar params y extraer outputs en runtime. Especializado a los KINDS de los args
+        /// de la 1ª llamada (ParamKinds); si una llamada trae otros kinds → intérprete.</summary>
+        public sealed class CompiledFnMV
+        {
+            public Action<JitCtx> Body;
+            public Dictionary<string, int> SlotIdx;
+            public string[] ParamNames;
+            public TKindPub[] ParamKinds;
+            public string[] OutputNames;
+            public TKindPub[] OutputKinds;
+        }
+        public enum TKindPub { Scalar, Matrix }   // espejo público de TKind (Cell no se soporta aquí)
+
+        /// <summary>Compila una función con params/locals ESCALARES o MATRIZ (Phase 3). Reusa
+        /// ConvertStmt/ConvertExpr (matrices via el Scope del JitCtx). Devuelve null si algo no
+        /// se soporta (cells, sort, strings, multi-output aún) → intérprete (fallback seguro).
+        /// paramKinds: true=matriz, false=escalar, uno por parámetro.</summary>
+        /// <summary>Toggle A/B (solo para benchmark): env HEK_NO_MVJIT=1 desactiva el JIT Phase 3
+        /// para medir su aporte sin recompilar. Por defecto activo.</summary>
+        public static readonly bool MVEnabled =
+            System.Environment.GetEnvironmentVariable("HEK_NO_MVJIT") != "1";
+
+        public static CompiledFnMV TryCompileFunctionMV(FunctionDef def, MatlabEvaluator ev, bool[] paramIsMatrix)
+        {
+            try
+            {
+                if (!MVEnabled) return null;
+                if (def.ClosureScope != null || def.OutputNames.Count == 0) return null;
+                foreach (var p in def.ParamNames) if (p == "varargin") return null;
+                foreach (var o in def.OutputNames) if (o == "varargout") return null;
+                if (paramIsMatrix.Length != def.ParamNames.Count) return null;
+                var cc = new CompileCtx { Evaluator = ev };   // NO UseLocals -> slots[] + Scope
+                cc.CtxParam = Expression.Parameter(typeof(JitCtx), "ctx");
+                cc.SlotsExpr = Expression.Field(cc.CtxParam, JitCtx.FSlots);
+                cc.ReturnLabel = Expression.Label("ret");
+                for (int i = 0; i < def.ParamNames.Count; i++)
+                    cc.VarKind[def.ParamNames[i]] = paramIsMatrix[i] ? TKind.Matrix : TKind.Scalar;
+                if (!ClassifyBody(def.Body, cc)) return null;
+                foreach (var kv in cc.VarKind) if (kv.Value == TKind.Cell) return null;   // cells no
+                foreach (var kv in cc.VarKind)
+                    if (kv.Value == TKind.Scalar && !cc.SlotIdx.ContainsKey(kv.Key)) cc.SlotIdx[kv.Key] = cc.SlotIdx.Count;
+                var body = new List<Expression>();
+                foreach (var st in def.Body)
+                {
+                    if (st is CommentStmt) continue;
+                    var e = ConvertStmt(st, cc);
+                    if (e == null) return null;
+                    body.Add(e);
+                }
+                body.Add(Expression.Label(cc.ReturnLabel));
+                if (body.Count == 0) return null;
+                var lambda = Expression.Lambda<Action<JitCtx>>(Expression.Block(body), cc.CtxParam).Compile();
+                var okinds = new TKindPub[def.OutputNames.Count];
+                for (int i = 0; i < def.OutputNames.Count; i++)
+                {
+                    if (!cc.VarKind.TryGetValue(def.OutputNames[i], out var ok)) return null;
+                    if (ok == TKind.Cell) return null;
+                    okinds[i] = ok == TKind.Matrix ? TKindPub.Matrix : TKindPub.Scalar;
+                }
+                var pkinds = new TKindPub[paramIsMatrix.Length];
+                for (int i = 0; i < paramIsMatrix.Length; i++) pkinds[i] = paramIsMatrix[i] ? TKindPub.Matrix : TKindPub.Scalar;
+                return new CompiledFnMV
+                {
+                    Body = lambda, SlotIdx = cc.SlotIdx,
+                    ParamNames = def.ParamNames.ToArray(), ParamKinds = pkinds,
+                    OutputNames = def.OutputNames.ToArray(), OutputKinds = okinds
+                };
+            }
+            catch { return null; }
+        }
+
         private static bool ClassifyBody(IEnumerable<MatlabNode> stmts, CompileCtx cc)
         {
             foreach (var s in stmts) if (!ClassifyStmt(s, cc)) return false;
@@ -590,6 +672,21 @@ namespace Calcpad.Core.Matlab
                         return true;
                     }
                     return false;
+                case Assignment amo when amo.Targets.Count > 1:
+                    {
+                        // [a,b,...]=userfn(args): solo funciones de usuario; args deben inferirse;
+                        // cada target real (no `~`) es MATRIZ OPACA (matriz/escalar/string en el Scope).
+                        if (amo.Rhs is not CallOrIndex mc || mc.Target is not IdentRef mcId) return false;
+                        if (!cc.Evaluator.JitIsUserFunction(mcId.Name)) return false;
+                        foreach (var arg in mc.Args) if (InferKind(arg, cc) == null) return false;
+                        foreach (var t in amo.Targets)
+                        {
+                            if (t is not IdentRef tv) return false;
+                            if (tv.Name == "~") continue;
+                            if (!SetKind(cc, tv.Name, TKind.Matrix)) return false;
+                        }
+                        return true;
+                    }
                 case IfBlock ib:
                     foreach (var (cond, cbody) in ib.Branches)
                     {
@@ -824,6 +921,33 @@ namespace Calcpad.Core.Matlab
                         return null;
                     }
                     return null;
+                case Assignment amo when amo.Targets.Count > 1:
+                    {
+                        // MULTI-OUTPUT: [a, b, ...] = userfn(args)  (el return-map: [sr,reg]=mc_return(...)).
+                        // Los outputs son MValue OPACOS (matriz/escalar/string) en el Scope: `reg` (string)
+                        // fluye sin soporte de strings en el JIT. Solo funciones de USUARIO.
+                        if (amo.Rhs is not CallOrIndex mc || mc.Target is not IdentRef mcId) return null;
+                        if (!cc.Evaluator.JitIsUserFunction(mcId.Name)) return null;
+                        var argArr = BuildMValueArgs(mc.Args, cc);
+                        if (argArr == null) return null;
+                        var outsVar = Expression.Variable(typeof(MValue[]), "outs");
+                        var callE = Expression.Call(cc.CtxParam, JitCtx.MCallMultiMV,
+                            Expression.Constant(mcId.Name), argArr);
+                        var stmts = new List<Expression> { Expression.Assign(outsVar, callE) };
+                        for (int k = 0; k < amo.Targets.Count; k++)
+                        {
+                            if (amo.Targets[k] is not IdentRef tv || tv.Name == "~") continue;   // ignore
+                            var elem = Expression.ArrayIndex(outsVar, Expression.Constant(k));   // MValue
+                            var kind = cc.VarKind[tv.Name];
+                            if (kind == TKind.Scalar)
+                                stmts.Add(Expression.Assign(ScalarAccess(cc, tv.Name),
+                                    Expression.Call(JitCtx.MMatToScalar, elem)));
+                            else
+                                stmts.Add(Expression.Call(cc.CtxParam, JitCtx.MSetMatVar,
+                                    Expression.Constant(tv.Name), elem));
+                        }
+                        return Expression.Block(new[] { outsVar }, stmts);
+                    }
                 case IfBlock ib:
                     {
                         // Construir IfThenElse anidado desde el final (el else va con Cond=null).
@@ -1262,6 +1386,31 @@ namespace Calcpad.Core.Matlab
                     Expression.Constant(name), idx1, idx2);
             }
             return null;
+        }
+
+        /// <summary>Arma un <c>MValue[]</c> para una llamada, convirtiendo cada arg por su kind:
+        /// matriz → MValue directo; escalar → <c>new MValue(double)</c>. null si algún arg no se puede.</summary>
+        private static Expression BuildMValueArgs(List<MatlabNode> args, CompileCtx cc)
+        {
+            var elems = new Expression[args.Count];
+            for (int i = 0; i < args.Count; i++)
+            {
+                var k = InferKind(args[i], cc);
+                if (k == null || k == TKind.Cell) return null;
+                if (k == TKind.Matrix)
+                {
+                    var m = ConvertExprAsKind(args[i], cc, TKind.Matrix);
+                    if (m == null) return null;
+                    elems[i] = m;
+                }
+                else
+                {
+                    var s = ConvertExprAsKind(args[i], cc, TKind.Scalar);
+                    if (s == null) return null;
+                    elems[i] = Expression.New(JitCtx.CMValueScalar, s);   // new MValue(double)
+                }
+            }
+            return Expression.NewArrayInit(typeof(MValue), elems);
         }
 
         private static Expression ConvertMatrixLit(MatrixLit ml, CompileCtx cc)

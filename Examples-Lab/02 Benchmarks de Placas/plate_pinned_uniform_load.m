@@ -8,7 +8,7 @@
 %
 %  Este script es MATLAB 100% portable:
 %     - Corre en MATLAB nativo  -> muestra figuras con colormap jet (SAP2000-style)
-%     - Corre en Calcpad Lab    -> HTML con Three.js rainbow (mismo look)
+%     - Corre en Hekatan Lab    -> HTML con Three.js rainbow (mismo look)
 %     - Corre en Octave         -> figuras con colormap jet
 %
 %  Geometria:    placa cuadrada 10x10 m, espesor 0.15 m

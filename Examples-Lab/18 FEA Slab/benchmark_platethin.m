@@ -1,14 +1,14 @@
 %% Benchmark Plate-Thin — BFS Q4 (Bogner-Fox-Schmit, 16 DOF/elem)
 clear; clc;
 %-- Port del benchmark_platethin.cpd a MATLAB puro.
-%-- Corre en MATLAB / Octave / Calcpad-Lab sin cambios.
+%-- Corre en MATLAB / Octave / Hekatan Lab sin cambios.
 %
 %-- Caso (placa simply-supported con carga uniforme):
 %--   a = 6 m   b = 4 m   t = 0.10 m
 %--   E = 35 GPa   nu = 0.15   q = 10 kN/m^2
 %--   Mesh 6x4 Q4-BFS (24 elementos, 35 nodos, 140 GDL)
 %--
-%-- Resultados de referencia (Calcpad oficial + SAP 2000 v24):
+%-- Resultados de referencia (Hekatan oficial + SAP 2000 v24):
 %--   w_centro    = 6.529 mm
 %--   Mx centro   = 6.225 kNm/m
 %--   My centro   = 12.759 kNm/m
@@ -55,7 +55,7 @@ fprintf('d²Φ₁/dξ² = %s\n', char(ddPhi_1));
 fprintf('d²Φ₂/dξ² = %s\n', char(ddPhi_2));
 
 %-- Verificacion analitica: int_0^1 (Phi1+Phi3) dxi = 1 (particion de unidad)
-%-- Calcpad-Lab MVP factoriza el polinomio antes de integrar, lo que hace
+%-- Hekatan Lab MVP factoriza el polinomio antes de integrar, lo que hace
 %-- fallar int() con productos. Evaluamos analiticamente: ambos integrales
 %-- dan 1/2 y la suma 1. Esto se muestra abajo como comprobacion.
 I1_val = 1/2;  % int_0^1 (1 - 3*xi^2 + 2*xi^3) dxi = 1 - 1 + 1/2 = 1/2
@@ -192,7 +192,7 @@ fprintf('Solve K\\F: %.0f ms\n', t_solve*1000);
 n_center = (n_a/2)*(n_b + 1) + (n_b/2) + 1;
 w_center_mm = Z(n_dof*(n_center-1) + 1) * 1000;
 fprintf('\n=== Resultados ===\n');
-fprintf('w_centro     = %.4f mm    (referencia Calcpad: -6.529)\n', w_center_mm);
+fprintf('w_centro     = %.4f mm    (referencia Hekatan: -6.529)\n', w_center_mm);
 
 %% Reconstruir deflexion sobre grilla densa (para surf y peak Mxy)
 N_DENSE = 21;
@@ -236,14 +236,14 @@ for e = 1:n_e
     end
 end
 
-fprintf('Mx_max  = %.4f kNm/m  (ref Calcpad: 6.225)\n', max(abs(Mx(:))));
-fprintf('My_max  = %.4f kNm/m  (ref Calcpad: 12.759)\n', max(abs(My(:))));
-fprintf('Mxy_max = %.4f kNm/m  (ref Calcpad: 8.380)\n', max(abs(Mxy(:))));
+fprintf('Mx_max  = %.4f kNm/m  (ref Hekatan: 6.225)\n', max(abs(Mx(:))));
+fprintf('My_max  = %.4f kNm/m  (ref Hekatan: 12.759)\n', max(abs(My(:))));
+fprintf('Mxy_max = %.4f kNm/m  (ref Hekatan: 8.380)\n', max(abs(Mxy(:))));
 
 %% Visualizacion — 4 plots con colormap jet estilo SAP 2000
 [XX, YY] = meshgrid(xx, yy);
 
-%-- IMPORTANTE: colormap() en Calcpad-Lab define el colormap ACTIVO para los
+%-- IMPORTANTE: colormap() en Hekatan Lab define el colormap ACTIVO para los
 %-- proximos plots. Por eso va ANTES de surf/contourf, no despues.
 %-- 'jet' produce blue → cyan → green → yellow → red = arcoiris canonico SAP/ETABS.
 colormap('jet');
@@ -284,8 +284,8 @@ colorbar;
 axis equal;
 
 %% Comparativa final
-fprintf('\n=========== Resumen vs Calcpad oficial =============\n');
-fprintf('Parametro      |  Calcpad-Lab  |  Calcpad oficial  | Diff %%\n');
+fprintf('\n=========== Resumen vs Hekatan oficial =============\n');
+fprintf('Parametro      |  Hekatan Lab  |  Hekatan oficial  | Diff %%\n');
 fprintf('-------------------------------------------------------\n');
 fprintf('w_centro [mm]  |   %7.4f   |     %7.4f       | %+5.2f\n', w_center_mm,        -6.529, 100*(w_center_mm-(-6.529))/(-6.529));
 fprintf('Mx max         |   %7.4f   |     %7.4f       | %+5.2f\n', max(abs(Mx(:))),     6.225, 100*(max(abs(Mx(:)))-6.225)/6.225);
@@ -296,7 +296,7 @@ fprintf('Match a < 1%% en w, Mx, My (incluyendo signo). Mxy depende de densidad 
 
 %% =========================================================================
 %  Funciones locales — MATLAB R2016b+ exige que vayan al FINAL del script
-%  (Calcpad-Lab y Octave las aceptan en cualquier posicion).
+%  (Hekatan Lab y Octave las aceptan en cualquier posicion).
 %% =========================================================================
 
 %-- Hermite cubica Φ_k(u) sobre [0,1] con escala L (longitud del elemento)

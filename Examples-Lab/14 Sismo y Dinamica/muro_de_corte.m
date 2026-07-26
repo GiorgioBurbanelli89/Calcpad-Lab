@@ -70,7 +70,7 @@ for ee=1:NE
   e1=(eps(1)+eps(2))/2+erad; gmax=2*erad;    % deformacion principal + cortante max
   Hd(ee,:)=[s1 rad e1 gmax dv(ee)];
 end
-hoverdata(Hd,'sigma1 (MPa)|tau_max (MPa)|epsilon1|gamma_max|DAMAGET');   % Calcpad Lab: builtin (canvas) · MATLAB: hoverdata.m (datacursor)
+hoverdata(Hd,'sigma1 (MPa)|tau_max (MPa)|epsilon1|gamma_max|DAMAGET');   % Hekatan Lab: builtin (canvas) · MATLAB: hoverdata.m (datacursor)
 % render paleta ABAQUS (jet) sobre malla DEFORMADA (x74) — UN patch con valor por cara -> HOVER interactivo
 sf=74.33; XYdef=XY+sf*[U(1:2:end) U(2:2:end)];   % desplaza cada nodo por U escalado
 fig=figure('Color','w','Position',[60 60 1050 760]); ax=axes('Parent',fig); hold(ax,'on');
@@ -79,7 +79,7 @@ patch('Parent',ax,'Vertices',XYdef,'Faces',els,'FaceVertexCData',dv,'FaceColor',
 % contorno ORIGINAL sin deformar (referencia) -> hace evidente la deformacion lateral
 line(ax,[0 W W 0 0],[0 0 Hh Hh 0],'Color',[.35 .35 .35],'LineWidth',1.8);
 axis(ax,'equal'); cb=colorbar(ax); ylabel(cb,'DAMAGET');
-title(ax,'MURO DE CORTE - Calcpad Lab (8.9% divergencia vs Abaqus, deformado x74)'); xlabel('x (mm)'); ylabel('y (mm)');
+title(ax,'MURO DE CORTE - Hekatan Lab (8.9% divergencia vs Abaqus, deformado x74)'); xlabel('x (mm)'); ylabel('y (mm)');
 print(fig,'-dpng','-r100','shear_wall_matlab.png');
 fprintf('MATLAB muro: dano max=%.3f, csv guardado\n',max(dv));
 end
@@ -90,7 +90,7 @@ function B=Bm(dNx)
 B=zeros(3,8);
 for a=1:4, B(1,2*a-1)=dNx(1,a); B(2,2*a)=dNx(2,a); B(3,2*a-1)=dNx(2,a); B(3,2*a)=dNx(1,a); end
 end
-% ------- HOVER: funciones LOCALES en MATLAB (Calcpad Lab usa su builtin canvas; en MATLAB, estas).
+% ------- HOVER: funciones LOCALES en MATLAB (Hekatan Lab usa su builtin canvas; en MATLAB, estas).
 % UN SOLO archivo autocontenido, identico en ambos. Lab NO registra 'hoverdata' (builtin reservado).
 function hoverdata(Hd, labels)
 labs=strsplit(labels,'|'); ax=gca; fig=gcf; p=findobj(ax,'Type','patch');

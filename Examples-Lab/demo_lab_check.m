@@ -1,4 +1,4 @@
-%% Calcpad-Lab: comentarios en negro + letras griegas
+%% Hekatan Lab: comentarios en negro + letras griegas
 % Este comentario debe ir en NEGRO, no verde
 sigma = 250;
 nu = 0.42;

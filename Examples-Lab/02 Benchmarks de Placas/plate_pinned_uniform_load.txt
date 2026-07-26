@@ -1,0 +1,85 @@
+=============================================================================
+
+PLACA CUADRADA EMPOTRADA EN BORDES CON CARGA UNIFORME
+
+=============================================================================
+
+Benchmark portado de awatif-v2:
+
+C:\Users\j-b-j\Documents\awatif-v2\awatif-fem\src\deform.test.ts
+
+test("Plate: Rectangular pin-supported plate with uniform load")
+
+Este script es MATLAB 100% portable:
+
+- Corre en MATLAB nativo -> muestra figuras con colormap jet (SAP2000-style)
+
+- Corre en Hekatan Lab -> HTML con Three.js rainbow (mismo look)
+
+- Corre en Octave -> figuras con colormap jet
+
+Geometria: placa cuadrada 10x10 m, espesor 0.15 m
+
+Material: E=10 GPa, nu=0.25, isotropica
+
+Carga: p0 = -1000 N/m2 (uniforme transversal)
+
+Apoyos: fijos en los 4 bordes
+
+Deflexion: max ~= 12.69 mm (FEM awatif)
+
+13.541 mm (solucion analitica Timoshenko exacta)
+
+=============================================================================
+
+Parametros del problema
+
+a = 10
+
+b = 10
+
+h = 0.15
+
+p0 = -1000
+
+E = 1E+10
+
+ν = 0.25
+
+Generacion del mesh - grid regular 10x10 (100 nodos)
+
+Triangulacion Delaunay automatica (~162 triangulos)
+
+Solucion analitica de Timoshenko - serie de Fourier completa
+
+w(x, y) = (16*p0 / pi6*D) * Sum_{m,n impares} sin(mpix/a)*sin(npiy/b) / [m*n*(m2/a2 + n2/b2)2]
+
+Sumamos m, n in {1, 3, 5, 7} (4x4 = 16 terminos) - converge rapido a la
+
+solucion exacta Timoshenko 13.541 mm.
+
+D = E·h³12·(1 - ν²) = 3E+06
+
+Deflexion maxima en milimetros
+
+w_max,mm = |&hairsp;min(w)&hairsp;|·1000 = 13.1653
+
+Visualizacion 2D - mesh wireframe
+
+triplot(tri, x, y);
+
+Visualizacion 3D - superficie deformada
+
+
+
+– -0
+– -0.00165
+– -0.00329
+– -0.00494
+– -0.00658
+– -0.00823
+– -0.00987
+– -0.0115
+– -0.0132
+
+X: 0 … 10    Y: 0 … 10    Z: -0.0132 … -0

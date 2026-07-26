@@ -1,0 +1,25 @@
+============================================================================
+
+TEST II - Viga corta en voladizo (MacNeal-Harder) - elemento ITW-1990
+
+E=30000, nu=0.25, P=40, l=48, h=12. Empotrada izq, cortante P en el borde libre.
+
+Paper Tabla II (D-type): 4x1=0.3445 8x2=0.3504 16x4=0.3543 ; exacto=0.3553
+
+============================================================================
+
+==== TEST II CANTILEVER (ITW) ==== exacto = 0.3553
+
+4x1 : tip = 0.3399
+
+8x2 : tip = 0.3512
+
+16x4 : tip = 0.3541
+
+jt = 0best = 1E+09
+
+no hay nudo en y=h/2 (solo y=0 e y=h) -> promedio de los dos del borde libre
+
+4x1* irregular : tip = 0.3342 (paper D-type 0.3065)
+
+CHECK t_seg 0.1397

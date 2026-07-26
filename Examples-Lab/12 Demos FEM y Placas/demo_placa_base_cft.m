@@ -264,12 +264,13 @@ end
 xn = xn(keep); yn = yn(keep);
 n_arc = 16;
 for k = 1:nPernos
-    th = linspace(0, 2*pi, n_arc+1); th(end) = [];
+    th = linspace(0, 2*pi, n_arc+1); th = th(1:end-1);
     xn = [xn; xp(k) + d_orif/2 * cos(th)'];
     yn = [yn; yp(k) + d_orif/2 * sin(th)'];
 end
 tri = delaunay(xn, yn);
-cx = mean(xn(tri),2); cy = mean(yn(tri),2);
+cx = (xn(tri(:,1)) + xn(tri(:,2)) + xn(tri(:,3))) / 3;
+cy = (yn(tri(:,1)) + yn(tri(:,2)) + yn(tri(:,3))) / 3;
 keep_tri = true(size(cx));
 for k = 1:nPernos
     keep_tri = keep_tri & ((cx-xp(k)).^2 + (cy-yp(k)).^2 >= (d_orif/2 * 0.95)^2);
@@ -309,7 +310,7 @@ for k = 1:nPernos
     draw_cylinder(xp(k), yp(k), z_perno_bot, z_perno_top, d_perno/2, col_perno, 16);
     % Tuerca hexagonal arriba
     nut_r = d_perno*0.85;
-    th_n = linspace(0, 2*pi, 7); th_n(end) = [];
+    th_n = linspace(0, 2*pi, 7); th_n = th_n(1:end-1);
     patch(xp(k)+nut_r*cos(th_n), yp(k)+nut_r*sin(th_n), ...
           (z_perno_top)*ones(1,6), [.5 .5 .55], 'EdgeColor','k', 'LineWidth',0.5);
     % Placa de anclaje al final del perno
@@ -363,7 +364,7 @@ end
 keep_y = yn >= yCut;
 % Para placa cortada: tomamos los nodos del lado y>=yCut, malla y patches
 trip = tri;   % usamos malla completa pero filtramos por mediana del triángulo
-mid_y_tri = mean(yn(trip),2);
+mid_y_tri = (yn(trip(:,1)) + yn(trip(:,2)) + yn(trip(:,3))) / 3;
 trip = trip(mid_y_tri >= yCut, :);
 patch('Faces', trip, 'Vertices', [xn yn z1*ones(numel(xn),1)], ...
       'FaceColor',col_acero, 'EdgeColor',[.2 .2 .3], 'LineWidth',0.2);
@@ -393,7 +394,7 @@ for k = 1:nPernos
     if yp(k) >= yCut - 50   % muestra todos los del lado visible y los justo en el corte
         draw_cylinder(xp(k), yp(k), z_perno_bot, z_perno_top, d_perno/2, col_perno, 16);
         nut_r = d_perno*0.85;
-        th_n = linspace(0, 2*pi, 7); th_n(end) = [];
+        th_n = linspace(0, 2*pi, 7); th_n = th_n(1:end-1);
         patch(xp(k)+nut_r*cos(th_n), yp(k)+nut_r*sin(th_n), ...
               (z_perno_top)*ones(1,6), [.5 .5 .55], 'EdgeColor','k', 'LineWidth',0.5);
         patch(xp(k)+[-30 30 30 -30], yp(k)+[-30 -30 30 30], ...

@@ -1,5 +1,5 @@
 %% Test simbolico completo - paridad con MATLAB R2017a
-% Todas las operaciones del Symbolic Math Toolbox que Calcpad-Lab soporta.
+% Todas las operaciones del Symbolic Math Toolbox que Hekatan Lab soporta.
 
 syms x y
 

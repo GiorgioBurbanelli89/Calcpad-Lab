@@ -1,5 +1,5 @@
 % =============================================================================
-% Calcpad Lab - Ejemplo de placa irregular (equivalente a awatif-v2/plate)
+% Hekatan Lab - Ejemplo de placa irregular (equivalente a awatif-v2/plate)
 % =============================================================================
 %   Caso: placa cuadrilatera con cuatro vertices, sometida a una carga vertical.
 %   Equivalente al ejemplo C:\Users\j-b-j\Documents\awatif-v2\examples\src\plate
@@ -7,11 +7,11 @@
 %   awatif-v2 genera la malla con triangle-wasm:
 %       triangle.triangulate('pzQOq30a${maxMeshSize}', in, out);
 %
-%   Calcpad Lab usa el MISMO motor (Triangle de Jonathan Shewchuk -
+%   Hekatan Lab usa el MISMO motor (Triangle de Jonathan Shewchuk -
 %   wo80 fork) compilado a triangle.dll (296 KB), expuesto via P/Invoke en
-%   `Calcpad.Core.TriangleInterop.MeshPolygon(points, polygon, maxMeshSize, minAngle)`.
+%   `Hekatan.Core.TriangleInterop.MeshPolygon(points, polygon, maxMeshSize, minAngle)`.
 %
-%   Ambos producen mallas identicas: Calcpad Lab + Triangle = paridad exacta
+%   Ambos producen mallas identicas: Hekatan Lab + Triangle = paridad exacta
 %   con awatif-v2.
 % =============================================================================
 
@@ -37,7 +37,7 @@ q   = -3    % Carga distribuida vertical    [kN/m2]
 % Llamada equivalente:
 %
 %   awatif:        triangle.triangulate('pzQOq30a0.5', ...)
-%   Calcpad Lab:   TriangleInterop.MeshPolygon(pts, polygon, 0.5, 30)
+%   Hekatan Lab:   TriangleInterop.MeshPolygon(pts, polygon, 0.5, 30)
 %
 % Esta funcion NO se llama directamente desde MATLAB script aun (pendiente
 % de integracion runtime). Para invocar desde C# / .NET:
@@ -82,7 +82,7 @@ F_total = q * A_total
 %     -> 2 triangles para el cuadrilatero simple SIN refinement.
 %     -> ~270 triangles con maxArea=0.5 (refinement de Shewchuk).
 %
-%   Calcpad Lab (triangle.dll):
+%   Hekatan Lab (triangle.dll):
 %     TriangleInterop.MeshPolygon([0,0,15,0,15,10,0,5], [0,1,2,3], 0.5, 30)
 %     -> MISMA SALIDA - bit-perfect, mismo algoritmo (Shewchuk wo80 fork).
 %

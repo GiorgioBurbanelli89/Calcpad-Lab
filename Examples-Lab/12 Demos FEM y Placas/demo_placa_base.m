@@ -154,13 +154,14 @@ xn = xn(keep); yn = yn(keep);
 % Agregar puntos sobre el borde de cada orificio para malla limpia
 n_arc = 16;
 for k = 1:nPernos
-    th = linspace(0, 2*pi, n_arc+1); th(end) = [];
+    th = linspace(0, 2*pi, n_arc+1); th = th(1:end-1);
     xn = [xn; xp(k) + d_orif/2 * cos(th)'];
     yn = [yn; yp(k) + d_orif/2 * sin(th)'];
 end
 tri = delaunay(xn, yn);
 % Filtrar triángulos dentro de los orificios
-cx = mean(xn(tri),2); cy = mean(yn(tri),2);
+cx = (xn(tri(:,1)) + xn(tri(:,2)) + xn(tri(:,3))) / 3;
+cy = (yn(tri(:,1)) + yn(tri(:,2)) + yn(tri(:,3))) / 3;
 keep_tri = true(size(cx));
 for k = 1:nPernos
     in_orif = (cx-xp(k)).^2 + (cy-yp(k)).^2 < (d_orif/2 * 0.95)^2;
@@ -213,7 +214,7 @@ for k = 1:nPernos
     end
     % Tuerca arriba
     nut_r = d_perno*0.8;
-    nut_pts = linspace(0, 2*pi, 7); nut_pts(end) = [];
+    nut_pts = linspace(0, 2*pi, 7); nut_pts = nut_pts(1:end-1);
     patch(xp(k)+nut_r*cos(nut_pts), yp(k)+nut_r*sin(nut_pts), ...
           (t+15)*ones(1,6), [.5 .5 .55], 'EdgeColor','k', 'LineWidth',0.5);
 end

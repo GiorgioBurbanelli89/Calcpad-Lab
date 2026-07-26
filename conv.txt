@@ -1,0 +1,4 @@
+kref=1  MATLAB ux_top = 0.042589 m   |   OpenSees = 0.036622 m   |   dif = 16.29%
+kref=2  MATLAB ux_top = 0.046091 m   |   OpenSees = 0.036622 m   |   dif = 25.86%
+kref=4  MATLAB ux_top = 0.047461 m   |   OpenSees = 0.036622 m   |   dif = 29.60%
+kref=8  MATLAB ux_top = 0.048071 m   |   OpenSees = 0.036622 m   |   dif = 31.26%

@@ -12,7 +12,9 @@ mask = (xn-2).^2 + (yn-1.5).^2 > 0.6^2;
 xn = xn(mask); yn = yn(mask);
 tri = delaunay(xn, yn);
 % Filtrar triángulos cuyo centroide cae dentro del hueco
-cx = mean(xn(tri),2); cy = mean(yn(tri),2);
+% (centroide por columnas: indexar un vector por una columna preserva la forma)
+cx = (xn(tri(:,1)) + xn(tri(:,2)) + xn(tri(:,3))) / 3;
+cy = (yn(tri(:,1)) + yn(tri(:,2)) + yn(tri(:,3))) / 3;
 tri = tri((cx-2).^2 + (cy-1.5).^2 > 0.6^2, :);
 
 %% =====================================================================
@@ -65,8 +67,8 @@ saveas(gcf,'demo_fem_elementos/02_plate_thin.png');
 %% Variable adicional: V_x, V_y por elemento (no nodal en Mindlin clásico)
 %% =====================================================================
 % Cortante V_x por elemento (centroide)
-ex = mean(xn(tri),2);  % centroide elemental
-ey = mean(yn(tri),2);
+ex = (xn(tri(:,1)) + xn(tri(:,2)) + xn(tri(:,3))) / 3;  % centroide elemental
+ey = (yn(tri(:,1)) + yn(tri(:,2)) + yn(tri(:,3))) / 3;
 V_x_elem = 100 * cos(pi*ex/4) .* sin(pi*ey/3);  % kN/m, simulado
 
 figure('Position',[100 100 900 500]);
@@ -122,9 +124,9 @@ saveas(gcf,'demo_fem_elementos/04_shell_thin.png');
 %% Visualización idéntica + segundo plot del cortante V_xz
 %% =====================================================================
 % V_xz por elemento (centroide)
-ex_s = mean(Xs_v(tri_s),2);
-ey_s = mean(Ys_v(tri_s),2);
-ez_s = mean(Zs_v(tri_s),2);
+ex_s = (Xs_v(tri_s(:,1)) + Xs_v(tri_s(:,2)) + Xs_v(tri_s(:,3))) / 3;
+ey_s = (Ys_v(tri_s(:,1)) + Ys_v(tri_s(:,2)) + Ys_v(tri_s(:,3))) / 3;
+ez_s = (Zs_v(tri_s(:,1)) + Zs_v(tri_s(:,2)) + Zs_v(tri_s(:,3))) / 3;
 V_xz = 30 * sin(2*pi*ex_s/4) .* cos(pi*ey_s/4);
 
 figure('Position',[100 100 900 600]);

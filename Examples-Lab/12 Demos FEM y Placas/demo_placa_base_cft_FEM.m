@@ -216,7 +216,9 @@ for e = 1:n_e
     T(2*e,   :) = [e_j(e,1), e_j(e,3), e_j(e,4)];
 end
 figure('Position',[80 80 800 750]); hold on;
-triplot(T, x_j*1000, y_j*1000, 'Color',[.2 .4 .7], 'LineWidth',0.8);
+% triplot -> patch sin relleno (solo aristas de la malla T3)
+patch('Faces', T, 'Vertices', [x_j(:)*1000, y_j(:)*1000], ...
+      'FaceColor','none', 'EdgeColor',[.2 .4 .7], 'LineWidth',0.8);
 % Marcar pernos
 for k = 1:nPernos
     plot(xp(k)*1000, yp(k)*1000, 'ro', 'MarkerSize',12, ...

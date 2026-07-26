@@ -1,0 +1,33 @@
+CANARIO 1 — constantes builtin dentro de bucles compilados por el JIT.
+
+Motivo: el JIT trataba pi/e/eps como "variables live-in"; su slot quedaba en 0
+
+y devolvia CERO sin avisar. En un FEM eso anulaba el angulo de friccion.
+
+Estos bucles son puro aritmetico (sin disp dentro) para que el JIT los compile:
+
+si se rinde al interprete el test tambien pasa, pero lo que se vigila es que
+
+NO devuelva 0 cuando compila.
+
+CHECK pi 3.14159265359
+
+CHECK rad 0.396189740203
+
+el caso REAL que rompio el FEM: Drucker-Prager alpha/k de GEO5
+
+CHECK dp_alpha 0.131606107572
+
+CHECK dp_k 8.49459223377
+
+otras constantes que resuelve el evaluador, no el scope.
+
+OJO: `e` NO se prueba — MATLAB no lo define ('Undefined function or variable')
+
+y Lab busca compatibilidad con MATLAB, no con Octave.
+
+CHECK eps 2.2204460492503131e-16
+
+CHECK inv_inf 0
+
+CHECK t_seg 0.0192866

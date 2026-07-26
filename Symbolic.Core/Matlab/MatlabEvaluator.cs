@@ -8924,6 +8924,14 @@ namespace Calcpad.Core.Matlab
             if (_builtins.TryGetValue(name, out var fn))       return fn(args);
             throw new MatlabRuntimeException($"Undefined: {name}");
         }
+        /// <summary>Despacho MULTI-OUTPUT para el JIT: [a,b,...]=f(args). Devuelve todas las salidas
+        /// como MValue[] (matrices/escalares/strings opacos). Solo funciones de usuario (los builtins
+        /// multi-salida se manejan por CallMultiOut si hiciera falta).</summary>
+        public MValue[] JitCallMulti(string name, MValue[] args)
+        {
+            if (_userFunctions.TryGetValue(name, out var def)) return CallUserFunctionMulti(def, args);
+            return new[] { JitCall(name, args) };
+        }
         // Wrappers de operaciones matriciales para el JIT (delegan al engine existente).
         public static MValue JitMatMul(MValue a, MValue b) => MatMul(a, b);
         public static MValue JitMatAdd(MValue a, MValue b) => MapBinaryFast(a, b, '+') ?? MapBinary(a, b, (x, y) => x + y);
@@ -9231,6 +9239,59 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < list.Count && (flags & 6) != 6; i++) ScanBodyFlags(list[i], ref flags);
         }
 
+        /// <summary>Phase 3 JIT: intenta ejecutar el cuerpo compilado (matrices+escalares) de `def`.
+        /// Compila 1 vez, especializado a los KINDS de los args (matriz/escalar) de esta llamada;
+        /// si otra llamada trae kinds distintos → false (intérprete). Devuelve TODOS los outputs.
+        /// Fallback total (null / firma distinta / nested) → false, SIN riesgo.</summary>
+        private bool TryInvokeJitMV(FunctionDef def, MValue[] args, out MValue[] outs)
+        {
+            outs = null;
+            if (def.ClosureScope != null) return false;
+            int bf = def.BodyFlags ??= ComputeBodyFlags(def);
+            if ((bf & 1) != 0) return false;                       // tiene función anidada → no
+            if (args.Length != def.ParamNames.Count) return false;
+            if (!def.JitMVTried)
+            {
+                var sig0 = new bool[args.Length];
+                for (int i = 0; i < args.Length; i++) sig0[i] = !args[i].IsScalar;
+                def.JitMV = MatlabJit.TryCompileFunctionMV(def, this, sig0);
+                def.JitMVSig = def.JitMV != null ? sig0 : null;
+                def.JitMVTried = true;
+            }
+            if (def.JitMV == null) return false;
+            var sig = def.JitMVSig;
+            for (int i = 0; i < args.Length; i++) if (sig[i] != !args[i].IsScalar) return false;
+            outs = InvokeJitMV((MatlabJit.CompiledFnMV)def.JitMV, args);
+            return true;
+        }
+        private MValue[] InvokeJitMV(MatlabJit.CompiledFnMV mv, MValue[] args)
+        {
+            var local = RentGlobalScope();
+            try
+            {
+                var slots = new double[mv.SlotIdx.Count];
+                for (int i = 0; i < mv.ParamNames.Length; i++)
+                {
+                    if (mv.ParamKinds[i] == MatlabJit.TKindPub.Matrix)
+                        local.Set(mv.ParamNames[i], CloneArg(args[i]));   // valor-semántica MATLAB (clona)
+                    else if (mv.SlotIdx.TryGetValue(mv.ParamNames[i], out var si))
+                        slots[si] = args[i].Scalar;
+                }
+                var ctx = new JitCtx { Slots = slots, Scope = local, Evaluator = this };
+                mv.Body(ctx);
+                var outs = new MValue[mv.OutputNames.Length];
+                for (int i = 0; i < outs.Length; i++)
+                {
+                    if (mv.OutputKinds[i] == MatlabJit.TKindPub.Matrix)
+                        outs[i] = local.TryGet(mv.OutputNames[i], out var v) ? v : new MValue(0);
+                    else
+                        outs[i] = new MValue(mv.SlotIdx.TryGetValue(mv.OutputNames[i], out var so) ? slots[so] : 0.0);
+                }
+                return outs;
+            }
+            finally { ReturnGlobalScope(local); }
+        }
+
         private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)
         {
             int bf = def.BodyFlags ??= ComputeBodyFlags(def);
@@ -9254,6 +9315,15 @@ namespace Calcpad.Core.Matlab
                     var dout = def.JitBody(din);
                     return new MValue(dout[0]);   // single-output: primer output
                 }
+            }
+            // ── Phase 3 JIT (matrices+escalares): return-map del talud (mc_stress) ──
+            // Solo cuando Phase 0 no aplicó (algún arg es matriz). Compila 1 vez, especializado
+            // a la firma de kinds; fallback total al intérprete si no compila / firma distinta.
+            if (def.JitBody == null && (bf & 1) == 0 && def.ClosureScope == null
+                && (!def.JitMVTried || def.JitMV != null))
+            {
+                if (TryInvokeJitMV(def, args, out var mvOuts))
+                    return mvOuts.Length > 0 ? mvOuts[0] : new MValue(0);
             }
             // función ANIDADA: scope del padre. Si tiene nested (bit1) el scope puede escapar en
             // un closure -> no poolear. Si no, RENTAR del pool (evita alocar Dictionary por llamada).
@@ -9405,6 +9475,15 @@ namespace Calcpad.Core.Matlab
         }
         private MValue[] CallUserFunctionMulti(FunctionDef def, MValue[] args, string[] argNames = null)
         {
+            // ── Phase 3 JIT (matrices+escalares) multi-output: [s4,reg]=mc_stress(...) ──
+            {
+                int bf0 = def.BodyFlags ??= ComputeBodyFlags(def);
+                if (def.JitBody == null && (bf0 & 1) == 0 && def.ClosureScope == null
+                    && (!def.JitMVTried || def.JitMV != null))
+                {
+                    if (TryInvokeJitMV(def, args, out var mvOuts)) return mvOuts;
+                }
+            }
             var local = def.ClosureScope ?? new MatlabScope(Globals);
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;

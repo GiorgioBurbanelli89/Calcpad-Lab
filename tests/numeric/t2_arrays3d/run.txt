@@ -1,0 +1,25 @@
+CANARIO 2 — arreglos 3-D: zeros(m,n,p), A(i,j,k) lectura y escritura.
+
+Motivo: la tension de un FEM es 4 x NELEM x NGAUSS. El soporte 3-D se anadio
+
+en v1.0.75; este test compara SIEMPRE contra el equivalente aplanado, que es
+
+independiente del camino 3-D. Si difieren, el 3-D se rompio.
+
+CHECK size3d 4 120 3
+
+lectura y comparacion contra el aplanado
+
+CHECK diff3d_vs_flat 0
+
+CHECK suma3d 34905.6
+
+forma del slice: MATLAB devuelve columna
+
+CHECK shape_slice 4 1
+
+paso a funcion (el FEM pasa sig0 como parametro)
+
+CHECK diff3d_en_funcion 0
+
+CHECK t_seg 0.0317862

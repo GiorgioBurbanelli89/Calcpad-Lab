@@ -168,6 +168,13 @@ namespace Calcpad.Core.Matlab
         /// una llamada, se usa el intérprete.</summary>
         public System.Func<double[], double[]> JitBody;
         public bool JitTried;
+        /// <summary>JIT GENERAL (Phase 3): cuerpo compilado con params/outputs MATRIZ o ESCALAR
+        /// (return-map del talud). Objeto = MatlabJit.CompiledFnMV; especializado a la firma de
+        /// kinds `JitMVSig` (true=matriz) de la 1ª llamada. Si otra llamada trae kinds distintos →
+        /// intérprete. null + JitMVTried=true => no compilable (fallback SIN riesgo).</summary>
+        public object JitMV;
+        public bool[] JitMVSig;
+        public bool JitMVTried;
     }
 
     // ─── Class definitions ──────────────────────────────────────────────────

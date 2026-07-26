@@ -233,17 +233,18 @@ for i = 1:n_a+1
 end
 
 %% Colormap SAP2000 — calidad ingeniería
-sap2000 = [0,0,0.5;       % azul oscuro
-           0,0,1;         % azul
-           0,0.5,1;       % azul claro
-           0,1,1;         % cyan
-           0.2,1,0.6;     % verde-cyan
-           0.5,1,0.3;     % verde claro
-           1,1,0;         % amarillo
-           1,0.7,0;       % naranja
-           1,0.3,0;       % rojo-naranja
-           1,0,0;         % rojo
-           0.7,0,0];      % rojo oscuro
+% Paleta: azul oscuro -> azul -> cyan -> verde -> amarillo -> naranja -> rojo oscuro
+sap2000 = [0,0,0.5;
+           0,0,1;
+           0,0.5,1;
+           0,1,1;
+           0.2,1,0.6;
+           0.5,1,0.3;
+           1,1,0;
+           1,0.7,0;
+           1,0.3,0;
+           1,0,0;
+           0.7,0,0];
 
 %% =========================================================================
 %  FIG 1: σ_vm contour LLENADO (calidad SAP2000)
@@ -257,9 +258,8 @@ cb.FontSize = 12;
 sigma_max = max(max(VM_mat));
 levels_iso = 10:10:floor(sigma_max/10)*10;
 if numel(levels_iso) >= 2
-    [C, h] = contour(X_grid*1000, Y_grid*1000, VM_mat, levels_iso, ...
-                     'LineColor','k', 'LineWidth',0.6);
-    clabel(C, h, 'FontSize',8, 'Color','k', 'LabelSpacing',300);
+    contour(X_grid*1000, Y_grid*1000, VM_mat, levels_iso, ...
+            'LineColor','k', 'LineWidth',0.6);
 end
 % Huella HSS
 plot([HSS_x0 HSS_x1 HSS_x1 HSS_x0 HSS_x0]*1000, ...

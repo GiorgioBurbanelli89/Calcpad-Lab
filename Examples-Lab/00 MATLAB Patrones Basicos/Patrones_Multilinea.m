@@ -1,14 +1,14 @@
 % Patrones_Multilinea.m
 % =========================================================================
-% EJEMPLO 1 - Patrones de texto multilinea en MATLAB / Calcpad-Lab
+% EJEMPLO 1 - Patrones de texto multilinea en MATLAB / Hekatan Lab
 % =========================================================================
 % MATLAB R2017a NO tiene heredoc ni triple comilla. Estas son las 10 formas
 % conocidas de imprimir texto multilinea. Funcionan tanto en MATLAB pleno
-% como en Calcpad-Lab MATLAB-mode.
+% como en Hekatan Lab MATLAB-mode.
 %
 % Ejecutar:
 %   - MATLAB: F5 desde el editor
-%   - Calcpad-Lab CLI: CalcpadLabCli.exe Patrones_Multilinea.m
+%   - Hekatan Lab CLI: HekatanLabCli.exe Patrones_Multilinea.m
 % =========================================================================
 
 clear; clc;
@@ -93,7 +93,7 @@ fprintf('\n');
 % -------------------------------------------------------------------------
 % PATRON H — for + fprintf para series de datos (tabla)
 % Alternativa MATLAB-pleno: compose(...) vectorizado (R2016b+). En
-% Calcpad-Lab MVP no esta implementado, usar este loop equivalente.
+% Hekatan Lab MVP no esta implementado, usar este loop equivalente.
 % -------------------------------------------------------------------------
 fprintf('=== PATRON H: tabla con for + fprintf ===\n');
 x_vals = 1:5;

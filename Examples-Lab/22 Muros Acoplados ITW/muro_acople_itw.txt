@@ -1,0 +1,29 @@
+============================================================================
+
+MUROS DE CORTE ACOPLADOS (elemento membrana ITW con GDL drilling rz)
+
+2 muros + viga de acople; el momento de la viga entra a cada muro por rz.
+
+Traduccion fiel de Muro_Acople_ITW.cpd (Calcpad) -> Hekatan Lab / MATLAB.
+
+Ref MATLAB: deriva con acople = 2.81e-4 ; muro aislado = 6.27e-4.
+
+============================================================================
+
+==== MUROS ACOPLADOS (membrana ITW drilling) ====
+
+nudos=59 elementos muro=36 GDL=177
+
+deriva (ux max en el tope) = 2.8091e-04 m
+
+ref MATLAB con acople = 2.81e-4 m
+
+ref muro aislado = 6.27e-4 m
+
+|u| maximo = 3.1101e-04 m
+
+CHECK t_seg 0.0952
+
+viga de acople (linea)
+
+viga de acople deformada

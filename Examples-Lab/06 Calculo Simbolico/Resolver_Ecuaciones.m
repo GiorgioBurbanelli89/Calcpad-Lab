@@ -1,11 +1,11 @@
 % Resolver_Ecuaciones.m — Resolver ecuaciones simbolicas con solve()
-% NOTA: Calcpad-Lab MVP usa solve(expr, x) asumiendo = 0.
+% NOTA: Hekatan Lab MVP usa solve(expr, x) asumiendo = 0.
 clear; clc;
 
 %% Comentarios inline: oculto vs visible
-%-- En Calcpad Lab, un comentario en el MISMO renglon que una asignacion:
+%-- En Hekatan Lab, un comentario en el MISMO renglon que una asignacion:
 %--   var = valor %texto    -> comentario OCULTO (anotacion de codigo, no se muestra)
-%--   var = valor %'texto   -> comentario VISIBLE (el ' = marcador de texto Calcpad)
+%--   var = valor %'texto   -> comentario VISIBLE (el ' = marcador de texto Hekatan)
 a = 5%este comentario esta oculto, no aparece en el reporte
 b = 7%'este comentario si aparece, es texto visible
 

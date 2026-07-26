@@ -1,15 +1,12 @@
-% Subplot_Multiples.m — Multiples subplots en una figura
+% Subplot_Multiples.m — Cuatro funciones trigonometricas (una figura por funcion)
 clear; clc;
 
 x = linspace(0, 4*pi, 200);
 
-figure;
-subplot(2,2,1); plot(x, sin(x), 'r');    title('sin(x)');    grid on;
-subplot(2,2,2); plot(x, cos(x), 'b');    title('cos(x)');    grid on;
-subplot(2,2,3); plot(x, sin(x).^2, 'g'); title('sin^2(x)');  grid on;
-subplot(2,2,4); plot(x, tan(x/4), 'm');  title('tan(x/4)');  grid on;
-ylim([-5 5]);
+figure; plot(x, sin(x), 'r', 'LineWidth', 1.5);    title('sin(x)');    grid on;
+figure; plot(x, cos(x), 'b', 'LineWidth', 1.5);    title('cos(x)');    grid on;
+figure; plot(x, sin(x).^2, 'g', 'LineWidth', 1.5); title('sin^2(x)');  grid on;
+yt = tan(x/4); yt(abs(yt) > 5) = NaN;   % oculta la asintota para que se vea la forma
+figure; plot(x, yt, 'm', 'LineWidth', 1.5);        title('tan(x/4)');  grid on;
 
-sgtitle('Cuatro funciones trigonometricas');
-
-fprintf('Subplot 2x2 con 4 funciones trigonometricas.\n');
+fprintf('Cuatro funciones trigonometricas graficadas.\n');

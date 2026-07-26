@@ -1,0 +1,530 @@
+[
+{
+"i": 0,
+"path": "Examples-Lab/00 MATLAB Patrones Basicos/Claude_Modelos_Picker.m"
+},
+{
+"i": 1,
+"path": "Examples-Lab/00 MATLAB Patrones Basicos/Correlacion_Ks_Tecnisuelos_Portoviejo.m"
+},
+{
+"i": 2,
+"path": "Examples-Lab/00 MATLAB Patrones Basicos/Operaciones_Simbolicas.m"
+},
+{
+"i": 3,
+"path": "Examples-Lab/00 MATLAB Patrones Basicos/Patrones_Multilinea.m"
+},
+{
+"i": 4,
+"path": "Examples-Lab/00 MATLAB Patrones Basicos/Viga_Memoria_Calculo.m"
+},
+{
+"i": 5,
+"path": "Examples-Lab/01 Demos/malla_delaunay_demo.m"
+},
+{
+"i": 6,
+"path": "Examples-Lab/01 Demos/plate_thin_demo.m"
+},
+{
+"i": 7,
+"path": "Examples-Lab/02 Benchmarks de Placas/Rectangular_Slab_FEA.m"
+},
+{
+"i": 8,
+"path": "Examples-Lab/02 Benchmarks de Placas/plate_awatif_equivalent.m"
+},
+{
+"i": 9,
+"path": "Examples-Lab/02 Benchmarks de Placas/plate_orthotropic.m"
+},
+{
+"i": 10,
+"path": "Examples-Lab/02 Benchmarks de Placas/plate_pinned_uniform_load.m"
+},
+{
+"i": 11,
+"path": "Examples-Lab/02 Benchmarks de Placas/timoshenko_ss_plate.m"
+},
+{
+"i": 12,
+"path": "Examples-Lab/02 Benchmarks de Placas/wrapml.m"
+},
+{
+"i": 13,
+"path": "Examples-Lab/03 Acero - ETABS/AreaInerciaColumnaCFT_ETABS.m"
+},
+{
+"i": 14,
+"path": "Examples-Lab/03 Acero - ETABS/AreaInerciaColumnaCFT_ETABS_v2.m"
+},
+{
+"i": 15,
+"path": "Examples-Lab/03 Acero - ETABS/Columna_HSS_Grafica.m"
+},
+{
+"i": 16,
+"path": "Examples-Lab/03 Acero - ETABS/Control_de_perfiles_tubulares.m"
+},
+{
+"i": 17,
+"path": "Examples-Lab/03 Acero - ETABS/Datos_de_vigas_metalicas.m"
+},
+{
+"i": 18,
+"path": "Examples-Lab/03 Acero - ETABS/demo_IA_col.m"
+},
+{
+"i": 19,
+"path": "Examples-Lab/03 Acero - ETABS/demo_IA_viga.m"
+},
+{
+"i": 20,
+"path": "Examples-Lab/04 Tests Rapidos/Funcion_ejemplo_unique.m"
+},
+{
+"i": 21,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_blas.m"
+},
+{
+"i": 22,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_blas_off.m"
+},
+{
+"i": 23,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_jit.m"
+},
+{
+"i": 24,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_jit_p2.m"
+},
+{
+"i": 25,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_jit_p3.m"
+},
+{
+"i": 26,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_jit_p4.m"
+},
+{
+"i": 27,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_lapack.m"
+},
+{
+"i": 28,
+"path": "Examples-Lab/04 Tests Rapidos/benchmark_pattern_fusion.m"
+},
+{
+"i": 29,
+"path": "Examples-Lab/04 Tests Rapidos/loop_test.m"
+},
+{
+"i": 30,
+"path": "Examples-Lab/04 Tests Rapidos/test_if.m"
+},
+{
+"i": 31,
+"path": "Examples-Lab/04 Tests Rapidos/test_inline_narrativa.m"
+},
+{
+"i": 32,
+"path": "Examples-Lab/04 Tests Rapidos/test_multi_out.m"
+},
+{
+"i": 33,
+"path": "Examples-Lab/04 Tests Rapidos/test_narrativa_simbolica.m"
+},
+{
+"i": 34,
+"path": "Examples-Lab/04 Tests Rapidos/test_simple_print.m"
+},
+{
+"i": 35,
+"path": "Examples-Lab/04 Tests Rapidos/test_symbolic_advanced.m"
+},
+{
+"i": 36,
+"path": "Examples-Lab/04 Tests Rapidos/test_symbolic_full.m"
+},
+{
+"i": 37,
+"path": "Examples-Lab/04 Tests Rapidos/test_symbolic_integral2d.m"
+},
+{
+"i": 38,
+"path": "Examples-Lab/05 Framework FEM MATLAB/frame/getLocalStiffnessMatrixFrame.m"
+},
+{
+"i": 39,
+"path": "Examples-Lab/05 Framework FEM MATLAB/interface_/getLocalStiffnessMatrixInterface.m"
+},
+{
+"i": 40,
+"path": "Examples-Lab/05 Framework FEM MATLAB/main_demo.m"
+},
+{
+"i": 41,
+"path": "Examples-Lab/05 Framework FEM MATLAB/materials/demo_materials.m"
+},
+{
+"i": 42,
+"path": "Examples-Lab/05 Framework FEM MATLAB/mesa_modal_matlab.m"
+},
+{
+"i": 43,
+"path": "Examples-Lab/05 Framework FEM MATLAB/mesa_vigas_torsion.m"
+},
+{
+"i": 44,
+"path": "Examples-Lab/05 Framework FEM MATLAB/shell_dkt/getCellSmoothingTerms.m"
+},
+{
+"i": 45,
+"path": "Examples-Lab/06 Calculo Simbolico/Derivadas_Basicas.m"
+},
+{
+"i": 46,
+"path": "Examples-Lab/06 Calculo Simbolico/Integrales_Polinomicas.m"
+},
+{
+"i": 47,
+"path": "Examples-Lab/06 Calculo Simbolico/Latex_Output.m"
+},
+{
+"i": 48,
+"path": "Examples-Lab/06 Calculo Simbolico/Limites_y_Series.m"
+},
+{
+"i": 49,
+"path": "Examples-Lab/06 Calculo Simbolico/Resolver_Ecuaciones.m"
+},
+{
+"i": 50,
+"path": "Examples-Lab/06 Calculo Simbolico/Simplificacion_Algebra.m"
+},
+{
+"i": 51,
+"path": "Examples-Lab/06 Calculo Simbolico/Sustitucion_Numerica.m"
+},
+{
+"i": 52,
+"path": "Examples-Lab/07 Mecanica Estructural/Esfuerzos_Combinados.m"
+},
+{
+"i": 53,
+"path": "Examples-Lab/07 Mecanica Estructural/Inercia_Seccion_I.m"
+},
+{
+"i": 54,
+"path": "Examples-Lab/07 Mecanica Estructural/Pandeo_Euler.m"
+},
+{
+"i": 55,
+"path": "Examples-Lab/07 Mecanica Estructural/Tension_Normal_Barra.m"
+},
+{
+"i": 56,
+"path": "Examples-Lab/07 Mecanica Estructural/Torsion_Circular.m"
+},
+{
+"i": 57,
+"path": "Examples-Lab/07 Mecanica Estructural/Viga_Voladizo_Distribuida.m"
+},
+{
+"i": 58,
+"path": "Examples-Lab/07 Mecanica Estructural/Viga_Voladizo_Punta.m"
+},
+{
+"i": 59,
+"path": "Examples-Lab/07 Mecanica Estructural/concrete_asdconcrete1d.m"
+},
+{
+"i": 60,
+"path": "Examples-Lab/07 Mecanica Estructural/concrete_damage.m"
+},
+{
+"i": 61,
+"path": "Examples-Lab/07 Mecanica Estructural/cyclic_damage.m"
+},
+{
+"i": 62,
+"path": "Examples-Lab/07 Mecanica Estructural/shell_damage.m"
+},
+{
+"i": 63,
+"path": "Examples-Lab/07 Mecanica Estructural/solid_damage.m"
+},
+{
+"i": 64,
+"path": "Examples-Lab/07 Mecanica Estructural/steel_asdsteel1d.m"
+},
+{
+"i": 65,
+"path": "Examples-Lab/08 Visualizacion Plots/Contour_Lineas.m"
+},
+{
+"i": 66,
+"path": "Examples-Lab/08 Visualizacion Plots/Diagramas_Viga_VM.m"
+},
+{
+"i": 67,
+"path": "Examples-Lab/08 Visualizacion Plots/Plot_Basico_Seno.m"
+},
+{
+"i": 68,
+"path": "Examples-Lab/08 Visualizacion Plots/Plot_Multiples_Curvas.m"
+},
+{
+"i": 69,
+"path": "Examples-Lab/08 Visualizacion Plots/Subplot_Multiples.m"
+},
+{
+"i": 70,
+"path": "Examples-Lab/08 Visualizacion Plots/Surface_3D.m"
+},
+{
+"i": 71,
+"path": "Examples-Lab/09 Algebra Lineal y Sistemas/Eigenvalores_Eigenvectores.m"
+},
+{
+"i": 72,
+"path": "Examples-Lab/09 Algebra Lineal y Sistemas/Matrices_Operaciones.m"
+},
+{
+"i": 73,
+"path": "Examples-Lab/09 Algebra Lineal y Sistemas/Norma_y_Condicion.m"
+},
+{
+"i": 74,
+"path": "Examples-Lab/09 Algebra Lineal y Sistemas/Sistema_Lineal_3x3.m"
+},
+{
+"i": 75,
+"path": "Examples-Lab/09 Algebra Lineal y Sistemas/Sistema_Simbolico.m"
+},
+{
+"i": 76,
+"path": "Examples-Lab/10 Diseno Acero/Control_de_perfiles_tubulares.m"
+},
+{
+"i": 77,
+"path": "Examples-Lab/10 Diseno Acero/Dise_acero.m"
+},
+{
+"i": 78,
+"path": "Examples-Lab/10 Diseno Acero/Diseno_de_viga_metalica_acero.m"
+},
+{
+"i": 79,
+"path": "Examples-Lab/10 Diseno Acero/Ejemplo_de_columna_compuesta_de_acero.m"
+},
+{
+"i": 80,
+"path": "Examples-Lab/10 Diseno Acero/Inercia_de_una_viga_seccion_H.m"
+},
+{
+"i": 81,
+"path": "Examples-Lab/10 Diseno Acero/Predimensionamiento_estructura_metalica.m"
+},
+{
+"i": 82,
+"path": "Examples-Lab/11 Columnas CFT/Columna_CFT_Inercia_Area.m"
+},
+{
+"i": 83,
+"path": "Examples-Lab/11 Columnas CFT/Columna_HSS_Grafica.m"
+},
+{
+"i": 84,
+"path": "Examples-Lab/11 Columnas CFT/Inercia_columna_hueca_acero.m"
+},
+{
+"i": 85,
+"path": "Examples-Lab/11 Columnas CFT/Inercia_de_columna_CFT_ETABS.m"
+},
+{
+"i": 86,
+"path": "Examples-Lab/11 Columnas CFT/Inercia_de_columna_hueca.m"
+},
+{
+"i": 87,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_fem_elementos.m"
+},
+{
+"i": 88,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_fem_visual.m"
+},
+{
+"i": 89,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_fem_von_mises.m"
+},
+{
+"i": 90,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_placa_base.m"
+},
+{
+"i": 91,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_placa_base_cft.m"
+},
+{
+"i": 92,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_placa_base_cft_FEM.m"
+},
+{
+"i": 93,
+"path": "Examples-Lab/12 Demos FEM y Placas/demo_tfm_viga.m"
+},
+{
+"i": 94,
+"path": "Examples-Lab/13 Plots Avanzados/demo_all_plots.m"
+},
+{
+"i": 95,
+"path": "Examples-Lab/13 Plots Avanzados/demo_matlab_plots.m"
+},
+{
+"i": 96,
+"path": "Examples-Lab/15 Ejemplos Variados/Ejemplo_1.m"
+},
+{
+"i": 97,
+"path": "Examples-Lab/15 Ejemplos Variados/Ejemplo_2.m"
+},
+{
+"i": 98,
+"path": "Examples-Lab/15 Ejemplos Variados/Ejemplo_funcion_unique.m"
+},
+{
+"i": 99,
+"path": "Examples-Lab/15 Ejemplos Variados/Ejemplo_funcion_unique_en_matlab.m"
+},
+{
+"i": 100,
+"path": "Examples-Lab/15 Ejemplos Variados/Matriz_dentro_de_n_subindices_de_vectores.m"
+},
+{
+"i": 101,
+"path": "Examples-Lab/15 Ejemplos Variados/Operaciones_Funcion_unique.m"
+},
+{
+"i": 102,
+"path": "Examples-Lab/15 Ejemplos Variados/Pruieba_de_valores_de_Unique.m"
+},
+{
+"i": 103,
+"path": "Examples-Lab/16 Funciones de Apoyo/Portico_funcion.m"
+},
+{
+"i": 104,
+"path": "Examples-Lab/17 ETABS Sistemas Mixtos/Etabs_Sistema_mixto.m"
+},
+{
+"i": 105,
+"path": "Examples-Lab/17 ETABS Sistemas Mixtos/Etabs_Sistema_mixto_con_columnas_CFT.m"
+},
+{
+"i": 106,
+"path": "Examples-Lab/17 ETABS Sistemas Mixtos/Etabs_portico_plano_irregular_Sistema_mixto_con_columnas_CFT.m"
+},
+{
+"i": 107,
+"path": "Examples-Lab/18 FEA Slab/benchmark_platethin.m"
+},
+{
+"i": 108,
+"path": "Examples-Lab/18 FEA Slab/mesa_torsion_dke_completo.m"
+},
+{
+"i": 109,
+"path": "Examples-Lab/18 FEA Slab/paso1_malla_bfs.m"
+},
+{
+"i": 110,
+"path": "Examples-Lab/18 FEA Slab/rectangular_slab_bfs.m"
+},
+{
+"i": 111,
+"path": "Examples-Lab/19 Grafos CEINCI-LAB/graph_api.m"
+},
+{
+"i": 112,
+"path": "Examples-Lab/19 Grafos CEINCI-LAB/graph_portico_2x2.m"
+},
+{
+"i": 113,
+"path": "Examples-Lab/19 Grafos CEINCI-LAB/graph_portico_3x3.m"
+},
+{
+"i": 114,
+"path": "Examples-Lab/19 Grafos CEINCI-LAB/graph_tabla_edges.m"
+},
+{
+"i": 115,
+"path": "Examples-Lab/19 Grafos CEINCI-LAB/jit_end_bench.m"
+},
+{
+"i": 116,
+"path": "Examples-Lab/20 Solidos 3D/solido_hexaedros.m"
+},
+{
+"i": 117,
+"path": "Examples-Lab/20 Solidos 3D/solido_tetraedros.m"
+},
+{
+"i": 118,
+"path": "Examples-Lab/22 Muros Acoplados ITW/Muro_Acople_ITW.m"
+},
+{
+"i": 119,
+"path": "Examples-Lab/22 Muros Acoplados ITW/Muro_Frame_ITW.m"
+},
+{
+"i": 120,
+"path": "Examples-Lab/22 Muros Acoplados ITW/run_ml_acople.m"
+},
+{
+"i": 121,
+"path": "Examples-Lab/22 Muros Acoplados ITW/test3_cook.m"
+},
+{
+"i": 122,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test0_patch.m"
+},
+{
+"i": 123,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test1_simplebeam.m"
+},
+{
+"i": 124,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test2_cantilever.m"
+},
+{
+"i": 125,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test3_cook.m"
+},
+{
+"i": 126,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test4_hemisphere.m"
+},
+{
+"i": 127,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test_plate_dkq.m"
+},
+{
+"i": 128,
+"path": "Examples-Lab/23 Benchmarks ITW-1990/test_shell_flat.m"
+},
+{
+"i": 129,
+"path": "Examples-Lab/demo_lab_check.m"
+},
+{
+"i": 130,
+"path": "Examples-Lab/test_toc_nargout.m"
+},
+{
+"i": 131,
+"path": "Examples-Lab/tic_toc_tiempos.m"
+}
+]

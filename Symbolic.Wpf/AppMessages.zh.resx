@@ -66,12 +66,12 @@
   <data name="ReportUnhandledExceptionAndClose_NoUnsavedData_RecoveryAttempted" xml:space="preserve">
     <value>
 
-Calcpad已保存您的工作并尝试自动恢复.</value>
+Hekatan已保存您的工作并尝试自动恢复.</value>
   </data>
   <data name="ReportUnhandledExceptionAndClose_UnsavedData_RecoveryFailed" xml:space="preserve">
     <value>
 
-有未保存的数据. Calcpad已尝试，但无法恢复. 如果问题仍然存在，请联系proektsoft.bg@gmail.com.</value>
+有未保存的数据. Hekatan已尝试，但无法恢复. 如果问题仍然存在，请联系proektsoft.bg@gmail.com.</value>
   </data>
   <data name="ExceptionDetails" xml:space="preserve">
     <value>
@@ -117,7 +117,7 @@ Calcpad已保存您的工作并尝试自动恢复.</value>
     <value>应置于行尾.</value>
   </data>
   <data name="UnexpectedErrorOccurred" xml:space="preserve">
-    <value>Calcpad中发生意外错误： "{0}"
+    <value>Hekatan中发生意外错误： "{0}"
 
 来源： "{1}"</value>
   </data>

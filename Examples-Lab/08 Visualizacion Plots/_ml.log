@@ -1,0 +1,8 @@
+ 
+To get started, type one of these: helpwin, helpdesk, or demo.
+For product information, visit www.mathworks.com.
+ 
+ try, _wrap_ml; catch e, disp(e.message); end; exit
+      |
+{Error: The input character is not valid in MATLAB statements or expressions.
+} 

@@ -1,0 +1,38 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
+  <rect x='0' y='0' width='800' height='800' fill='white'/>
+  <rect x='60' y='50' width='644' height='690' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>11. contourf</text>
+  <text x='382' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>x</text>
+  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>y</text>
+  <text x='89.27272727272725' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-3</text>
+  <line x1='89.27272727272725' y1='740' x2='89.27272727272725' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='186.84848484848482' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-2</text>
+  <line x1='186.84848484848482' y1='740' x2='186.84848484848482' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='284.4242424242424' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-1</text>
+  <line x1='284.4242424242424' y1='740' x2='284.4242424242424' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='382' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='382' y1='740' x2='382' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='479.57575757575756' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='479.57575757575756' y1='740' x2='479.57575757575756' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='577.1515151515151' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='577.1515151515151' y1='740' x2='577.1515151515151' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='674.7272727272727' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='674.7272727272727' y1='740' x2='674.7272727272727' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='712.6363636363636' text-anchor='end' font-family='sans-serif' font-size='10'>-3</text>
+  <line x1='56' y1='708.6363636363636' x2='60' y2='708.6363636363636' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='608.0909090909091' text-anchor='end' font-family='sans-serif' font-size='10'>-2</text>
+  <line x1='56' y1='604.0909090909091' x2='60' y2='604.0909090909091' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='503.54545454545456' text-anchor='end' font-family='sans-serif' font-size='10'>-1</text>
+  <line x1='56' y1='499.54545454545456' x2='60' y2='499.54545454545456' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='399' text-anchor='end' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='56' y1='395' x2='60' y2='395' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='294.4545454545455' text-anchor='end' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='56' y1='290.4545454545455' x2='60' y2='290.4545454545455' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='189.90909090909088' text-anchor='end' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='56' y1='185.90909090909088' x2='60' y2='185.90909090909088' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='85.36363636363637' text-anchor='end' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='56' y1='81.36363636363637' x2='60' y2='81.36363636363637' stroke='#333' stroke-width='0.8'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='644' height='690'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+  </g>
+</svg>

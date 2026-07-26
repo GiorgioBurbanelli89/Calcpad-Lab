@@ -5,8 +5,7 @@ clear; clc;
 Z = X.^2 + Y.^2 - 2*X.*Y;
 
 figure;
-[C, h] = contour(X, Y, Z, 20);
-clabel(C, h, 'FontSize', 8);
+contour(X, Y, Z, 20);
 xlabel('x'); ylabel('y');
 title('Contornos de f(x,y) = x^2 + y^2 - 2xy');
 grid on;

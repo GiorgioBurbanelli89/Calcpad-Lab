@@ -1,0 +1,27 @@
+============================================================================
+
+MURO + VIGA EN VOLADIZO (membrana ITW con GDL drilling rz)
+
+El momento de la viga entra al muro por el drilling. Sin rz la union
+
+seria rotula = mecanismo. Caso clave del paper ITW-1990.
+
+Traduccion fiel de Muro_Frame_ITW.cpd (Calcpad) -> Hekatan Lab / MATLAB.
+
+============================================================================
+
+==== MURO + VIGA VOLADIZO (membrana ITW drilling) ====
+
+nudos=50 elementos muro=32 GDL=150
+
+flecha punta viga = 9.3453e-03 m
+
+ref viga sola (muro rig.)= 2.0604e-03 m (tip/ref = 4.536)
+
+giro drilling rz esquina = -3.3932e-03 rad (FINITO -> transmite momento)
+
+deriva max del muro = 6.4271e-04 m
+
+CHECK t_seg 0.0982
+
+Muro + viga voladizo ITW - deformada (color |u|)

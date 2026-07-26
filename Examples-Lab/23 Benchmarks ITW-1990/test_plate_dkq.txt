@@ -1,0 +1,15 @@
+============================================================================
+
+VALIDACION DKQ - Placa cuadrada simplemente apoyada, carga uniforme q.
+
+Timoshenko (nu=0.3): w_max central = 0.00406 * q a^4 / D , D=E t^3/(12(1-v^2))
+
+============================================================================
+
+DKQ 4x4 : w_central = 0.44180 (ref 0.44335, err -0.35%)
+
+DKQ 8x8 : w_central = 0.44335 (ref 0.44335, err +0.00%)
+
+DKQ 16x16 : w_central = 0.44356 (ref 0.44335, err +0.05%)
+
+CHECK t_seg 0.4402

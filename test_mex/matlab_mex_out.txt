@@ -1,0 +1,8 @@
+ 
+To get started, type one of these: helpwin, helpdesk, or demo.
+For product information, visit www.mathworks.com.
+ 
+--- mex setup ---
+NO C++ MEX COMPILER CONFIGURED
+--- compiling ---
+ERR: No supported compiler or SDK was found. You can install the freely available MinGW-w64 C/C++ compiler; visit http://www.mathworks.com/help/matlab/matlab_external/install-mingw-support-package.html. For more options, visit http://www.mathworks.com/support/compilers/R2017a/.

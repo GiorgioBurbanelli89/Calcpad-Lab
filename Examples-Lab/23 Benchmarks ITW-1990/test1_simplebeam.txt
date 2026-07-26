@@ -1,0 +1,35 @@
+============================================================================
+
+TEST I - Viga simple (patch test de orden superior: FLEXION PURA)
+
+Relacion l/h = 10. E=100, nu=0, l=10, h=1, 6 elementos en una fila.
+
+Cupla unitaria (M=1) en ambos extremos -> flexion pura constante.
+
+Beam theory exacto: v_mid = M l^2/(8EI) = 1.5 , rot_extremo = M l/(2EI) = 0.6
+
+(rot = GDL drilling rz en el nudo extremo -> prueba directa del drilling)
+
+============================================================================
+
+restricciones minimas (3): quitar cuerpo rigido; NINGUN drilling restringido
+
+cuplas de flexion pura: fuerzas +-F=M/h en las caras extremas
+
+extremo derecho (x=l): +F arriba, -F abajo
+
+extremo izquierdo (x=0): -F arriba, +F abajo
+
+v en el centro (x=l/2, y=0) ; rot = rz en el nudo extremo (x=l,y=0)
+
+jm = 0
+
+==== TEST I SIMPLE BEAM (flexion pura, ITW) ====
+
+v_mid (centro) = 1.50000 (exacto 1.5)
+
+rot extremo (rz) = 0.60000 (exacto 0.6)
+
+CHECK t_seg 0.0598
+
+UY = zeros(nⱼ, 1) = 0000⋮0[14×1 matrix]

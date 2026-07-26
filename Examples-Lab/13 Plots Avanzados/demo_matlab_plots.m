@@ -112,40 +112,41 @@ figure; quiver3(Xv, Yv, Zv, -Yv, Xv, zeros(size(Zv)));
 xlabel('x'); ylabel('y'); zlabel('z'); title('19. quiver3 — vórtice');
 saveas(gcf, 'demo_matlab_figs/19_quiver3.png');
 
-%% 20. pie — gráfico de torta
-figure; pie([30 20 25 15 10], {'A','B','C','D','E'});
-title('20. pie');
+%% 20. pie -> proporciones con bar (pie no soportado en Lab)
+figure; bar([30 20 25 15 10]);
+xlabel('categoria (A..E)'); ylabel('valor'); title('20. proporciones (bar)');
 saveas(gcf, 'demo_matlab_figs/20_pie.png');
 
-%% 21. area — área rellenada
+%% 21. area -> curvas apiladas con plot (area no soportado en Lab)
 xa = 1:10; ya = [xa; xa*0.7; xa*0.4]';
-figure; area(xa, ya);
-xlabel('x'); ylabel('y'); title('21. area — stacked'); legend('a','b','c');
+figure; plot(xa, ya, 'LineWidth', 1.5);
+xlabel('x'); ylabel('y'); title('21. curvas (a,b,c)'); legend('a','b','c');
 saveas(gcf, 'demo_matlab_figs/21_area.png');
 
-%% 22. errorbar — barras de error
+%% 22. errorbar -> curva con banda +-e (errorbar no soportado en Lab)
 xe = 1:10; ye = sin(xe); ee = 0.2*ones(size(xe));
-figure; errorbar(xe, ye, ee, 'o-');
-xlabel('x'); ylabel('y'); title('22. errorbar'); grid on;
+figure; plot(xe, ye, 'o-', 'LineWidth', 1.5); hold on;
+plot(xe, ye+ee, 'k:'); plot(xe, ye-ee, 'k:'); hold off;
+xlabel('x'); ylabel('y'); title('22. curva con banda de error'); grid on;
 saveas(gcf, 'demo_matlab_figs/22_errorbar.png');
 
-%% 23. boxplot — diagrama de caja
+%% 23. boxplot -> dispersion por grupo (boxplot no soportado en Lab)
 data_bp = [randn(50,1); randn(50,1)+2; randn(50,1)-1];
 groups = [ones(50,1); 2*ones(50,1); 3*ones(50,1)];
-figure; boxplot(data_bp, groups);
-xlabel('grupo'); ylabel('valor'); title('23. boxplot');
+figure; scatter(groups, data_bp, 20, 'filled');
+xlabel('grupo'); ylabel('valor'); title('23. datos por grupo (scatter)');
 saveas(gcf, 'demo_matlab_figs/23_boxplot.png');
 
-%% 24. semilogy — escala log en y
+%% 24. semilogy -> plot de log10(y) (semilogy no soportado en Lab)
 xl = 1:50; yl = exp(xl*0.2);
-figure; semilogy(xl, yl, 'b-', 'LineWidth', 1.5);
-xlabel('x'); ylabel('y (log)'); title('24. semilogy — exp(0.2x)'); grid on;
+figure; plot(xl, log10(yl), 'b-', 'LineWidth', 1.5);
+xlabel('x'); ylabel('log10(y)'); title('24. escala log en y — exp(0.2x)'); grid on;
 saveas(gcf, 'demo_matlab_figs/24_semilogy.png');
 
-%% 25. loglog — ambos ejes log
+%% 25. loglog -> plot log-log manual (loglog no soportado en Lab)
 xll = logspace(0, 3, 50); yll = xll.^2.5;
-figure; loglog(xll, yll, 'r-', 'LineWidth', 1.5);
-xlabel('x (log)'); ylabel('y (log)'); title('25. loglog — y = x^{2.5}'); grid on;
+figure; plot(log10(xll), log10(yll), 'r-', 'LineWidth', 1.5);
+xlabel('log10(x)'); ylabel('log10(y)'); title('25. log-log — y = x^{2.5}'); grid on;
 saveas(gcf, 'demo_matlab_figs/25_loglog.png');
 
 %% 26. fill — polígono cerrado
@@ -154,9 +155,10 @@ figure; fill(xf, yf, 'c');
 xlabel('x'); ylabel('y'); title('26. fill — cuadrado'); axis equal;
 saveas(gcf, 'demo_matlab_figs/26_fill.png');
 
-%% 27. fplot — función simbólica
-figure; fplot(@(x) x.*sin(1./x), [-1 1]);
-xlabel('x'); ylabel('y'); title('27. fplot — x·sin(1/x)'); grid on;
+%% 27. fplot -> plot sobre linspace (fplot no soportado en Lab)
+xf2 = linspace(-1, 1, 400); xf2(xf2==0) = 1e-6;
+figure; plot(xf2, xf2.*sin(1./xf2), 'LineWidth', 1);
+xlabel('x'); ylabel('y'); title('27. x·sin(1/x)'); grid on;
 saveas(gcf, 'demo_matlab_figs/27_fplot.png');
 
 disp('Todos los plots generados ✓ — figuras en demo_matlab_figs/');

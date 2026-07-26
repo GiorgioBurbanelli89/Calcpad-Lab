@@ -5,7 +5,7 @@
 %
 %  Este script es MATLAB 100% portable:
 %     - Corre en MATLAB nativo  -> muestra figuras con trisurf colormap
-%     - Corre en Calcpad Lab    -> HTML con Three.js rainbow (mismo look)
+%     - Corre en Hekatan Lab    -> HTML con Three.js rainbow (mismo look)
 %     - Corre en Octave         -> figuras con colormap jet
 %
 %  Geometria:    placa rectangular 6 x 4 m, espesor 0.10 m
@@ -99,7 +99,7 @@ Mxx_max_kNm = Mxx_c / 1000
 Myy_max_kNm = Myy_c / 1000
 
 %% Visualizacion 3D - superficie deformada
-%  En MATLAB / Calcpad-Lab: figura interactiva.
+%  En MATLAB / Hekatan Lab: figura interactiva.
 %  En Octave headless: intenta PNG, si falla por backend skippea sin abortar.
 try
     fig = figure('visible', 'off');

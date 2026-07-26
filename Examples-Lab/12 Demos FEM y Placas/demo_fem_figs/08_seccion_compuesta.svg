@@ -1,36 +1,58 @@
-<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
-  <rect x='0' y='0' width='800' height='800' fill='white'/>
-  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
-  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>8. Patch — sección compuesta con cotas</text>
-  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-0.515</text>
-  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>-0.565</text>
-  <text x='202' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0.431</text>
-  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>0.601</text>
-  <text x='344' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1.38</text>
-  <text x='55' y='468.00000000000006' text-anchor='end' font-family='sans-serif' font-size='10'>1.77</text>
-  <text x='485.99999999999994' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2.32</text>
-  <text x='55' y='330' text-anchor='end' font-family='sans-serif' font-size='10'>2.93</text>
-  <text x='628' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3.27</text>
-  <text x='55' y='192.0000000000001' text-anchor='end' font-family='sans-serif' font-size='10'>4.1</text>
-  <text x='770' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>4.21</text>
-  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>5.27</text>
-  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+<svg xmlns='http://www.w3.org/2000/svg' width='646' height='800' viewBox='0 0 646 800'>
+  <rect x='0' y='0' width='646' height='800' fill='white'/>
+  <rect x='60' y='50' width='556' height='690' fill='none' stroke='#ccc'/>
+  <text x='323' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>8. Patch — sección compuesta con cotas</text>
+  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-0.5</text>
+  <line x1='60' y1='740' x2='60' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='115.6' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='115.6' y1='740' x2='115.6' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='171.2' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0.5</text>
+  <line x1='171.2' y1='740' x2='171.2' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='226.8' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='226.8' y1='740' x2='226.8' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='282.4' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1.5</text>
+  <line x1='282.4' y1='740' x2='282.4' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='338' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='338' y1='740' x2='338' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='393.6' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2.5</text>
+  <line x1='393.6' y1='740' x2='393.6' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='449.2' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='449.2' y1='740' x2='449.2' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='504.8' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3.5</text>
+  <line x1='504.8' y1='740' x2='504.8' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='560.4000000000001' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='560.4000000000001' y1='740' x2='560.4000000000001' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='616' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>4.5</text>
+  <line x1='616' y1='740' x2='616' y2='744' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='666.0967741935484' text-anchor='end' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='56' y1='662.0967741935484' x2='60' y2='662.0967741935484' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='554.8064516129032' text-anchor='end' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='56' y1='550.8064516129032' x2='60' y2='550.8064516129032' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='443.51612903225805' text-anchor='end' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='56' y1='439.51612903225805' x2='60' y2='439.51612903225805' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='332.2258064516129' text-anchor='end' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='56' y1='328.2258064516129' x2='60' y2='328.2258064516129' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='220.9354838709678' text-anchor='end' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='56' y1='216.9354838709678' x2='60' y2='216.9354838709678' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='109.64516129032256' text-anchor='end' font-family='sans-serif' font-size='10'>5</text>
+  <line x1='56' y1='105.64516129032256' x2='60' y2='105.64516129032256' stroke='#333' stroke-width='0.8'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='556' height='690'/></clipPath></defs>
   <g clip-path='url(#plot)'>
-    <polygon points='137.30,673.13 737.73,673.13 737.73,81.36 137.30,81.36' fill='rgb(216,216,216)' fill-opacity='1' stroke='black' stroke-width='1.5'/>
-    <polygon points='287.41,436.42 587.62,436.42 587.62,199.72 287.41,199.72' fill='white' fill-opacity='1' stroke='black' stroke-width='1.5'/>
-    <circle cx='182.34' cy='637.62' r='5.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='284.41' cy='637.62' r='5.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='386.48' cy='637.62' r='5.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='488.55' cy='637.62' r='5.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='590.62' cy='637.62' r='5.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='692.70' cy='637.62' r='5.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='182.34' cy='116.87' r='4.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='284.41' cy='116.87' r='4.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='386.48' cy='116.87' r='4.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='488.55' cy='116.87' r='4.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='590.62' cy='116.87' r='4.00' fill='black' stroke='black' stroke-width='1'/>
-    <circle cx='692.70' cy='116.87' r='4.00' fill='black' stroke='black' stroke-width='1'/>
-    <text x='437.52' y='708.64' fill='black' font-family='sans-serif' font-size='12' text-anchor='middle' dominant-baseline='central'>b = 4 m</text>
-    <text x='92.27' y='377.25' fill='black' font-family='sans-serif' font-size='12' text-anchor='middle' dominant-baseline='central'>h = 5 m</text>
+    <polygon points='115.60,662.10 560.40,662.10 560.40,105.65 115.60,105.65' fill='rgb(216,216,216)' fill-opacity='1' stroke='#000000' stroke-width='1.5'/>
+    <polygon points='226.80,439.52 449.20,439.52 449.20,216.94 226.80,216.94' fill='#FFFFFF' fill-opacity='1' stroke='#000000' stroke-width='1.5'/>
+    <circle cx='148.96' cy='628.71' r='5.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='224.58' cy='628.71' r='5.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='300.19' cy='628.71' r='5.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='375.81' cy='628.71' r='5.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='451.42' cy='628.71' r='5.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='527.04' cy='628.71' r='5.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='148.96' cy='139.03' r='4.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='224.58' cy='139.03' r='4.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='300.19' cy='139.03' r='4.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='375.81' cy='139.03' r='4.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='451.42' cy='139.03' r='4.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <circle cx='527.04' cy='139.03' r='4.00' fill='#000000' stroke='#000000' stroke-width='1'/>
+    <text x='338.00' y='695.48' fill='black' font-family='sans-serif' font-size='12' text-anchor='middle' dominant-baseline='central'>b = 4 m</text>
+    <text x='82.24' y='383.87' fill='black' font-family='sans-serif' font-size='12' text-anchor='middle' dominant-baseline='central'>h = 5 m</text>
   </g>
 </svg>

@@ -13,10 +13,16 @@ D = E*t^3/(12*(1-nu^2));          % rigidez flexional
 
 [X,Y] = meshgrid(linspace(0,a,50), linspace(0,b,50));
 W = zeros(size(X));
+Mxx = zeros(size(X));   % momento M_xx (acumulado analiticamente, ver figura 6)
 for m = 1:2:7  % impares
     for n = 1:2:7
         coef = 16*q/(pi^6*D) / (m*n*((m/a)^2+(n/b)^2)^2);
-        W = W + coef*sin(m*pi*X/a).*sin(n*pi*Y/b);
+        s = sin(m*pi*X/a).*sin(n*pi*Y/b);
+        W = W + coef*s;
+        % Curvaturas analiticas: d2w/dx2 y d2w/dy2 de cada armonico
+        wxx = -coef*(m*pi/a)^2 * s;
+        wyy = -coef*(n*pi/b)^2 * s;
+        Mxx = Mxx - D*(wxx + nu*wyy);   % M_xx = -D(w,xx + nu w,yy)
     end
 end
 
@@ -52,7 +58,9 @@ xn = xg(inside); yn = yg(inside);
 zn = sin(pi*xn/4).*sin(pi*yn/4) .* (1 - exp(-((xn-2).^2+(yn-2).^2)/2));
 tri = delaunay(xn, yn);
 % Filtro triángulos cuyo centroide cae fuera de la L
-cx = mean(xn(tri),2); cy = mean(yn(tri),2);
+% (centroide por columnas: indexar un vector por una columna preserva la forma)
+cx = (xn(tri(:,1)) + xn(tri(:,2)) + xn(tri(:,3))) / 3;
+cy = (yn(tri(:,1)) + yn(tri(:,2)) + yn(tri(:,3))) / 3;
 keep = (cx<=2 | cy<=2);
 tri = tri(keep,:);
 
@@ -120,12 +128,7 @@ saveas(gcf,'demo_fem_figs/05_patch_Q4_vm.png');
 %% ============================================================
 %% 6. Deformada + mapa de momento M_xx (color sobre superficie 3D)
 %% ============================================================
-% M_xx = -D (∂²w/∂x² + ν ∂²w/∂y²)
-% Aproximo numéricamente con diferencias finitas
-[dx, dy] = gradient(W, X(1,2)-X(1,1), Y(2,1)-Y(1,1));
-[d2x_x, ~] = gradient(dx, X(1,2)-X(1,1), Y(2,1)-Y(1,1));
-[~, d2y_y] = gradient(dy, X(1,2)-X(1,1), Y(2,1)-Y(1,1));
-Mxx = -D*(d2x_x + nu*d2y_y);
+% M_xx = -D (d2w/dx2 + nu d2w/dy2)  ->  ya calculado analiticamente arriba (Mxx)
 
 figure('Position',[100 100 800 600]);
 surf(X, Y, -W*1000, Mxx/1000, 'EdgeColor','none');   % color = Mxx (kN·m/m)

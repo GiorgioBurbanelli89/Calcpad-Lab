@@ -10,17 +10,20 @@ V = q*L/2 - q*x;
 M = q*x.*(L - x)/2;
 
 figure;
-subplot(2,1,1);
-plot(x, V/1e3, 'b', 'LineWidth', 2);
+plot(x, V/1e3, 'b', 'LineWidth', 2); hold on;
+plot([0 L], [0 0], 'k:');   % linea de referencia y=0
+hold off;
 title('Diagrama de cortante V(x)');
 xlabel('x [m]'); ylabel('V [kN]');
-grid on; yline(0, 'k:');
+grid on;
 
-subplot(2,1,2);
-plot(x, M/1e3, 'r', 'LineWidth', 2);
+figure;
+plot(x, M/1e3, 'r', 'LineWidth', 2); hold on;
+plot([0 L], [0 0], 'k:');   % linea de referencia y=0
+hold off;
 title('Diagrama de momento M(x)');
 xlabel('x [m]'); ylabel('M [kN*m]');
-grid on; yline(0, 'k:');
+grid on;
 
 fprintf('Diagramas V(x), M(x) para viga simplemente apoyada L=%dm, q=%g kN/m.\n', L, q/1e3);
 fprintf('M_max = %.2f kN*m en x = L/2\n', max(M)/1e3);

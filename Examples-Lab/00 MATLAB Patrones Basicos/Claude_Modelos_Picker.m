@@ -7,7 +7,7 @@
 %
 % Ejecutar:
 %   - MATLAB: F5 desde editor
-%   - Calcpad-Lab CLI: CalcpadLabCli.exe Claude_Modelos_Picker.m
+%   - Hekatan Lab CLI: HekatanLabCli.exe Claude_Modelos_Picker.m
 % =========================================================================
 
 clear; clc;

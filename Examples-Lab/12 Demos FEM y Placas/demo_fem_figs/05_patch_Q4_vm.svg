@@ -1,0 +1,110 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='754' viewBox='0 0 800 754'>
+  <rect x='0' y='0' width='800' height='754' fill='white'/>
+  <rect x='60' y='50' width='644' height='644' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>5. Patch Q4 — tensión von Mises por elemento (FEM)</text>
+  <text x='382' y='739' text-anchor='middle' font-family='sans-serif' font-size='12'>x (m)</text>
+  <text x='15' y='372' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 372)'>y (m)</text>
+  <text x='89.27272727272727' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='89.27272727272727' y1='694' x2='89.27272727272727' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='162.45454545454544' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>0.5</text>
+  <line x1='162.45454545454544' y1='694' x2='162.45454545454544' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='235.6363636363636' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='235.6363636363636' y1='694' x2='235.6363636363636' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='308.81818181818176' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>1.5</text>
+  <line x1='308.81818181818176' y1='694' x2='308.81818181818176' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='382' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='382' y1='694' x2='382' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='455.1818181818182' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>2.5</text>
+  <line x1='455.1818181818182' y1='694' x2='455.1818181818182' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='528.3636363636363' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='528.3636363636363' y1='694' x2='528.3636363636363' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='601.5454545454545' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>3.5</text>
+  <line x1='601.5454545454545' y1='694' x2='601.5454545454545' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='674.7272727272726' y='709' text-anchor='middle' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='674.7272727272726' y1='694' x2='674.7272727272726' y2='698' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='668.7272727272727' text-anchor='end' font-family='sans-serif' font-size='10'>0</text>
+  <line x1='56' y1='664.7272727272727' x2='60' y2='664.7272727272727' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='595.5454545454545' text-anchor='end' font-family='sans-serif' font-size='10'>0.5</text>
+  <line x1='56' y1='591.5454545454545' x2='60' y2='591.5454545454545' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='522.3636363636364' text-anchor='end' font-family='sans-serif' font-size='10'>1</text>
+  <line x1='56' y1='518.3636363636364' x2='60' y2='518.3636363636364' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='449.18181818181824' text-anchor='end' font-family='sans-serif' font-size='10'>1.5</text>
+  <line x1='56' y1='445.18181818181824' x2='60' y2='445.18181818181824' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='376' text-anchor='end' font-family='sans-serif' font-size='10'>2</text>
+  <line x1='56' y1='372' x2='60' y2='372' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='302.8181818181818' text-anchor='end' font-family='sans-serif' font-size='10'>2.5</text>
+  <line x1='56' y1='298.8181818181818' x2='60' y2='298.8181818181818' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='229.63636363636368' text-anchor='end' font-family='sans-serif' font-size='10'>3</text>
+  <line x1='56' y1='225.63636363636368' x2='60' y2='225.63636363636368' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='156.4545454545455' text-anchor='end' font-family='sans-serif' font-size='10'>3.5</text>
+  <line x1='56' y1='152.4545454545455' x2='60' y2='152.4545454545455' stroke='#333' stroke-width='0.8'/>
+  <text x='53' y='83.27272727272737' text-anchor='end' font-family='sans-serif' font-size='10'>4</text>
+  <line x1='56' y1='79.27272727272737' x2='60' y2='79.27272727272737' stroke='#333' stroke-width='0.8'/>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='644' height='644'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+    <polygon points='89.27,664.73 162.45,664.73 162.45,591.55 89.27,591.55' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,664.73 235.64,664.73 235.64,591.55 162.45,591.55' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,664.73 308.82,664.73 308.82,591.55 235.64,591.55' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,664.73 382.00,664.73 382.00,591.55 308.82,591.55' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,664.73 455.18,664.73 455.18,591.55 382.00,591.55' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,664.73 528.36,664.73 528.36,591.55 455.18,591.55' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,664.73 601.55,664.73 601.55,591.55 528.36,591.55' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,664.73 674.73,664.73 674.73,591.55 601.55,591.55' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,591.55 162.45,591.55 162.45,518.36 89.27,518.36' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,591.55 235.64,591.55 235.64,518.36 162.45,518.36' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,591.55 308.82,591.55 308.82,518.36 235.64,518.36' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,591.55 382.00,591.55 382.00,518.36 308.82,518.36' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,591.55 455.18,591.55 455.18,518.36 382.00,518.36' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,591.55 528.36,591.55 528.36,518.36 455.18,518.36' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,591.55 601.55,591.55 601.55,518.36 528.36,518.36' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,591.55 674.73,591.55 674.73,518.36 601.55,518.36' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,518.36 162.45,518.36 162.45,445.18 89.27,445.18' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,518.36 235.64,518.36 235.64,445.18 162.45,445.18' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,518.36 308.82,518.36 308.82,445.18 235.64,445.18' fill='hsl(232.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,518.36 382.00,518.36 382.00,445.18 308.82,445.18' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,518.36 455.18,518.36 455.18,445.18 382.00,445.18' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,518.36 528.36,518.36 528.36,445.18 455.18,445.18' fill='hsl(232.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,518.36 601.55,518.36 601.55,445.18 528.36,445.18' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,518.36 674.73,518.36 674.73,445.18 601.55,445.18' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,445.18 162.45,445.18 162.45,372.00 89.27,372.00' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,445.18 235.64,445.18 235.64,372.00 162.45,372.00' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,445.18 308.82,445.18 308.82,372.00 235.64,372.00' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,445.18 382.00,445.18 382.00,372.00 308.82,372.00' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,445.18 455.18,445.18 455.18,372.00 382.00,372.00' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,445.18 528.36,445.18 528.36,372.00 455.18,372.00' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,445.18 601.55,445.18 601.55,372.00 528.36,372.00' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,445.18 674.73,445.18 674.73,372.00 601.55,372.00' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,372.00 162.45,372.00 162.45,298.82 89.27,298.82' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,372.00 235.64,372.00 235.64,298.82 162.45,298.82' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,372.00 308.82,372.00 308.82,298.82 235.64,298.82' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,372.00 382.00,372.00 382.00,298.82 308.82,298.82' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,372.00 455.18,372.00 455.18,298.82 382.00,298.82' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,372.00 528.36,372.00 528.36,298.82 455.18,298.82' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,372.00 601.55,372.00 601.55,298.82 528.36,298.82' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,372.00 674.73,372.00 674.73,298.82 601.55,298.82' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,298.82 162.45,298.82 162.45,225.64 89.27,225.64' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,298.82 235.64,298.82 235.64,225.64 162.45,225.64' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,298.82 308.82,298.82 308.82,225.64 235.64,225.64' fill='hsl(232.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,298.82 382.00,298.82 382.00,225.64 308.82,225.64' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,298.82 455.18,298.82 455.18,225.64 382.00,225.64' fill='hsl(262.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,298.82 528.36,298.82 528.36,225.64 455.18,225.64' fill='hsl(232.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,298.82 601.55,298.82 601.55,225.64 528.36,225.64' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,298.82 674.73,298.82 674.73,225.64 601.55,225.64' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,225.64 162.45,225.64 162.45,152.45 89.27,152.45' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,225.64 235.64,225.64 235.64,152.45 162.45,152.45' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,225.64 308.82,225.64 308.82,152.45 235.64,152.45' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,225.64 382.00,225.64 382.00,152.45 308.82,152.45' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,225.64 455.18,225.64 455.18,152.45 382.00,152.45' fill='hsl(202.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,225.64 528.36,225.64 528.36,152.45 455.18,152.45' fill='hsl(172.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,225.64 601.55,225.64 601.55,152.45 528.36,152.45' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,225.64 674.73,225.64 674.73,152.45 601.55,152.45' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='89.27,152.45 162.45,152.45 162.45,79.27 89.27,79.27' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='162.45,152.45 235.64,152.45 235.64,79.27 162.45,79.27' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='235.64,152.45 308.82,152.45 308.82,79.27 235.64,79.27' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='308.82,152.45 382.00,152.45 382.00,79.27 308.82,79.27' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='382.00,152.45 455.18,152.45 455.18,79.27 382.00,79.27' fill='hsl(112.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='455.18,152.45 528.36,152.45 528.36,79.27 455.18,79.27' fill='hsl(82.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='528.36,152.45 601.55,152.45 601.55,79.27 528.36,79.27' fill='hsl(22.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+    <polygon points='601.55,152.45 674.73,152.45 674.73,79.27 601.55,79.27' fill='hsl(292.5, 70%, 60%)' fill-opacity='1' stroke='#000000' stroke-width='0.5'/>
+  </g>
+</svg>

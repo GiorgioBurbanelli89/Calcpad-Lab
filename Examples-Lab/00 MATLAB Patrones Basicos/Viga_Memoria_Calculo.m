@@ -9,12 +9,12 @@
 % Tecnicas usadas:
 %   - syms, diff, int, simplify, subs para algebra simbolica
 %   - char(expr) para insertar simbolico en fprintf con %s
-%   - Caso numerico al final (subs encadenadas — Calcpad-Lab MVP no
+%   - Caso numerico al final (subs encadenadas — Hekatan Lab MVP no
 %     soporta cell arrays en subs)
 %
 % Ejecutar:
 %   - MATLAB: F5
-%   - Calcpad-Lab CLI: CalcpadLabCli.exe 03_Viga_Memoria_Calculo.m
+%   - Hekatan Lab CLI: HekatanLabCli.exe 03_Viga_Memoria_Calculo.m
 % =========================================================================
 
 clear; clc;
