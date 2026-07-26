@@ -28,6 +28,84 @@ namespace Calcpad.Core.Matlab
         private readonly MatlabEvaluator _evaluator = new();
         public MatlabScope GlobalScope => _evaluator.Globals;
 
+        private readonly System.Collections.Generic.HashSet<string> _loadedFnFiles =
+            new(System.StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Fija el directorio del script en ejecución para poder cargar funciones
+        /// hermanas (.m del mismo directorio) y resolver addpath relativos — como MATLAB.
+        /// Debe llamarse tras construir el pipeline, antes de Run.</summary>
+        public void SetScriptDirectory(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return;
+            _evaluator.PrimaryScriptDir = dir;
+            if (!_evaluator.FunctionSearchDirs.Contains(dir))
+                _evaluator.FunctionSearchDirs.Insert(0, dir);
+            _evaluator.ExternalFunctionLoader = LoadFunctionFile;
+            _evaluator.ExternalScriptRunner = RunScriptFile;
+        }
+
+        /// <summary>Ejecuta inline un script `.m` hermano (script-calls-script de MATLAB:
+        /// `Muro_Acople_ITW;` corre ese archivo en el workspace actual). Pre-registra sus
+        /// funciones y ejecuta el resto de statements en el scope global. Cada script una vez.</summary>
+        private bool RunScriptFile(string name)
+        {
+            foreach (var dir in _evaluator.FunctionSearchDirs)
+            {
+                string path;
+                try { path = System.IO.Path.Combine(dir, name + ".m"); }
+                catch { continue; }
+                if (!System.IO.File.Exists(path)) continue;
+                var key = "script:" + path;
+                if (_loadedFnFiles.Contains(key)) return true;   // ya corrido → no re-ejecutar
+                _loadedFnFiles.Add(key);
+                var src = System.IO.File.ReadAllText(path);
+                var toks = MatlabTokenizer.Tokenize(src);
+                var sts = new MatlabParser(toks).ParseAllStatements();
+                // pre-pass: registrar funciones/clases del script hermano
+                foreach (var st in sts)
+                {
+                    if (st is FunctionDef fd) _evaluator.RegisterFunction(fd);
+                    else if (st is ClassDef cd) _evaluator.RegisterClass(cd);
+                }
+                // ejecutar los statements top-level (no-función) en el workspace actual
+                foreach (var st in sts)
+                    if (!(st is FunctionDef) && !(st is ClassDef))
+                        _evaluator.ExecuteOne(st, _evaluator.Globals);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Busca `name.m` en los directorios de búsqueda (script dir + addpath),
+        /// lo tokeniza/parsea y registra TODAS sus funciones. Devuelve true si registró
+        /// una función llamada `name`. Cada archivo se carga una sola vez.</summary>
+        private bool LoadFunctionFile(string name)
+        {
+            if (_evaluator.HasUserFunction(name)) return true;
+            foreach (var dir in _evaluator.FunctionSearchDirs)
+            {
+                string path;
+                try { path = System.IO.Path.Combine(dir, name + ".m"); }
+                catch { continue; }
+                if (_loadedFnFiles.Contains(path) || !System.IO.File.Exists(path)) continue;
+                _loadedFnFiles.Add(path);
+                try
+                {
+                    var src = System.IO.File.ReadAllText(path);
+                    var toks = MatlabTokenizer.Tokenize(src);
+                    var sts = new MatlabParser(toks).ParseAllStatements();
+                    foreach (var st in sts)
+                    {
+                        if (st is FunctionDef fd) _evaluator.RegisterFunction(fd);
+                        else if (st is ClassDef cd) _evaluator.RegisterClass(cd);
+                    }
+                }
+                catch { /* archivo con error de parseo → se ignora, sigue buscando */ }
+                if (_evaluator.HasUserFunction(name)) return true;
+            }
+            return false;
+        }
+
         /// <summary>Export de gráficas a PNG (CLI sin navegador). true → cada figura se
         /// rasteriza y acumula en ExportedPngs. Proxy público de MatlabPlots (internal).</summary>
         public static bool PngExportMode

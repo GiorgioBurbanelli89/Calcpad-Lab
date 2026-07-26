@@ -1475,6 +1475,9 @@ namespace Calcpad.Wpf
                 // que el archivo (la primaria en MATLAB). Se lee en el hilo UI antes del Task.Run.
                 var entryHint = string.IsNullOrWhiteSpace(CurrentFileName)
                     ? null : Path.GetFileNameWithoutExtension(CurrentFileName);
+                // Directorio del script → cargar funciones .m hermanas (como MATLAB).
+                var scriptDir = string.IsNullOrWhiteSpace(CurrentFileName)
+                    ? null : Path.GetDirectoryName(CurrentFileName);
                 if (isFortranFile)
                 {
                     // El motor Fortran corre en milisegundos: no necesita streaming por statement.
@@ -1503,6 +1506,7 @@ namespace Calcpad.Wpf
                 {
                     var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
                     pipeline.EntryFunctionHint = entryHint;
+                    if (!string.IsNullOrEmpty(scriptDir)) pipeline.SetScriptDirectory(scriptDir);
                     pipeline.StreamingMode = true;  // chunks vivos al WebView2
                     // Pre-split del source en lineas para mostrar la linea actual en el banner.
                     var sourceLines = sourceCapture.Replace("\r\n", "\n").Split('\n');

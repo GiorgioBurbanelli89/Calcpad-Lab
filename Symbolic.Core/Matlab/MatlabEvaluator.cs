@@ -350,6 +350,32 @@ namespace Calcpad.Core.Matlab
         /// <summary>Registra función para uso en pre-pass del pipeline (MATLAB script + helpers).</summary>
         public void RegisterFunction(FunctionDef fd) { if (!_reservedVizBuiltins.Contains(fd.Name)) _userFunctions[fd.Name] = fd; }
 
+        /// <summary>True si el nombre ya está registrado como función de usuario.</summary>
+        public bool HasUserFunction(string name) => _userFunctions.ContainsKey(name);
+        /// <summary>Callback que carga una función `.m` hermana desde disco (lo setea el
+        /// pipeline con acceso al tokenizer/parser + directorios de búsqueda). Replica el
+        /// comportamiento MATLAB: un script encuentra funciones en archivos .m del mismo
+        /// directorio (y de los agregados con addpath). Devuelve true si la registró.</summary>
+        public Func<string, bool> ExternalFunctionLoader = null;
+        /// <summary>Callback que EJECUTA un script `.m` hermano inline (script-calls-script de
+        /// MATLAB: `Muro_Acople_ITW;` corre el archivo homónimo en el workspace actual). Lo
+        /// setea el pipeline. Devuelve true si encontró y ejecutó el script.</summary>
+        public Func<string, bool> ExternalScriptRunner = null;
+        /// <summary>Directorio del script en ejecución (para resolver addpath relativos
+        /// y buscar funciones hermanas). Lo setea el pipeline.</summary>
+        public string PrimaryScriptDir = null;
+        /// <summary>Directorios donde buscar archivos .m de funciones (script dir + addpath).</summary>
+        public readonly System.Collections.Generic.List<string> FunctionSearchDirs = new();
+        /// <summary>Intenta resolver `name` cargándolo de un archivo .m hermano. True si quedó
+        /// registrado en _userFunctions (ya sea porque estaba o porque se cargó).</summary>
+        private bool TryLoadExternalFn(string name)
+        {
+            if (_userFunctions.ContainsKey(name)) return true;
+            if (ExternalFunctionLoader == null) return false;
+            try { ExternalFunctionLoader(name); } catch { /* archivo ilegible/parse error → sigue Undefined */ }
+            return _userFunctions.ContainsKey(name);
+        }
+
         /// <summary>True si todos los args son IdentRef y referencian sym vars
         /// existentes en scope (declaradas via `syms`). Usado para detectar el
         /// patron symfun: `f(x) = ...` requiere que x ya sea sym var.</summary>
@@ -1459,7 +1485,19 @@ namespace Calcpad.Core.Matlab
             _builtins["cla"]     = a => new MValue(0);
             _builtins["clear"]   = a => new MValue(0);
             _builtins["format"]  = a => new MValue(0);   // format bank/long/short/... : no-op (no cambia el render)
-            _builtins["addpath"] = a => new MValue(0);
+            _builtins["addpath"] = a => {
+                // Agrega directorios a la búsqueda de funciones .m (antes era no-op → los
+                // scripts con addpath('frame',...) no encontraban sus helpers en subcarpetas).
+                foreach (var p in a)
+                {
+                    if (p == null || !p.IsString) continue;
+                    var dir = p.StringValue;
+                    if (!System.IO.Path.IsPathRooted(dir) && !string.IsNullOrEmpty(PrimaryScriptDir))
+                        dir = System.IO.Path.Combine(PrimaryScriptDir, dir);
+                    if (!FunctionSearchDirs.Contains(dir)) FunctionSearchDirs.Add(dir);
+                }
+                return new MValue(0);
+            };
             _builtins["rmpath"]  = a => new MValue(0);
             _builtins["pause"]   = a => new MValue(0);
             _builtins["drawnow"] = a => { var f = MatlabPlots.RenderFrame(); if (f != null) _frameOut?.Invoke(f); return new MValue(0); };
@@ -9773,6 +9811,12 @@ namespace Calcpad.Core.Matlab
                         return CallUserFunction(def0, Array.Empty<MValue>());
                     if (_builtins.TryGetValue(id.Name, out var fn0))
                         return fn0(Array.Empty<MValue>());
+                    // Función en archivo .m hermano invocada estilo-comando (`Muro_Acople_ITW;`)
+                    if (TryLoadExternalFn(id.Name) && _userFunctions.TryGetValue(id.Name, out var def0x))
+                        return CallUserFunction(def0x, Array.Empty<MValue>());
+                    // Script .m hermano ejecutado inline (script-calls-script de MATLAB)
+                    if (ExternalScriptRunner != null && ExternalScriptRunner(id.Name))
+                        return new MValue(0);
                     throw new MatlabRuntimeException($"Undefined: {id.Name}");
                 case ColonAll: throw new MatlabRuntimeException(":' aislado sólo válido en indexing");
                 case UnaryOp u: return EvalUnary(u, scope);
@@ -10368,6 +10412,9 @@ namespace Calcpad.Core.Matlab
                     return fn(args);
                 if (_multiOutBuiltins.TryGetValue(id.Name, out var fn2))
                     return fn2(args)[0];
+                // 5) Función en archivo .m hermano (carga on-demand, como MATLAB)
+                if (TryLoadExternalFn(id.Name) && _userFunctions.TryGetValue(id.Name, out var defX))
+                    return CallUserFunction(defX, args, ArgNames(c.Args));
                 throw new MatlabRuntimeException($"Undefined: {id.Name}");
             }
             // Caso: (expr)(args) — donde expr evalúa a callable
@@ -10529,6 +10576,9 @@ namespace Calcpad.Core.Matlab
             if (_multiOutBuiltins.TryGetValue(name, out var fn2)) return fn2(args);
             if (_userFunctions.TryGetValue(name, out var def))   return CallUserFunctionMulti(def, args, argNames);
             if (_builtins.TryGetValue(name, out var fn))         return new[] { fn(args) };
+            // Función en archivo .m hermano: [a,b] = func(...)
+            if (TryLoadExternalFn(name) && _userFunctions.TryGetValue(name, out var defX))
+                return CallUserFunctionMulti(defX, args, argNames);
             throw new MatlabRuntimeException($"Undefined: {name}");
         }
         private MValue[] EvalArgs(List<MatlabNode> args, MatlabScope scope)
