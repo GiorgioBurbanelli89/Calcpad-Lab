@@ -297,13 +297,14 @@ namespace Calcpad.Core.Matlab
         private static float[] SampleCustom(double t)
         {
             var mm = _customCmapRgb; int n = mm.Length;
-            double f = Math.Max(0, Math.Min(1, t)) * (n - 1);
-            int i0 = (int)Math.Floor(f);
-            if (i0 >= n - 1) return mm[n - 1];
-            double a = f - i0;
-            return new[] { (float)(mm[i0][0]*(1-a)+mm[i0+1][0]*a),
-                           (float)(mm[i0][1]*(1-a)+mm[i0+1][1]*a),
-                           (float)(mm[i0][2]*(1-a)+mm[i0+1][2]*a) };
+            // MATLAB mapea un CData escalar a un colormap DISCRETO ajustando a la banda:
+            // index = floor((C-Cmin)/(Cmax-Cmin)*m), recortado a [0,m-1]. NO interpola entre
+            // colores del colormap; luego FaceColor='interp' mezcla (Gouraud) ENTRE vertices.
+            // Antes interpolabamos aqui -> la fundacion (t~0.056) caia 61% al azul oscuro (banda 1)
+            // en vez de la banda 0 (azul claro) que da MATLAB. Ahora coincide banda por banda.
+            int band = (int)Math.Floor(Math.Max(0, Math.Min(1, t)) * n);
+            if (band < 0) band = 0; if (band >= n) band = n - 1;
+            return mm[band];
         }
 
         /// <summary>parula: el colormap por DEFECTO de MATLAB. Sin esto Lab pintaba
@@ -2274,7 +2275,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
                     if (perVertex && nv == 3)
                         // CData por vertice: subdividir el triangulo y colorear cada sub-cara con el
                         // colormap ACTIVO (Gouraud aproximado, como el patch interp de MATLAB).
-                        SubTri(xs[0],ys[0],cv[0], xs[1],ys[1],cv[1], xs[2],ys[2],cv[2], clo,chi, m.Edge,m.Alpha,m.Lw, 3);
+                        SubTri(xs[0],ys[0],cv[0], xs[1],ys[1],cv[1], xs[2],ys[2],cv[2], clo,chi, m.Edge,m.Alpha,m.Lw, 4);
                     else
                     {
                         double val = perVertex ? (cv[0] + cv[1] + cv[2]) / nv : m.CData[f];
