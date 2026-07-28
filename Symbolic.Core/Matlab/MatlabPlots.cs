@@ -2312,7 +2312,10 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             if (depth <= 0)
             {
                 double val=(ca+cb+cc)/3.0;
-                Patch2D(new[]{xa,xb,xc}, new[]{ya,yb,yc}, CmapCss((val-clo)/(chi-clo)), edge, alpha, lw, val);
+                string fc = CmapCss((val-clo)/(chi-clo));
+                // relleno PURO: borde del MISMO color (cubre la costura anti-alias) y SIN linea
+                // gruesa -> superficie continua sin textura de sub-triangulos (Gouraud aprox).
+                Patch2D(new[]{xa,xb,xc}, new[]{ya,yb,yc}, fc, fc, alpha, 0.0, val);
                 return;
             }
             double xab=(xa+xb)/2,yab=(ya+yb)/2,cab=(ca+cb)/2;
