@@ -189,6 +189,10 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MMatScalarMul  = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatScalarMul));
         internal static readonly MethodInfo MMakeRowVec    = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeRowVec));
         internal static readonly MethodInfo MMakeMatrix2D  = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeMatrix2D));
+        internal static readonly MethodInfo MMakeEmpty     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeEmpty));
+        internal static readonly MethodInfo MIsEmpty       = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitIsEmpty));
+        internal static readonly MethodInfo MMatDiv        = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatDiv));
+        internal static readonly MethodInfo MMatEwDiv      = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatEwDiv));
         internal static readonly MethodInfo MGetMatRow     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatRow));
         internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
@@ -347,6 +351,9 @@ namespace Calcpad.Core.Matlab
             /// <summary>Label de salida de la FUNCIÓN (JIT de funciones): `return` hace Goto aquí.
             /// null en contexto de bucle (el `return` no se soporta ahí → bailout).</summary>
             public LabelTarget ReturnLabel;
+            /// <summary>Labels del bucle MÁS INTERNO para `break`/`continue`. null fuera de un bucle.</summary>
+            public LabelTarget BreakLabel;
+            public LabelTarget ContinueLabel;
         }
 
         /// <summary>Acceso (lectura/escritura) a una variable escalar: local IL si
@@ -700,6 +707,12 @@ namespace Calcpad.Core.Matlab
                     if (!SetKind(cc, fl.VarName, TKind.Scalar)) return false;
                     if (InferKind(fr.Start, cc) == null || InferKind(fr.End, cc) == null) return false;
                     return ClassifyBody(fl.Body, cc);
+                case WhileLoop wl:
+                    if (!ClassifyCond(wl.Cond, cc)) return false;
+                    return ClassifyBody(wl.Body, cc);
+                case BreakStmt:
+                case ContinueStmt:
+                    return true;               // no clasifican variables
                 case ExprStmt es:
                     return InferKind(es.Expr, cc) != null;
                 case ReturnStmt:
@@ -785,10 +798,21 @@ namespace Calcpad.Core.Matlab
                         // Clasificar los ARGUMENTOS (registra las vars que usan). Sin esto,
                         // mod(a*7+e, n) con a,e,n de loops EXTERNOS no las registraba y el emit
                         // no las podia resolver -> el loop anidado con mod() bailaba al interprete.
-                        foreach (var arg in coi.Args)
-                            if (InferKind(arg, cc) == null) return null;
-                        // Función: heurística — matrix si el nombre empieza con mayuscula O
-                        // contiene "mat"/"vec"/"_vec"; si no, scalar.
+                        var aks = new TKind[coi.Args.Count];
+                        for (int ai = 0; ai < coi.Args.Count; ai++)
+                        {
+                            var akk = InferKind(coi.Args[ai], cc);
+                            if (akk == null) return null;
+                            aks[ai] = akk.Value;
+                        }
+                        // Función de USUARIO: inferir el kind REAL de su 1ª salida (clasificando su
+                        // cuerpo). Corrige `Dep=depcont(...)` matriz que la heurística daba escalar.
+                        if (cc.Evaluator.JitIsUserFunction(ident.Name))
+                        {
+                            var uk = InferUserFnOutKind(ident.Name, aks, cc);
+                            if (uk != null) return uk;
+                        }
+                        // Builtin / no inferible: heurística por nombre.
                         return GuessFnKind(ident.Name);
                     }
                     // Indexing de matriz
@@ -817,6 +841,30 @@ namespace Calcpad.Core.Matlab
                 default:
                     return null;
             }
+        }
+
+        // Caché del KIND de la 1ª salida de funciones de usuario, por (nombre + firma de kinds de args).
+        private static readonly Dictionary<string, TKind> _fnOutKind = new(StringComparer.Ordinal);
+        /// <summary>Infiere el KIND (escalar/matriz) de la 1ª salida de una función de USUARIO
+        /// clasificando su cuerpo (recursivo, cacheado). Devuelve null si no se puede — el llamador
+        /// cae a GuessFnKind. Corrige `Dep=depcont(...)` (matriz) que la heurística daba escalar.</summary>
+        private static TKind? InferUserFnOutKind(string name, TKind[] argKinds, CompileCtx cc)
+        {
+            var def = cc.Evaluator.JitGetUserFn(name);
+            if (def == null || def.OutputNames.Count == 0 || def.ClosureScope != null) return null;
+            if (def.ParamNames.Count != argKinds.Length) return null;
+            foreach (var p in def.ParamNames) if (p == "varargin") return null;
+            var sb = new System.Text.StringBuilder(name); sb.Append(':');
+            foreach (var k in argKinds) sb.Append(k == TKind.Matrix ? 'M' : (k == TKind.Cell ? 'C' : 'S'));
+            string key = sb.ToString();
+            if (_fnOutKind.TryGetValue(key, out var cached)) return cached;
+            _fnOutKind[key] = TKind.Matrix;   // tentativo: corta recursion (raro aqui, pero seguro)
+            var cc2 = new CompileCtx { Evaluator = cc.Evaluator };
+            for (int i = 0; i < def.ParamNames.Count; i++) cc2.VarKind[def.ParamNames[i]] = argKinds[i];
+            if (!ClassifyBody(def.Body, cc2) || !cc2.VarKind.TryGetValue(def.OutputNames[0], out var ok))
+            { _fnOutKind.Remove(key); return null; }
+            _fnOutKind[key] = ok;
+            return ok;
         }
 
         private static TKind GuessFnKind(string name)
@@ -991,17 +1039,22 @@ namespace Calcpad.Core.Matlab
                         var lv = ScalarAccess(cc, fl.VarName);
                         var endLocal = Expression.Variable(typeof(double), "for_end");
                         var brk = Expression.Label("for_brk");
+                        var cont = Expression.Label("for_cont");   // `continue` salta AQUI (antes del incremento)
                         var innerBody = new List<Expression>
                         {
                             Expression.IfThen(Expression.GreaterThan(lv, endLocal), Expression.Break(brk))
                         };
+                        var savedBrkF = cc.BreakLabel; var savedContF = cc.ContinueLabel;
+                        cc.BreakLabel = brk; cc.ContinueLabel = cont;
                         foreach (var st in fl.Body)
                         {
                             if (st is CommentStmt) continue;
                             var se = ConvertStmt(st, cc);
-                            if (se == null) return null;
+                            if (se == null) { cc.BreakLabel = savedBrkF; cc.ContinueLabel = savedContF; return null; }
                             innerBody.Add(se);
                         }
+                        cc.BreakLabel = savedBrkF; cc.ContinueLabel = savedContF;
+                        innerBody.Add(Expression.Label(cont));   // destino de continue
                         innerBody.Add(Expression.Assign(lv, Expression.Add(lv, Expression.Constant(1.0))));
                         var loop = Expression.Loop(Expression.Block(innerBody), brk);
                         return Expression.Block(
@@ -1010,6 +1063,31 @@ namespace Calcpad.Core.Matlab
                             Expression.Assign(lv, startE),
                             loop);
                     }
+                case WhileLoop wl:
+                    {
+                        // while cond ... end : Loop IL que revalua la condicion cada vuelta.
+                        var wbrk = Expression.Label("while_brk");
+                        var wcont = Expression.Label("while_cont");   // continue → revalua condicion
+                        var savedBrkW = cc.BreakLabel; var savedContW = cc.ContinueLabel;
+                        cc.BreakLabel = wbrk; cc.ContinueLabel = wcont;
+                        var wbody = new List<Expression> { Expression.Label(wcont) };
+                        var wcondE = ConvertCond(wl.Cond, cc);
+                        if (wcondE == null) { cc.BreakLabel = savedBrkW; cc.ContinueLabel = savedContW; return null; }
+                        wbody.Add(Expression.IfThen(Expression.Not(wcondE), Expression.Break(wbrk)));
+                        foreach (var st in wl.Body)
+                        {
+                            if (st is CommentStmt) continue;
+                            var se = ConvertStmt(st, cc);
+                            if (se == null) { cc.BreakLabel = savedBrkW; cc.ContinueLabel = savedContW; return null; }
+                            wbody.Add(se);
+                        }
+                        cc.BreakLabel = savedBrkW; cc.ContinueLabel = savedContW;
+                        return Expression.Loop(Expression.Block(wbody), wbrk);
+                    }
+                case BreakStmt:
+                    return cc.BreakLabel != null ? Expression.Break(cc.BreakLabel) : null;
+                case ContinueStmt:
+                    return cc.ContinueLabel != null ? Expression.Goto(cc.ContinueLabel) : null;
                 case ExprStmt _:
                     return Expression.Empty();
                 default:
@@ -1273,6 +1351,15 @@ namespace Calcpad.Core.Matlab
                             if (Lm == null || Rm == null) return null;
                             return Expression.Call(b.Op == "+" ? JitCtx.MMatAdd : JitCtx.MMatSub, Lm, Rm);
                         }
+                        if (b.Op == "/" || b.Op == "./")
+                        {
+                            // A/B (B 1×1 → escala; si no → mrdivide) y A./B (element-wise). Misma
+                            // semantica que el interprete. Necesario para el return-map: /(2*sj), /den.
+                            var Lm = ConvertExprAsKind(b.Left, cc, TKind.Matrix);
+                            var Rm = ConvertExprAsKind(b.Right, cc, TKind.Matrix);
+                            if (Lm == null || Rm == null) return null;
+                            return Expression.Call(b.Op == "/" ? JitCtx.MMatDiv : JitCtx.MMatEwDiv, Lm, Rm);
+                        }
                         return null;
                     }
                 case CallOrIndex coi when coi.Target is IdentRef ident:
@@ -1306,6 +1393,19 @@ namespace Calcpad.Core.Matlab
         private static Expression ConvertCallOrIndex(string name, List<MatlabNode> args, CompileCtx cc)
         {
             bool isFn = cc.Evaluator.JitIsFunction(name);
+            // isempty(x): logico escalar (1.0/0.0). El arg suele ser MATRIZ (n, D del return-map),
+            // asi que NO pasa por el path double[] (que exige escalar). Emitimos MIsEmpty directo.
+            if (name == "isempty" && args.Count == 1 && !cc.Evaluator.JitIsUserFunction(name))
+            {
+                var mk = InferKind(args[0], cc);
+                if (mk == TKind.Matrix)
+                {
+                    var mv = ConvertExprAsKind(args[0], cc, TKind.Matrix);
+                    if (mv == null) return null;
+                    return Expression.Call(JitCtx.MIsEmpty, mv);
+                }
+                if (mk == TKind.Scalar) return Expression.Constant(0.0, typeof(double));  // escalar nunca vacio
+            }
             // FAST-PATH: funcion matematica escalar builtin (mod, floor, sqrt, sin, ...) que el
             // usuario NO redefinio -> llamada estatica nativa, sin MValue ni diccionario.
             // Sin esto, un mod() dentro de un loop FEM tiraba TODO el loop al dispatch lento.
@@ -1320,6 +1420,31 @@ namespace Calcpad.Core.Matlab
                     iargs[i] = e;
                 }
                 return Expression.Call(im.M, iargs);
+            }
+            // Funcion (usuario O builtin) con algun arg MATRIZ (p.ej. yieldparts(sig_n,al,k),
+            // norm(ds2-ds1)): se llama por MValue[] (MCallMV, 1ª salida). El KIND de salida se infiere
+            // del cuerpo (usuario) o por heurística (builtin). El tipo del Expression coincide (double
+            // si escalar via MMatToScalar, MValue si matriz). Reemplaza el bail del path double[].
+            if (isFn && !JitCtx.InlineMath.ContainsKey(name))
+            {
+                var aks = new TKind[args.Count];
+                bool anyMat = false;
+                for (int i = 0; i < args.Count; i++)
+                {
+                    var ak = InferKind(args[i], cc);
+                    if (ak == null) return null;
+                    aks[i] = ak.Value; if (ak == TKind.Matrix) anyMat = true;
+                }
+                if (anyMat)
+                {
+                    var argArr = BuildMValueArgs(args, cc);
+                    if (argArr == null) return null;
+                    var callMV = Expression.Call(cc.CtxParam, JitCtx.MCallMV, Expression.Constant(name), argArr);
+                    var ok = cc.Evaluator.JitIsUserFunction(name)
+                        ? (InferUserFnOutKind(name, aks, cc) ?? TKind.Matrix)
+                        : GuessFnKind(name);
+                    return ok == TKind.Scalar ? (Expression)Expression.Call(JitCtx.MMatToScalar, callMV) : callMV;
+                }
             }
             if (isFn)
             {
@@ -1422,7 +1547,10 @@ namespace Calcpad.Core.Matlab
 
         private static Expression ConvertMatrixLit(MatrixLit ml, CompileCtx cc)
         {
-            if (ml.Rows.Count == 0) return null;
+            // Literal VACIO []  →  MValue 0×0 (para `n=[]` del return-map). Tambien filas todas vacias.
+            bool allEmpty = ml.Rows.Count == 0;
+            if (!allEmpty) { allEmpty = true; foreach (var row in ml.Rows) if (row.Count > 0) { allEmpty = false; break; } }
+            if (allEmpty) return Expression.Call(JitCtx.MMakeEmpty);
             // Row vector: 1 fila → MakeRowVec
             if (ml.Rows.Count == 1)
             {
@@ -1430,13 +1558,12 @@ namespace Calcpad.Core.Matlab
                 var exprs = new Expression[elems.Count];
                 for (int i = 0; i < elems.Count; i++)
                 {
-                    // El JIT solo sabe aplanar ENTRADAS ESCALARES a MakeRowVec/MakeMatrix2D.
-                    // Si una entrada es matriz (p.ej. A*b, aunque de 1x1), claudicamos -> el
-                    // interprete arma el literal por horz/vert-concat (correcto). Evita forzar
-                    // MMatToScalar sobre un producto matricial ("Expected scalar, got matrix").
-                    if (InferKind(elems[i], cc) != TKind.Scalar) return null;
-                    var e = ConvertExprAsKind(elems[i], cc, TKind.Scalar);
-                    if (e == null) return null;
+                    // Aplanamos entradas que compilan a un ESCALAR (double): numeros, vars escalares,
+                    // ARITMETICA escalar e INDEXADO de matriz A(i) (=elemento). Si la entrada compila
+                    // a un BLOQUE matriz (MValue: producto A*b, columna A(:,j), etc.) claudicamos ->
+                    // el interprete arma el literal por concatenacion (correcto).
+                    var e = ConvertExpr(elems[i], cc);
+                    if (e == null || e.Type != typeof(double)) return null;
                     exprs[i] = e;
                 }
                 var arr = Expression.NewArrayInit(typeof(double), exprs);
@@ -1452,11 +1579,10 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < rows; i++)
                 for (int j = 0; j < cols; j++)
                 {
-                    // Solo entradas escalares: una entrada matriz (A*b, etc.) hace que el
-                    // literal sea una concat de bloques que el JIT no aplana -> interprete.
-                    if (InferKind(ml.Rows[i][j], cc) != TKind.Scalar) return null;
-                    var e = ConvertExprAsKind(ml.Rows[i][j], cc, TKind.Scalar);
-                    if (e == null) return null;
+                    // Solo entradas que compilan a ESCALAR (double). Un bloque matriz (A*b, A(:,j))
+                    // haria del literal una concat que el JIT no aplana -> interprete.
+                    var e = ConvertExpr(ml.Rows[i][j], cc);
+                    if (e == null || e.Type != typeof(double)) return null;
                     flat[i * cols + j] = e;
                 }
             var arr2 = Expression.NewArrayInit(typeof(double), flat);

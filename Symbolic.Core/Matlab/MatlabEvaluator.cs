@@ -8971,6 +8971,10 @@ namespace Calcpad.Core.Matlab
         /// <summary>Verdadero si `name` resuelve a función (user-def o builtin).</summary>
         public bool JitIsFunction(string name) =>
             _userFunctions.ContainsKey(name) || _builtins.ContainsKey(name);
+        /// <summary>Definición de una función de usuario (o null). El JIT la usa para inferir el
+        /// KIND real de salida de una llamada `y=f(...)` en vez de adivinar por el nombre.</summary>
+        public FunctionDef JitGetUserFn(string name) =>
+            _userFunctions.TryGetValue(name, out var d) ? d : null;
         /// <summary>true si el nombre es una función DEFINIDA POR EL USUARIO (no un builtin).
         /// El JIT lo usa para no inlinear una función math si el usuario la redefinió.</summary>
         public bool JitIsUserFunction(string name) => _userFunctions.ContainsKey(name);
@@ -9004,11 +9008,29 @@ namespace Calcpad.Core.Matlab
             return r;
         }
         public static MValue JitMatScalarMul(MValue a, double s) { var sm = new MValue(s); return MapBinaryFast(a, sm, '*') ?? MapBinary(a, sm, (x, y) => x * y); }
+        /// <summary>A/B del JIT = mrdivide MATLAB: si A o B es 1×1 → element-wise (escala);
+        /// si no → B/A real (Transpose+Linsolve). Misma semantica que el interprete.</summary>
+        public static MValue JitMatDiv(MValue a, MValue b) =>
+            (a.IsScalar || b.IsScalar) ? (MapBinaryFast(a, b, '/') ?? MapBinary(a, b, (x, y) => x / y))
+                                       : Transpose(MatlabLinAlg.Linsolve(Transpose(b), Transpose(a)));
+        /// <summary>A./B del JIT: division element-wise (con broadcast 1×1), como el interprete.</summary>
+        public static MValue JitMatEwDiv(MValue a, MValue b) => MapBinaryFast(a, b, '/') ?? MapBinary(a, b, (x, y) => x / y);
         public static MValue JitMakeRowVec(double[] elements)
         {
             var v = new MValue(1, elements.Length);
             for (int i = 0; i < elements.Length; i++) v.Set(0, i, elements[i]);
             return v;
+        }
+        /// <summary>Matriz VACIA [] (0×0). Para `n=[]` en el JIT (return-map: grads/depcont).</summary>
+        public static MValue JitMakeEmpty() => new MValue(0, 0);
+        /// <summary>isempty(v) del JIT: 1.0 si v no tiene elementos, 0.0 si tiene. Cubre matriz vacia,
+        /// string vacio y cell vacio.</summary>
+        public static double JitIsEmpty(MValue v)
+        {
+            if (v == null) return 1.0;
+            if (v.IsString) return (v.StringValue == null || v.StringValue.Length == 0) ? 1.0 : 0.0;
+            if (v.CellData != null) return v.CellData.Length == 0 ? 1.0 : 0.0;
+            return (v.Rows * v.Cols == 0) ? 1.0 : 0.0;
         }
         /// <summary>Construye una matriz 2D desde un buffer row-major de doubles.</summary>
         public static MValue JitMakeMatrix2D(int rows, int cols, double[] elements)
