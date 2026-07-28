@@ -3352,16 +3352,6 @@ namespace Calcpad.Wpf
                 Button_Click(H6Button, e);
                 e.Handled = true;
             }
-            else if (e.Key == Key.L && isCtrl)
-            {
-                Button_Click(ParagraphMenu, e);
-                e.Handled = true;
-            }
-            else if (e.Key == Key.R && isCtrl)
-            {
-                Button_Click(LineBreakMenu, e);
-                e.Handled = true;
-            }
             else if (e.Key == Key.B && isCtrl)
             {
                 Button_Click(BoldButton, e);
@@ -3375,16 +3365,6 @@ namespace Calcpad.Wpf
             else if (e.Key == Key.U && isCtrl)
             {
                 Button_Click(UnderlineButton, e);
-                e.Handled = true;
-            }
-            else if (e.Key == Key.L && isCtrlShift)
-            {
-                Button_Click(BulletsMenu, e);
-                e.Handled = true;
-            }
-            else if (e.Key == Key.N && isCtrlShift)
-            {
-                Button_Click(NumberingMenu, e);
                 e.Handled = true;
             }
             else if (e.Key == Key.OemPlus)
@@ -4661,12 +4641,15 @@ namespace Calcpad.Wpf
                     break;
                 var tr = new TextRange(ps.ContentStart, ps.ContentEnd);
                 var text = tr.Text;
-                var isComment = text.StartsWith('\'') ||
+                // Hekatan Lab usa el comentario de MATLAB '%' (no el "'" de Calcpad puro).
+                // Al descomentar reconocemos tambien "'" y '"' por compatibilidad con documentos viejos.
+                var isComment = text.StartsWith('%') ||
+                    text.StartsWith('\'') ||
                     text.StartsWith('"');
                 if (comment != isComment)
                 {
                     if (comment)
-                        tr.Text = "\'" + text;
+                        tr.Text = "%" + text;
                     else
                         tr.Text = text[1..];
                 }
