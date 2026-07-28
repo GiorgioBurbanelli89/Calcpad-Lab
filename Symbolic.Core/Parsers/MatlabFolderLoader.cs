@@ -102,11 +102,29 @@ namespace Calcpad.Core
                 // ya está definida por el main o por otra hermana ya incluida → evita
                 // colisión de helpers homónimos con firmas distintas.
                 var sibFns = ExtractAllFunctionNames(content);
-                bool collides = false;
+                // PRIMARIA (fnName): si otro archivo ya expone esa función PÚBLICA, es una
+                // ambigüedad real cross-file → se saltea el hermano (como antes).
+                if (includedFunctions.Contains(fnName)) continue;
+                // SUBfunciones que colisionan: en MATLAB las subfunciones son PRIVADAS del
+                // archivo, así que dos archivos con `interp1l` NO chocan. Antes se salteaba el
+                // archivo ENTERO (bug: talud_cargas.m y talud_geo5rm.m comparten `interp1l` y
+                // por orden alfabético talud_geo5rm quedaba "Undefined"). Ahora renombramos la
+                // subfunción colisionante del hermano a un nombre único de archivo y reescribimos
+                // sus llamadas DENTRO del hermano → file-local, como MATLAB.
+                string stem = SanitizeStem(Path.GetFileNameWithoutExtension(path));
+                var effNames = new List<string> { fnName };
                 foreach (var fn in sibFns)
-                    if (includedFunctions.Contains(fn)) { collides = true; break; }
-                if (collides) continue;
-                foreach (var fn in sibFns) includedFunctions.Add(fn);
+                {
+                    if (string.Equals(fn, fnName, StringComparison.OrdinalIgnoreCase)) continue;   // la primaria no se renombra
+                    if (includedFunctions.Contains(fn))
+                    {
+                        string renamed = fn + "__" + stem;
+                        content = RenameLocalFunction(content, fn, renamed);
+                        effNames.Add(renamed);
+                    }
+                    else effNames.Add(fn);
+                }
+                foreach (var fn in effNames) includedFunctions.Add(fn);
 
                 // Auto-include silencioso: las function-files se REGISTRAN (sus
                 // funciones quedan disponibles) pero sus comentarios de doc a nivel
@@ -255,6 +273,62 @@ namespace Calcpad.Core
 
         private static bool IsIdentChar(char c) =>
             char.IsLetterOrDigit(c) || c == '_';
+
+        /// <summary>Nombre de archivo → sufijo seguro (solo [A-Za-z0-9_]).</summary>
+        private static string SanitizeStem(string stem)
+        {
+            if (string.IsNullOrEmpty(stem)) return "f";
+            var sb = new StringBuilder(stem.Length);
+            foreach (var c in stem) sb.Append(char.IsLetterOrDigit(c) || c == '_' ? c : '_');
+            return sb.ToString();
+        }
+
+        /// <summary>Renombra el identificador de función <paramref name="oldName"/> a
+        /// <paramref name="newName"/> en TODO el contenido (definición + llamadas), respetando:
+        /// líneas-comentario completas, comentarios inline, strings ('...' y "..."), transpose,
+        /// word-boundaries y acceso a campo (no renombra `s.oldName`). Usado para hacer
+        /// file-local una subfunción que colisiona con otro archivo (paridad MATLAB).</summary>
+        private static string RenameLocalFunction(string content, string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(content)) return content;
+            var outLines = new List<string>();
+            foreach (var rawLine in content.Replace("\r\n", "\n").Split('\n'))
+                outLines.Add(RenameInLine(rawLine, oldName, newName));
+            return string.Join("\n", outLines);
+        }
+
+        private static string RenameInLine(string line, string oldName, string newName)
+        {
+            var ts = line.TrimStart();
+            if (ts.StartsWith("%", StringComparison.Ordinal)) return line;   // comentario completo: intacto
+            int n = line.Length, L = oldName.Length;
+            var sb = new StringBuilder(n + 8);
+            bool inSingle = false, inDouble = false;
+            int i = 0;
+            while (i < n)
+            {
+                char c = line[i];
+                if (!inDouble && c == '\'' && !inSingle)
+                {
+                    bool isTranspose = i > 0 && (IsIdentChar(line[i - 1]) || line[i - 1] == ')' || line[i - 1] == ']');
+                    if (!isTranspose) { inSingle = true; sb.Append(c); i++; continue; }
+                }
+                else if (inSingle && c == '\'') { inSingle = false; sb.Append(c); i++; continue; }
+                else if (!inSingle && c == '"' && !inDouble) { inDouble = true; sb.Append(c); i++; continue; }
+                else if (inDouble && c == '"') { inDouble = false; sb.Append(c); i++; continue; }
+                if (!inSingle && !inDouble && c == '%') { sb.Append(line, i, n - i); break; }   // resto = comentario
+                if (!inSingle && !inDouble
+                    && i + L <= n && string.CompareOrdinal(line, i, oldName, 0, L) == 0)
+                {
+                    bool leftOk = i == 0 || (!IsIdentChar(line[i - 1]) && line[i - 1] != '.');
+                    int after = i + L;
+                    bool rightOk = after >= n || !IsIdentChar(line[after]);
+                    if (leftOk && rightOk) { sb.Append(newName); i = after; continue; }
+                }
+                sb.Append(c); i++;
+            }
+            return sb.ToString();
+        }
 
         /// <summary>Extrae el nombre de UNA línea `function ... NAME(args)` (ya TrimStart,
         /// empezando con "function"). Devuelve "" si no puede.</summary>
