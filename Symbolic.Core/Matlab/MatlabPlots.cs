@@ -2257,19 +2257,30 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
                     foreach (var v in m.CData) { if (v < clo) clo = v; if (v > chi) chi = v; }
                     if (chi <= clo) chi = clo + 1;
                 }
+                // CData por VERTICE (length = nVerts) o por CARA (length = nFaces).
+                bool perVertex = m.CData != null && m.CData.Length == m.Verts.Length;
                 for (int f = 0; f < m.Faces.Length; f++)
                 {
                     var face = m.Faces[f]; int nv = face.Length;
-                    var xs = new double[nv]; var ys = new double[nv];
+                    var xs = new double[nv]; var ys = new double[nv]; var cv = new double[nv];
                     for (int k = 0; k < nv; k++)
                     {
                         int vi = (int)System.Math.Round(face[k]) - 1;
                         if (vi < 0) vi = 0; else if (vi >= m.Verts.Length) vi = m.Verts.Length - 1;
                         xs[k] = m.Verts[vi][0]; ys[k] = m.Verts[vi][1];
+                        if (perVertex) cv[k] = m.CData[vi];
                     }
-                    double val = double.NaN; string fc = m.Face;
-                    if (hasC) { val = m.CData[f]; fc = JetCss((val - clo) / (chi - clo)); }
-                    Patch2D(xs, ys, fc, m.Edge, m.Alpha, m.Lw, val);
+                    if (!hasC) { Patch2D(xs, ys, m.Face, m.Edge, m.Alpha, m.Lw, double.NaN); continue; }
+                    if (perVertex && nv == 3)
+                        // CData por vertice: subdividir el triangulo y colorear cada sub-cara con el
+                        // colormap ACTIVO (Gouraud aproximado, como el patch interp de MATLAB).
+                        SubTri(xs[0],ys[0],cv[0], xs[1],ys[1],cv[1], xs[2],ys[2],cv[2], clo,chi, m.Edge,m.Alpha,m.Lw, 3);
+                    else
+                    {
+                        double val = perVertex ? (cv[0] + cv[1] + cv[2]) / nv : m.CData[f];
+                        string fc = CmapCss((val - clo) / (chi - clo));   // colormap del usuario, no jet
+                        Patch2D(xs, ys, fc, m.Edge, m.Alpha, m.Lw, val);
+                    }
                 }
             }
             // Mover las caras recién dibujadas al FONDO (índice 0) para que líneas/texto que el
@@ -2283,6 +2294,34 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
                 _figPrims.RemoveRange(firstNew, added);
                 _figPrims.InsertRange(0, faces);
             }
+        }
+
+        /// <summary>Color CSS del colormap ACTIVO (custom/parula/jet...) para t en [0,1].</summary>
+        private static string CmapCss(double t)
+        {
+            var rgb = CmapF(_figCmapName, t);
+            return $"rgb({(int)(rgb[0] * 255)},{(int)(rgb[1] * 255)},{(int)(rgb[2] * 255)})";
+        }
+        /// <summary>Gouraud aproximado en SVG: subdivide el triangulo (a,b,c) con valores nodales
+        /// en 4 hasta `depth` niveles; cada sub-triangulo se rellena plano con el color del
+        /// PROMEDIO de sus 3 nodos via el colormap activo. depth=3 → 64 sub-caras (suave).</summary>
+        private static void SubTri(double xa,double ya,double ca, double xb,double yb,double cb,
+                                   double xc,double yc,double cc, double clo,double chi,
+                                   string edge,double alpha,double lw,int depth)
+        {
+            if (depth <= 0)
+            {
+                double val=(ca+cb+cc)/3.0;
+                Patch2D(new[]{xa,xb,xc}, new[]{ya,yb,yc}, CmapCss((val-clo)/(chi-clo)), edge, alpha, lw, val);
+                return;
+            }
+            double xab=(xa+xb)/2,yab=(ya+yb)/2,cab=(ca+cb)/2;
+            double xbc=(xb+xc)/2,ybc=(yb+yc)/2,cbc=(cb+cc)/2;
+            double xca=(xc+xa)/2,yca=(yc+ya)/2,cca=(cc+ca)/2;
+            SubTri(xa,ya,ca, xab,yab,cab, xca,yca,cca, clo,chi, edge,alpha,lw, depth-1);
+            SubTri(xab,yab,cab, xb,yb,cb, xbc,ybc,cbc, clo,chi, edge,alpha,lw, depth-1);
+            SubTri(xca,yca,cca, xbc,ybc,cbc, xc,yc,cc, clo,chi, edge,alpha,lw, depth-1);
+            SubTri(xab,yab,cab, xbc,ybc,cbc, xca,yca,cca, clo,chi, edge,alpha,lw, depth-1);
         }
 
         private static SKColor ParseColor(string s)
