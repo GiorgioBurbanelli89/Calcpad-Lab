@@ -37,6 +37,9 @@ namespace Calcpad.Core.Matlab
         public bool IsStringArray => StringArrayData != null;
         /// <summary>Si no-null, este MValue es un function handle ejecutable.</summary>
         public readonly Func<MValue[], MValue> Callable;
+        /// <summary>Si no-null, invocación MULTI-salida del handle: (args, nargout) → outs.
+        /// Permite `[a,b] = fh(...)` cuando el cuerpo del handle reenvía varias salidas.</summary>
+        public Func<MValue[], int, MValue[]> CallableMulti;
         /// <summary>Nombre del handle (debug only).</summary>
         public readonly string CallableName;
         /// <summary>Si no-null, este MValue es un struct con fields.</summary>
@@ -1492,7 +1495,10 @@ namespace Calcpad.Core.Matlab
                 foreach (var x in a[0].Data) if (!setB.Contains(x)) diff.Add(x);
                 var dataSD = new double[diff.Count];
                 int kSD = 0; foreach (var x in diff) dataSD[kSD++] = x;
-                return new MValue(1, dataSD.Length, dataSD);
+                // MATLAB: el resultado es COLUMNA salvo que A y B sean AMBOS filas.
+                // (antes siempre fila -> [col; setdiff(col)] rompia con "inconsistent row lengths")
+                bool rowSD = a[0].Rows == 1 && a[1].Rows == 1;
+                return rowSD ? new MValue(1, dataSD.Length, dataSD) : new MValue(dataSD.Length, 1, dataSD);
             };
             // intersect(A, B) — elementos comunes a A y B (set ordenado)
             _builtins["intersect"] = a => {
@@ -1501,7 +1507,8 @@ namespace Calcpad.Core.Matlab
                 foreach (var x in a[0].Data) if (setBi.Contains(x)) inter.Add(x);
                 var dataIS = new double[inter.Count];
                 int kIS = 0; foreach (var x in inter) dataIS[kIS++] = x;
-                return new MValue(1, dataIS.Length, dataIS);
+                bool rowIS = a[0].Rows == 1 && a[1].Rows == 1;   // MATLAB: columna salvo AMBOS fila
+                return rowIS ? new MValue(1, dataIS.Length, dataIS) : new MValue(dataIS.Length, 1, dataIS);
             };
             // union(A, B) — todos los elementos sin duplicados (set ordenado)
             _builtins["union"] = a => {
@@ -1509,7 +1516,8 @@ namespace Calcpad.Core.Matlab
                 foreach (var x in a[1].Data) allU.Add(x);
                 var dataU = new double[allU.Count];
                 int kU = 0; foreach (var x in allU) dataU[kU++] = x;
-                return new MValue(1, dataU.Length, dataU);
+                bool rowU = a[0].Rows == 1 && a[1].Rows == 1;    // MATLAB: columna salvo AMBOS fila
+                return rowU ? new MValue(1, dataU.Length, dataU) : new MValue(dataU.Length, 1, dataU);
             };
             // ismember(A, B) — vector logico de mismo tamano que A
             _builtins["ismember"] = a => {
@@ -9573,7 +9581,17 @@ namespace Calcpad.Core.Matlab
             {
                 if (asg.Rhs is not CallOrIndex call || call.Target is not IdentRef ident)
                     throw new MatlabRuntimeException("Multi-output requires function call on RHS");
-                MValue[] outs = CallMultiOut(ident.Name, EvalArgs(call.Args, scope), ArgNames(call.Args));
+                MValue[] outs;
+                // Si `ident` es una VARIABLE con un function handle (p.ej. FITabk compartido por
+                // una función anidada), invocarlo multi-salida — NO buscarlo como nombre de función.
+                if (scope.TryGet(ident.Name, out var hVar) && hVar.IsCallable)
+                {
+                    var hArgs = EvalArgs(call.Args, scope);
+                    outs = hVar.CallableMulti != null
+                        ? hVar.CallableMulti(hArgs, asg.Targets.Count)
+                        : new[] { hVar.Callable(hArgs) };
+                }
+                else outs = CallMultiOut(ident.Name, EvalArgs(call.Args, scope), ArgNames(call.Args));
                 if (outs.Length < asg.Targets.Count)
                     throw new MatlabRuntimeException($"Function '{ident.Name}' returned {outs.Length} outputs, expected {asg.Targets.Count}");
                 for (int k = 0; k < asg.Targets.Count; k++)
@@ -11077,20 +11095,34 @@ namespace Calcpad.Core.Matlab
             if (af.ParamNames.Count == 1 && af.ParamNames[0] == "__handle__" && af.Body is IdentRef ref0)
             {
                 var nm = ref0.Name;
-                return new MValue(args => {
+                var h = new MValue(args => {
                     if (_userFunctions.TryGetValue(nm, out var def))
                         return CallUserFunction(def, args);
                     if (_builtins.TryGetValue(nm, out var fn)) return fn(args);
                     throw new MatlabRuntimeException($"Undefined function: {nm}");
                 }, "@" + nm);
+                h.CallableMulti = (args, nargout) => CallMultiOut(nm, args);   // [a,b]=@name(...)
+                return h;
             }
             var paramNames = af.ParamNames.ToArray();
-            return new MValue(args => {
+            var hAnon = new MValue(args => {
                 var local = new MatlabScope(captured);
                 for (int i = 0; i < paramNames.Length && i < args.Length; i++)
                     local.Set(paramNames[i], args[i]);
                 return Eval(af.Body, local);
             }, "@(...)" );
+            // MULTI-salida: si el cuerpo es una llamada a función (p.ej. @(p,c) dpab(...)),
+            // reenvía todas las salidas via CallMultiOut. MATLAB permite `[a,b]=fh(...)`.
+            hAnon.CallableMulti = (args, nargout) => {
+                var local = new MatlabScope(captured);
+                for (int i = 0; i < paramNames.Length && i < args.Length; i++)
+                    local.Set(paramNames[i], args[i]);
+                if (nargout > 1 && af.Body is CallOrIndex co && co.Target is IdentRef fid
+                    && !local.TryGet(fid.Name, out _))     // fid es una función, no una variable indexada
+                    return CallMultiOut(fid.Name, EvalArgs(co.Args, local), ArgNames(co.Args));
+                return new[] { Eval(af.Body, local) };
+            };
+            return hAnon;
         }
         public MValue[] CallMultiOut(string name, MValue[] args, string[] argNames = null)
         {

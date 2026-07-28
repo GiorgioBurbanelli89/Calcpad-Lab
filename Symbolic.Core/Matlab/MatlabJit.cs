@@ -1325,6 +1325,13 @@ namespace Calcpad.Core.Matlab
             {
                 // Function call. Decidir scalar/matrix por heurística (= GuessFnKind).
                 var fnKind = GuessFnKind(name);
+                // El path double[] solo admite args ESCALARES. Si algún arg es matriz
+                // (p.ej. interp1(xg,yg,xq) con xg,yg vectores), forzarlo a escalar dispara
+                // MMatToScalar("Expected scalar, got matrix"). Claudicamos -> el interprete
+                // ejecuta la funcion (correcto). Las funciones del hot loop son anidadas y no
+                // llegan aca, asi que no hay costo de rendimiento relevante.
+                for (int i = 0; i < args.Count; i++)
+                    if (InferKind(args[i], cc) != TKind.Scalar) return null;
                 var argExprs = new Expression[args.Count];
                 for (int i = 0; i < args.Count; i++)
                 {
@@ -1423,6 +1430,11 @@ namespace Calcpad.Core.Matlab
                 var exprs = new Expression[elems.Count];
                 for (int i = 0; i < elems.Count; i++)
                 {
+                    // El JIT solo sabe aplanar ENTRADAS ESCALARES a MakeRowVec/MakeMatrix2D.
+                    // Si una entrada es matriz (p.ej. A*b, aunque de 1x1), claudicamos -> el
+                    // interprete arma el literal por horz/vert-concat (correcto). Evita forzar
+                    // MMatToScalar sobre un producto matricial ("Expected scalar, got matrix").
+                    if (InferKind(elems[i], cc) != TKind.Scalar) return null;
                     var e = ConvertExprAsKind(elems[i], cc, TKind.Scalar);
                     if (e == null) return null;
                     exprs[i] = e;
@@ -1440,6 +1452,9 @@ namespace Calcpad.Core.Matlab
             for (int i = 0; i < rows; i++)
                 for (int j = 0; j < cols; j++)
                 {
+                    // Solo entradas escalares: una entrada matriz (A*b, etc.) hace que el
+                    // literal sea una concat de bloques que el JIT no aplana -> interprete.
+                    if (InferKind(ml.Rows[i][j], cc) != TKind.Scalar) return null;
                     var e = ConvertExprAsKind(ml.Rows[i][j], cc, TKind.Scalar);
                     if (e == null) return null;
                     flat[i * cols + j] = e;

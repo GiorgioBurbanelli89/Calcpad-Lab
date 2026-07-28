@@ -34,10 +34,11 @@ namespace Calcpad.Core.Matlab
         /// <summary>Fija el directorio del script en ejecución para poder cargar funciones
         /// hermanas (.m del mismo directorio) y resolver addpath relativos — como MATLAB.
         /// Debe llamarse tras construir el pipeline, antes de Run.</summary>
-        public void SetScriptDirectory(string dir)
+        public void SetScriptDirectory(string dir, string scriptPath = null)
         {
             if (string.IsNullOrEmpty(dir)) return;
             _evaluator.PrimaryScriptDir = dir;
+            if (!string.IsNullOrEmpty(scriptPath)) _evaluator.PrimaryScriptPath = scriptPath;
             if (!_evaluator.FunctionSearchDirs.Contains(dir))
                 _evaluator.FunctionSearchDirs.Insert(0, dir);
             _evaluator.ExternalFunctionLoader = LoadFunctionFile;
