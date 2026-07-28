@@ -9391,25 +9391,63 @@ namespace Calcpad.Core.Matlab
             var savedFn = _currentFunctionName;
             _currentFunctionName = def.Name;
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
+            // ANIDADA: params/outputs son LOCALES → guardar el estado previo del scope compartido.
+            var nested = def.ClosureScope != null ? SaveNestedLocals(def, local, bf) : default;
             BindParams(def, args, local);
             // MATLAB nargin / nargout: solo se crean si la función los usa (sobre-aprox segura).
             if ((bf & 2) != 0) local.Set("nargin",  new MValue(args.Length));
             if ((bf & 4) != 0) local.Set("nargout", new MValue(def.OutputNames.Count));
             if ((bf & 1) != 0) HoistNestedFunctions(def, local);
-            try { foreach (var s in def.Body) ExecuteOne(s, local); }
-            catch (ReturnSignal) { /* early return ok */ }
-            finally { _inputNameStack.Pop(); }
-            // Flush persistent vars de vuelta a storage (solo si hay alguna registrada)
-            if (_persistentVars.Count > 0)
-                foreach (var kv in local.Vars)
-                    if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
-                        _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
+            MValue result;
+            try
+            {
+                try { foreach (var s in def.Body) ExecuteOne(s, local); }
+                catch (ReturnSignal) { /* early return ok */ }
+                finally { _inputNameStack.Pop(); }
+                // Flush persistent vars de vuelta a storage (solo si hay alguna registrada)
+                if (_persistentVars.Count > 0)
+                    foreach (var kv in local.Vars)
+                        if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
+                            _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
+                // Output principal: primer nombre de output (leer ANTES de restaurar)
+                result = (def.OutputNames.Count > 0 && local.TryGet(def.OutputNames[0], out var v)) ? v : new MValue(0);
+            }
+            finally
+            {
+                if (def.ClosureScope != null) RestoreNestedLocals(local, nested.saved, nested.touched);
+            }
             _currentFunctionName = savedFn;
-            // Output principal: primer nombre de output
-            MValue result = (def.OutputNames.Count > 0 && local.TryGet(def.OutputNames[0], out var v)) ? v : new MValue(0);
             if (pooled) ReturnGlobalScope(local);
             return result;
         }
+        /// <summary>Funciones ANIDADAS: sus PARÁMETROS y SALIDAS son LOCALES (MATLAB), aunque el
+        /// scope sea el del padre (compartido). Guarda el estado previo de esos nombres para
+        /// restaurarlo al salir y NO pisar variables del padre con el mismo nombre (p.ej. un
+        /// nested `fintonly(u,ab)` no debe sobreescribir la `u` del padre `nrstep`).</summary>
+        private static (List<KeyValuePair<string,MValue>> saved, HashSet<string> touched)
+            SaveNestedLocals(FunctionDef def, MatlabScope parent, int bf)
+        {
+            var touched = new HashSet<string>(StringComparer.Ordinal);
+            var saved = new List<KeyValuePair<string,MValue>>();
+            void mark(string n)
+            {
+                if (string.IsNullOrEmpty(n) || n == "varargin" || n == "varargout") return;
+                if (!touched.Add(n)) return;
+                if (parent.Vars.TryGetValue(n, out var v)) saved.Add(new KeyValuePair<string,MValue>(n, v));
+            }
+            foreach (var p in def.ParamNames)  mark(p);
+            foreach (var o in def.OutputNames) mark(o);
+            if ((bf & 2) != 0) mark("nargin");
+            if ((bf & 4) != 0) mark("nargout");
+            return (saved, touched);
+        }
+        private static void RestoreNestedLocals(MatlabScope parent,
+            List<KeyValuePair<string,MValue>> saved, HashSet<string> touched)
+        {
+            foreach (var n in touched) parent.Vars.Remove(n);        // quita lo que dejó la anidada
+            foreach (var kv in saved)  parent.Vars[kv.Key] = kv.Value; // restaura lo que había
+        }
+
         /// <summary>Vincula los args a los parámetros formales. Soporta `varargin`
         /// (MATLAB): si el ÚLTIMO parámetro se llama varargin, recoge todos los args
         /// sobrantes en un cell 1×N (vacío 1×0 si no hay) — así `f(varargin)` llamado
@@ -9546,22 +9584,31 @@ namespace Calcpad.Core.Matlab
             _currentFunctionName = def.Name;
             int bf = def.BodyFlags ??= ComputeBodyFlags(def);
             _inputNameStack.Push(argNames ?? Array.Empty<string>());
+            // ANIDADA: params/outputs son LOCALES → guardar/restaurar el scope compartido.
+            var nested = def.ClosureScope != null ? SaveNestedLocals(def, local, bf) : default;
             BindParams(def, args, local);
             // MATLAB nargin / nargout: solo se crean si la función los usa (sobre-aprox segura).
             if ((bf & 2) != 0) local.Set("nargin",  new MValue(args.Length));
             if ((bf & 4) != 0) local.Set("nargout", new MValue(def.OutputNames.Count));
             if ((bf & 1) != 0) HoistNestedFunctions(def, local);
-            try { foreach (var s in def.Body) ExecuteOne(s, local); }
-            catch (ReturnSignal) { }
-            finally { _inputNameStack.Pop(); }
-            if (_persistentVars.Count > 0)
-                foreach (var kv in local.Vars)
-                    if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
-                        _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
-            _currentFunctionName = savedFn;
             var outs = new MValue[def.OutputNames.Count];
-            for (int i = 0; i < outs.Length; i++)
-                outs[i] = local.TryGet(def.OutputNames[i], out var v) ? v : new MValue(0);
+            try
+            {
+                try { foreach (var s in def.Body) ExecuteOne(s, local); }
+                catch (ReturnSignal) { }
+                finally { _inputNameStack.Pop(); }
+                if (_persistentVars.Count > 0)
+                    foreach (var kv in local.Vars)
+                        if (_persistentVars.ContainsKey(def.Name + ":" + kv.Key))
+                            _persistentVars[def.Name + ":" + kv.Key] = kv.Value;
+                for (int i = 0; i < outs.Length; i++)   // leer outputs ANTES de restaurar
+                    outs[i] = local.TryGet(def.OutputNames[i], out var v) ? v : new MValue(0);
+            }
+            finally
+            {
+                if (def.ClosureScope != null) RestoreNestedLocals(local, nested.saved, nested.touched);
+            }
+            _currentFunctionName = savedFn;
             return outs;
         }
         /// <summary>true si el nodo es el literal `[]` (matriz vacía). MATLAB solo trata
