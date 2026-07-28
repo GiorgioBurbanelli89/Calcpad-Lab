@@ -9015,6 +9015,22 @@ namespace Calcpad.Core.Matlab
                                        : Transpose(MatlabLinAlg.Linsolve(Transpose(b), Transpose(a)));
         /// <summary>A./B del JIT: division element-wise (con broadcast 1×1), como el interprete.</summary>
         public static MValue JitMatEwDiv(MValue a, MValue b) => MapBinaryFast(a, b, '/') ?? MapBinary(a, b, (x, y) => x / y);
+        /// <summary>A\B del JIT = mldivide MATLAB: resuelve A·x=B (Linsolve); si alguno es escalar,
+        /// reverse element-wise. Reusa una factorizacion retenida si A la trae.</summary>
+        public static MValue JitMatLDiv(MValue a, MValue b) =>
+            a.IsDecomposition ? MatlabLinAlg.Linsolve(a, b)
+                              : (a.IsScalar || b.IsScalar) ? MapBinary(a, b, (x, y) => y / x)
+                                                           : MatlabLinAlg.Linsolve(a, b);
+        /// <summary>Rango a:s:b como vector fila (para `v = 1:n` en el JIT).</summary>
+        public static MValue JitMakeRange(double a, double step, double b)
+        {
+            if (step == 0) return new MValue(1, 0);
+            int n = (int)System.Math.Floor((b - a) / step + 1e-9) + 1;
+            if (n < 0) n = 0;
+            var v = new MValue(1, n);
+            for (int i = 0; i < n; i++) v.Set(0, i, a + i * step);
+            return v;
+        }
         public static MValue JitMakeRowVec(double[] elements)
         {
             var v = new MValue(1, elements.Length);

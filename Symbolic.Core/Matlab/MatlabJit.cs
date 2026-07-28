@@ -193,6 +193,8 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MIsEmpty       = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitIsEmpty));
         internal static readonly MethodInfo MMatDiv        = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatDiv));
         internal static readonly MethodInfo MMatEwDiv      = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatEwDiv));
+        internal static readonly MethodInfo MMatLDiv       = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatLDiv));
+        internal static readonly MethodInfo MMakeRange     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeRange));
         internal static readonly MethodInfo MGetMatRow     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatRow));
         internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
@@ -838,6 +840,11 @@ namespace Calcpad.Core.Matlab
                         foreach (var el in row)
                             if (InferKind(el, cc) == null) return null;
                     return TKind.Matrix;
+                case Range rg:                                   // a:b / a:s:b como VECTOR (v=1:n)
+                    if (InferKind(rg.Start, cc) == null) return null;
+                    if (InferKind(rg.End, cc) == null) return null;
+                    if (rg.Step != null && InferKind(rg.Step, cc) == null) return null;
+                    return TKind.Matrix;
                 default:
                     return null;
             }
@@ -845,6 +852,7 @@ namespace Calcpad.Core.Matlab
 
         // Caché del KIND de la 1ª salida de funciones de usuario, por (nombre + firma de kinds de args).
         private static readonly Dictionary<string, TKind> _fnOutKind = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> _fnOutKindBusy = new(StringComparer.Ordinal);
         /// <summary>Infiere el KIND (escalar/matriz) de la 1ª salida de una función de USUARIO
         /// clasificando su cuerpo (recursivo, cacheado). Devuelve null si no se puede — el llamador
         /// cae a GuessFnKind. Corrige `Dep=depcont(...)` (matriz) que la heurística daba escalar.</summary>
@@ -858,13 +866,17 @@ namespace Calcpad.Core.Matlab
             foreach (var k in argKinds) sb.Append(k == TKind.Matrix ? 'M' : (k == TKind.Cell ? 'C' : 'S'));
             string key = sb.ToString();
             if (_fnOutKind.TryGetValue(key, out var cached)) return cached;
-            _fnOutKind[key] = TKind.Matrix;   // tentativo: corta recursion (raro aqui, pero seguro)
-            var cc2 = new CompileCtx { Evaluator = cc.Evaluator };
-            for (int i = 0; i < def.ParamNames.Count; i++) cc2.VarKind[def.ParamNames[i]] = argKinds[i];
-            if (!ClassifyBody(def.Body, cc2) || !cc2.VarKind.TryGetValue(def.OutputNames[0], out var ok))
-            { _fnOutKind.Remove(key); return null; }
-            _fnOutKind[key] = ok;
-            return ok;
+            if (!_fnOutKindBusy.Add(key)) return null;   // RECURSION: kind desconocido → el llamador usa GuessFnKind
+            try
+            {
+                var cc2 = new CompileCtx { Evaluator = cc.Evaluator };
+                for (int i = 0; i < def.ParamNames.Count; i++) cc2.VarKind[def.ParamNames[i]] = argKinds[i];
+                if (!ClassifyBody(def.Body, cc2) || !cc2.VarKind.TryGetValue(def.OutputNames[0], out var ok))
+                    return null;
+                _fnOutKind[key] = ok;
+                return ok;
+            }
+            finally { _fnOutKindBusy.Remove(key); }
         }
 
         private static TKind GuessFnKind(string name)
@@ -1360,6 +1372,13 @@ namespace Calcpad.Core.Matlab
                             if (Lm == null || Rm == null) return null;
                             return Expression.Call(b.Op == "/" ? JitCtx.MMatDiv : JitCtx.MMatEwDiv, Lm, Rm);
                         }
+                        if (b.Op == "\\")   // A\b : mldivide (resolver A·x=b)
+                        {
+                            var Lm = ConvertExprAsKind(b.Left, cc, TKind.Matrix);
+                            var Rm = ConvertExprAsKind(b.Right, cc, TKind.Matrix);
+                            if (Lm == null || Rm == null) return null;
+                            return Expression.Call(JitCtx.MMatLDiv, Lm, Rm);
+                        }
                         return null;
                     }
                 case CallOrIndex coi when coi.Target is IdentRef ident:
@@ -1385,6 +1404,15 @@ namespace Calcpad.Core.Matlab
                     }
                 case MatrixLit ml:
                     return ConvertMatrixLit(ml, cc);
+                case Range rg:                                   // a:b / a:s:b → vector fila
+                    {
+                        var s = ConvertExprAsKind(rg.Start, cc, TKind.Scalar);
+                        var e = ConvertExprAsKind(rg.End, cc, TKind.Scalar);
+                        var st = rg.Step != null ? ConvertExprAsKind(rg.Step, cc, TKind.Scalar)
+                                                 : Expression.Constant(1.0, typeof(double));
+                        if (s == null || e == null || st == null) return null;
+                        return Expression.Call(JitCtx.MMakeRange, s, st, e);
+                    }
                 default:
                     return null;
             }
@@ -1421,11 +1449,17 @@ namespace Calcpad.Core.Matlab
                 }
                 return Expression.Call(im.M, iargs);
             }
-            // Funcion (usuario O builtin) con algun arg MATRIZ (p.ej. yieldparts(sig_n,al,k),
-            // norm(ds2-ds1)): se llama por MValue[] (MCallMV, 1ª salida). El KIND de salida se infiere
-            // del cuerpo (usuario) o por heurística (builtin). El tipo del Expression coincide (double
-            // si escalar via MMatToScalar, MValue si matriz). Reemplaza el bail del path double[].
-            if (isFn && !JitCtx.InlineMath.ContainsKey(name))
+            // Funcion (usuario O builtin) que hay que llamar por MValue[] (MCallMV, 1ª salida) en vez
+            // del path double[]: cuando algun arg es MATRIZ (norm(v), yieldparts(sig,...)) O cuando la
+            // SALIDA es matriz aunque los args sean escalares (r=maybe(flag) que devuelve un vector).
+            // El KIND de salida se infiere del cuerpo (usuario) o por heurística (builtin); el tipo del
+            // Expression coincide (double si escalar via MMatToScalar, MValue si matriz).
+            // La vía rápida inline ya se probó arriba; solo la excluimos si REALMENTE aplica a esta
+            // llamada (nombre+aridad+no-redefinida). Así `max(v)`/`min(v)` de 1 arg-matriz (reduccion)
+            // caen aquí en vez de forzarse a escalar.
+            bool inlineApplies = JitCtx.InlineMath.TryGetValue(name, out var _im3)
+                && _im3.Argc == args.Count && !cc.Evaluator.JitIsUserFunction(name);
+            if (isFn && !inlineApplies)
             {
                 var aks = new TKind[args.Count];
                 bool anyMat = false;
@@ -1435,14 +1469,14 @@ namespace Calcpad.Core.Matlab
                     if (ak == null) return null;
                     aks[i] = ak.Value; if (ak == TKind.Matrix) anyMat = true;
                 }
-                if (anyMat)
+                TKind ok = cc.Evaluator.JitIsUserFunction(name)
+                    ? (InferUserFnOutKind(name, aks, cc) ?? TKind.Matrix)
+                    : GuessFnKind(name);
+                if (anyMat || ok == TKind.Matrix)
                 {
                     var argArr = BuildMValueArgs(args, cc);
                     if (argArr == null) return null;
                     var callMV = Expression.Call(cc.CtxParam, JitCtx.MCallMV, Expression.Constant(name), argArr);
-                    var ok = cc.Evaluator.JitIsUserFunction(name)
-                        ? (InferUserFnOutKind(name, aks, cc) ?? TKind.Matrix)
-                        : GuessFnKind(name);
                     return ok == TKind.Scalar ? (Expression)Expression.Call(JitCtx.MMatToScalar, callMV) : callMV;
                 }
             }
