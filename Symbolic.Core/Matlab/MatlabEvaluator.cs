@@ -10194,7 +10194,12 @@ namespace Calcpad.Core.Matlab
         {
             int nDims = idxNodes.Count;
             if (nDims < 1 || nDims > 2) return false;
-            if (m.IsSparseReal || m.IsCell || m.Is3D || m.IsString || m.IsSymMatrix) return false;
+            // IsMap: un containers.Map NO es matriz. El patron m(k)=m(k)+1 (scatter-add) coincidia
+            // con el fast-path y trataba el Map como matriz -> perdia la actualizacion (edge-count del
+            // talud quedaba en 1 -> sobrecarga en todos los bordes -> FS mal). Devolver false aqui hace
+            // que caiga a la ruta correcta de asignacion de Map. Igual para struct (Fields) e instancias.
+            if (m.IsSparseReal || m.IsCell || m.Is3D || m.IsString || m.IsSymMatrix
+                || m.IsMap || m.Fields != null || m.IsInstance) return false;
             try
             {
                 int[][] indices = new int[nDims][];
