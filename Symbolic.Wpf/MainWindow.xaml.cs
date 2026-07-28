@@ -1927,13 +1927,13 @@ namespace Calcpad.Wpf
         oldScript.parentNode.replaceChild(newScript, oldScript);
         executables.push(newScript);
       });
+      // Re-bindear los lineLinks SOLO en las lineas NUEVAS de este trozo (antes de
+      // moverlas). CRITICO: antes se re-escaneaba TODO el documento en cada trozo →
+      // O(N²) con muchas iteraciones (el motor se colgaba). Ahora es O(nuevas).
+      window.__matlabBindLineLinks && window.__matlabBindLineLinks(tmp);
       // Mover todos los hijos del tmp al output (los <script> re-creados se
       // ejecutan apenas se appendean al DOM).
       while (tmp.firstChild) output.appendChild(tmp.firstChild);
-      // Re-bindear los lineLinks (hover → flecha ← que navega al source).
-      // El template.html los bindea con $(document).ready() pero los chunks
-      // streamed llegan DESPUÉS de ese ready → tienen que bindearse acá.
-      window.__matlabBindLineLinks && window.__matlabBindLineLinks();
       // Auto-scroll al final si el usuario no scrolleó manualmente arriba
       var nearBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 200);
       if (nearBottom) window.scrollTo(0, document.body.scrollHeight);

@@ -47,6 +47,9 @@ namespace Calcpad.Core.Matlab
             public double LevLo, LevStep;        // rejilla de niveles "redondos" (como MATLAB)
             public bool Curvi;                   // malla curvilínea (deformada): Xs/Ys = X,Y completos
             public double[] GX, GY;              // coords de nodo completas (curvilínea): ny*nx cada una
+            public string[] VertCols;            // FaceColor='interp': color "r,g,b" POR VÉRTICE (Gouraud real,
+                                                 // como MATLAB) — el canvas interpola dentro del triángulo en vez
+                                                 // de subdividirlo. null = relleno plano (FaceColor).
         }
         /// <summary>Color CSS 'rgb(r,g,b)' del colormap jet para t en [0,1].</summary>
         public static string JetCss(double t)
@@ -66,6 +69,19 @@ namespace Calcpad.Core.Matlab
         // MATLAB que dibuja plano en cada drawnow. La subdivision suave (Gouraud) se reserva para
         // el render FINAL. Ver RenderFrame() y BuildRetainedFaces().
         private static bool _liveFast = false;
+        // Bandas de color estilo GEO5 (isosuperficie / contourf): >0 = nº de bandas discretas.
+        // Cuando está activo, un patch FaceColor='interp' se dibuja como bandas rellenas (marching
+        // triangles: cada triángulo se corta por las isolíneas de nivel → polígonos de banda con
+        // borde suave), NO como degradado Gouraud. Es lo que hace GEO5. 0 = degradado suave.
+        private static int _figBandN = 0;
+        private static double[] _figBandLevels = null;   // niveles EXACTOS (p.ej. GEO5: -0.4,0,0.5,...,5); null = equiespaciado
+        public static void SetBandLevels(int n) { _figBandN = n < 0 ? 0 : n; _figBandLevels = null; }
+        public static void SetBandLevels(double[] levels)
+        {
+            if (levels == null || levels.Length < 2) { _figBandN = 0; _figBandLevels = null; return; }
+            _figBandLevels = (double[])levels.Clone();
+            _figBandN = levels.Length - 1;   // nº de bandas
+        }
         // Datos extra por-cara para el hover (esfuerzo, deformacion, ...): filas alineadas con las caras.
         private static double[][] _hoverVals = null;
         private static string[] _hoverLabels = null;
@@ -553,6 +569,7 @@ return {make:make};
         {
             string prev = FinishFigure();
             ResetRetainedMesh();   // figura nueva → olvida la malla retenida anterior
+            _figBandN = 0;          // figura nueva → degradado por defecto (el script pide colorbands)
             _figTraces = new System.Collections.Generic.List<string>();
             _figAnnotations = new System.Collections.Generic.List<string>();
             _figPrims = new System.Collections.Generic.List<FigPrim>();
@@ -2103,6 +2120,7 @@ if(window.THREE&&THREE.OrbitControls){go();}else{var s1=document.createElement("
             }
             string id = idOverride ?? ("m" + (++_plotCounter));
             var pj = new StringBuilder(); pj.Append('[');
+            var vcb = new StringBuilder(); vcb.Append('[');   // VC[k]: 3 colores de vértice (Gouraud) o null (plano)
             for (int k = 0; k < faces.Count; k++)
             {
                 var p = faces[k]; if (k > 0) pj.Append(',');
@@ -2116,8 +2134,13 @@ if(window.THREE&&THREE.OrbitControls){go();}else{var s1=document.createElement("
                     pj.Append("]");
                 }
                 pj.Append(']');
+                if (k > 0) vcb.Append(',');
+                if (p.VertCols != null && p.VertCols.Length == 3)
+                    vcb.Append("[\"").Append(p.VertCols[0]).Append("\",\"").Append(p.VertCols[1]).Append("\",\"").Append(p.VertCols[2]).Append("\"]");
+                else vcb.Append("null");
             }
             pj.Append(']');
+            vcb.Append(']');
             string hlJs = "null";
             if (_hoverLabels != null)
             {
@@ -2152,7 +2175,7 @@ if(window.THREE&&THREE.OrbitControls){go();}else{var s1=document.createElement("
                 foreach (var p in faces) { if (p.Val < cmin) cmin = p.Val; if (p.Val > cmax) cmax = p.Val; }
                 if (cmax <= cmin) cmax = cmin + 1;
             }
-            sb.Append($"var P={pj},L={lj},HL={hlJs},bb=[{xmin.ToString("0.##", Inv)},{ymin.ToString("0.##", Inv)},{xmax.ToString("0.##", Inv)},{ymax.ToString("0.##", Inv)}],cmin={cmin.ToString("0.####", Inv)},cmax={cmax.ToString("0.####", Inv)};\n");
+            sb.Append($"var P={pj},VC={vcb},L={lj},HL={hlJs},SHOWMESH={(_figBandN > 0 ? "false" : "true")},bb=[{xmin.ToString("0.##", Inv)},{ymin.ToString("0.##", Inv)},{xmax.ToString("0.##", Inv)},{ymax.ToString("0.##", Inv)}],cmin={cmin.ToString("0.####", Inv)},cmax={cmax.ToString("0.####", Inv)};\n");
             sb.Append($"var cv=document.getElementById('cv{id}'),ctx=cv.getContext('2d'),tt=document.getElementById('tt{id}');\n");
             sb.Append(@"var W=cv.width,H=cv.height,padL=58,padR=98,padT=10,padB=42;
 var pw=W-padL-padR,ph=H-padT-padB;
@@ -2161,10 +2184,33 @@ var ox=padL+(pw-s*(bb[2]-bb[0]))/2, oyt=padT+(ph-s*(bb[3]-bb[1]))/2;
 function TX(x){return ox+(x-bb[0])*s;}function TY(y){return oyt+(bb[3]-y)*s;}
 function jet(t){t=Math.max(0,Math.min(1,t));var r=Math.min(4*t-1.5,-4*t+4.5),g=Math.min(4*t-0.5,-4*t+3.5),b=Math.min(4*t+0.5,-4*t+2.5);return 'rgb('+((255*Math.max(0,Math.min(1,r)))|0)+','+((255*Math.max(0,Math.min(1,g)))|0)+','+((255*Math.max(0,Math.min(1,b)))|0)+')';}
 function ticks(lo,hi){var r=(hi-lo)/6,p=Math.pow(10,Math.floor(Math.log(r)/Math.LN10)),n=r/p,st=(n<1.5?1:n<3?2:n<7?5:10)*p,t=[],v=Math.ceil(lo/st-1e-9)*st;for(;v<=hi+1e-9;v+=st)t.push(v);return t;}
+// Gouraud REAL por triangulo (FaceColor='interp' de MATLAB): color interpolado por
+// coordenadas baricentricas = suma de 3 gradientes lineales (uno por vertice, del pie de su
+// altura -negro- al vertice -su color-) compuestos con 'lighter'. UN relleno interpolado,
+// NO subdividir. vgrad: eje del gradiente = altura del vertice A sobre la arista opuesta BC.
+function vgrad(ax,ay,ac,bx,by,cx,cy,mx,my,mw,mh){
+ var dx=cx-bx,dy=cy-by,L=dx*dx+dy*dy||1,t=((ax-bx)*dx+(ay-by)*dy)/L,fx=bx+t*dx,fy=by+t*dy;
+ var g=ctx.createLinearGradient(fx,fy,ax,ay);g.addColorStop(0,'rgb(0,0,0)');g.addColorStop(1,'rgb('+ac+')');
+ ctx.fillStyle=g;ctx.fillRect(mx,my,mw,mh);}
+function gour(p,vc){
+ var x0=TX(p[0]),y0=TY(p[1]),x1=TX(p[2]),y1=TY(p[3]),x2=TX(p[4]),y2=TY(p[5]);
+ var mnx=Math.min(x0,x1,x2),mny=Math.min(y0,y1,y2),mw=Math.max(x0,x1,x2)-mnx,mh=Math.max(y0,y1,y2)-mny;
+ ctx.save();ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.lineTo(x2,y2);ctx.closePath();ctx.clip();
+ ctx.fillStyle='#000';ctx.fillRect(mnx,mny,mw,mh);
+ var pc=ctx.globalCompositeOperation;ctx.globalCompositeOperation='lighter';
+ vgrad(x0,y0,vc[0],x1,y1,x2,y2,mnx,mny,mw,mh);
+ vgrad(x1,y1,vc[1],x2,y2,x0,y0,mnx,mny,mw,mh);
+ vgrad(x2,y2,vc[2],x0,y0,x1,y1,mnx,mny,mw,mh);
+ ctx.globalCompositeOperation=pc;ctx.restore();}
 function draw(){ctx.clearRect(0,0,W,H);
- for(var k=0;k<P.length;k++){var p=P[k][0];ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));
-  for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.closePath();ctx.fillStyle=P[k][1];ctx.fill();
-  ctx.strokeStyle='rgba(0,0,0,.13)';ctx.lineWidth=.3;ctx.stroke();}
+ for(var k=0;k<P.length;k++){var p=P[k][0];
+  if(VC&&VC[k]&&p.length>=6){gour(p,VC[k]);}
+  else{ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.closePath();
+   ctx.fillStyle=P[k][1];ctx.fill();
+   // trazo del MISMO color = tapa las costuras anti-alias entre polígonos de banda (bandas limpias)
+   ctx.strokeStyle=P[k][1];ctx.lineWidth=.7;ctx.stroke();}
+  if(SHOWMESH){ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.closePath();
+  ctx.strokeStyle='rgba(0,0,0,.13)';ctx.lineWidth=.3;ctx.stroke();}}
  for(var k=0;k<L.length;k++){var p=L[k][0];ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));
   for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.strokeStyle=L[k][1];ctx.lineWidth=1.6;ctx.stroke();}
  var y0=TY(bb[1]),y1=TY(bb[3]);
@@ -2298,11 +2344,21 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
                         if (perVertex) cv[k] = m.CData[vi];
                     }
                     if (!hasC) { Patch2D(xs, ys, m.Face, m.Edge, m.Alpha, m.Lw, double.NaN); continue; }
-                    if (perVertex && nv == 3 && !_liveFast)
-                        // CData por vertice: subdividir el triangulo y colorear cada sub-cara con el
-                        // colormap ACTIVO (Gouraud aproximado, como el patch interp de MATLAB).
-                        // (En animacion EN VIVO _liveFast=true -> se salta esto y cae al plano por cara.)
-                        SubTri(xs[0],ys[0],cv[0], xs[1],ys[1],cv[1], xs[2],ys[2],cv[2], clo,chi, m.Edge,m.Alpha,m.Lw, 4);
+                    if (perVertex && nv == 3 && _figBandN > 0)
+                        // BANDAS estilo GEO5 (isosuperficie): cortar el triangulo por los niveles.
+                        BandFillTri(xs, ys, cv, clo, chi, _figBandN, m.Alpha, m.Edge);
+                    else if (perVertex && nv == 3)
+                    {
+                        // FaceColor='interp' de MATLAB: color POR VÉRTICE, UNA cara que el canvas
+                        // interpola (Gouraud REAL). NO subdividimos (subdividir = "legos" o 73k caras).
+                        var vcols = new[] {
+                            CmapRgb((cv[0]-clo)/(chi-clo)),
+                            CmapRgb((cv[1]-clo)/(chi-clo)),
+                            CmapRgb((cv[2]-clo)/(chi-clo))
+                        };
+                        double avg = (cv[0]+cv[1]+cv[2]) / 3.0;
+                        Patch2DGouraud(xs, ys, vcols, CmapCss((avg-clo)/(chi-clo)), m.Edge, m.Alpha, m.Lw, avg);
+                    }
                     else
                     {
                         double val = perVertex ? (cv[0] + cv[1] + cv[2]) / nv : m.CData[f];
@@ -2329,6 +2385,76 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             var rgb = CmapF(_figCmapName, t);
             return $"rgb({(int)(rgb[0] * 255)},{(int)(rgb[1] * 255)},{(int)(rgb[2] * 255)})";
+        }
+        /// <summary>Color "r,g,b" (sin 'rgb(...)') del colormap ACTIVO para t en [0,1] — para los
+        /// gradientes de Gouraud en el canvas.</summary>
+        private static string CmapRgb(double t)
+        {
+            var rgb = CmapF(_figCmapName, t);
+            return $"{(int)(rgb[0] * 255)},{(int)(rgb[1] * 255)},{(int)(rgb[2] * 255)}";
+        }
+        /// <summary>Bandas de color estilo GEO5 (isosuperficie) sobre UN triángulo: lo corta por
+        /// las isolíneas de los N niveles (marching triangle) y rellena cada franja [La,Lb) con el
+        /// color del nivel. Bordes = isolíneas rectas por triángulo → contorno suave como GEO5.</summary>
+        private static void BandFillTri(double[] xs, double[] ys, double[] cv,
+                                        double clo, double chi, int nb, double alpha, string edge)
+        {
+            if (chi <= clo) chi = clo + 1;
+            // niveles: explícitos (GEO5) o equiespaciados en [clo,chi]
+            double[] lev;
+            if (_figBandLevels != null && _figBandLevels.Length >= 2) lev = _figBandLevels;
+            else { if (nb < 1) nb = 1; lev = new double[nb + 1]; for (int k = 0; k <= nb; k++) lev[k] = clo + (chi - clo) * k / nb; }
+            for (int b = 0; b < lev.Length - 1; b++)
+            {
+                double La = lev[b], Lb = lev[b + 1];
+                bool top = (b == lev.Length - 2);
+                double[] tx = (double[])xs.Clone(), ty = (double[])ys.Clone(), tv = (double[])cv.Clone();
+                ClipHalf(ref tx, ref ty, ref tv, La, true);                 // v >= La
+                if (tx.Length < 3) continue;
+                if (!top) { ClipHalf(ref tx, ref ty, ref tv, Lb, false); if (tx.Length < 3) continue; }  // v <= Lb
+                double mid = (La + Lb) / 2.0;                               // color del nivel (colormap por caxis)
+                string fc = CmapCss((mid - clo) / (chi - clo));
+                Patch2D(tx, ty, fc, edge == "none" ? fc : edge, alpha, 0.0, mid);
+            }
+        }
+        /// <summary>Recorte de un polígono convexo por el semiplano {v>=t} (ge=true) o {v<=t}
+        /// (Sutherland-Hodgman sobre el campo escalar lineal del triángulo).</summary>
+        private static void ClipHalf(ref double[] X, ref double[] Y, ref double[] V, double t, bool ge)
+        {
+            int n = X.Length;
+            var ox = new System.Collections.Generic.List<double>(n + 2);
+            var oy = new System.Collections.Generic.List<double>(n + 2);
+            var ov = new System.Collections.Generic.List<double>(n + 2);
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                double vi = V[i], vj = V[j];
+                bool ini = ge ? vi >= t : vi <= t;
+                bool inj = ge ? vj >= t : vj <= t;
+                if (ini) { ox.Add(X[i]); oy.Add(Y[i]); ov.Add(vi); }
+                if (ini != inj)
+                {
+                    double a = (t - vi) / (vj - vi);
+                    ox.Add(X[i] + a * (X[j] - X[i]));
+                    oy.Add(Y[i] + a * (Y[j] - Y[i]));
+                    ov.Add(t);
+                }
+            }
+            X = ox.ToArray(); Y = oy.ToArray(); V = ov.ToArray();
+        }
+        /// <summary>Triángulo con color POR VÉRTICE (FaceColor='interp' de MATLAB): guarda los 3
+        /// colores para que el canvas los interpole (Gouraud real), en vez de subdividir. FaceColor
+        /// = promedio (fallback plano para el PNG/SVG). No añade traza Plotly (287 trazas sería pesado
+        /// y estas caras se dibujan por el canvas interactivo / SkiaSharp desde _figPrims).</summary>
+        private static void Patch2DGouraud(double[] xs, double[] ys, string[] vertCols,
+                                           string avgColor, string edge, double alpha, double lw, double val)
+        {
+            if (_figPrims == null) _figPrims = new System.Collections.Generic.List<FigPrim>();
+            _figPrims.Add(new FigPrim {
+                Kind = "patch2d", Xs = (double[])xs.Clone(), Ys = (double[])ys.Clone(),
+                FaceColor = avgColor, EdgeColor = edge, FaceAlpha = alpha, LineWidth = lw, Val = val,
+                VertCols = vertCols
+            });
         }
         /// <summary>Gouraud aproximado en SVG: subdivide el triangulo (a,b,c) con valores nodales
         /// en 4 hasta `depth` niveles; cada sub-triangulo se rellena plano con el color del

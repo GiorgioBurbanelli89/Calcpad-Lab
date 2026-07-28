@@ -1539,6 +1539,15 @@ namespace Calcpad.Core.Matlab
             _builtins["close"]   = a => new MValue(0);
             _builtins["clf"]     = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
             _builtins["cla"]     = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
+            // colorbands(n) o colorbands([l0 l1 ... ln]): bandas discretas estilo GEO5 (isosuperficie).
+            // Escalar n = n bandas equiespaciadas; VECTOR = niveles EXACTOS (p.ej. GEO5 [-0.4 0 0.5 ... 5]).
+            // n=0 vuelve al degradado suave (Gouraud). NO es MATLAB estandar; replica el look de GEO5.
+            _builtins["colorbands"] = a => {
+                if (a != null && a.Length > 0 && a[0] != null && !a[0].IsScalar && a[0].Data != null && a[0].Data.Length >= 2)
+                    MatlabPlots.SetBandLevels(a[0].Data);
+                else MatlabPlots.SetBandLevels(a != null && a.Length > 0 && a[0] != null ? (int)a[0].Scalar : 0);
+                return new MValue(0);
+            };
             _builtins["clear"]   = a => new MValue(0);
             _builtins["format"]  = a => new MValue(0);   // format bank/long/short/... : no-op (no cambia el render)
             _builtins["addpath"] = a => {
@@ -2602,6 +2611,12 @@ namespace Calcpad.Core.Matlab
             _builtins["warning"] = a => new MValue(0);   // warning(...)/ws=warning('off',id): no-op; devuelve dummy
             _builtins["clf"] = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
             _builtins["cla"] = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
+            _builtins["colorbands"] = a => {
+                if (a != null && a.Length > 0 && a[0] != null && !a[0].IsScalar && a[0].Data != null && a[0].Data.Length >= 2)
+                    MatlabPlots.SetBandLevels(a[0].Data);
+                else MatlabPlots.SetBandLevels(a != null && a.Length > 0 && a[0] != null ? (int)a[0].Scalar : 0);
+                return new MValue(0);
+            };
             _builtins["subplot"] = a => {
                 // subplot(m, n, p): cada panel es su PROPIA figura en una celda del grid.
                 if (a.Length < 3) throw new MatlabRuntimeException("subplot(m, n, p)");
