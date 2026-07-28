@@ -1537,8 +1537,8 @@ namespace Calcpad.Core.Matlab
             // en scripts MATLAB. Los aceptamos como no-op para evitar errores.
             _builtins["clc"]     = a => new MValue(0);
             _builtins["close"]   = a => new MValue(0);
-            _builtins["clf"]     = a => new MValue(0);
-            _builtins["cla"]     = a => new MValue(0);
+            _builtins["clf"]     = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
+            _builtins["cla"]     = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
             _builtins["clear"]   = a => new MValue(0);
             _builtins["format"]  = a => new MValue(0);   // format bank/long/short/... : no-op (no cambia el render)
             _builtins["addpath"] = a => {
@@ -2600,7 +2600,8 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["box"] = a => new MValue(0);   // box on/off: no-op (el SVG ya trae marco)
             _builtins["warning"] = a => new MValue(0);   // warning(...)/ws=warning('off',id): no-op; devuelve dummy
-            _builtins["clf"] = a => new MValue(0);
+            _builtins["clf"] = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
+            _builtins["cla"] = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
             _builtins["subplot"] = a => {
                 // subplot(m, n, p): cada panel es su PROPIA figura en una celda del grid.
                 if (a.Length < 3) throw new MatlabRuntimeException("subplot(m, n, p)");

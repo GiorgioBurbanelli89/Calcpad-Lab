@@ -61,6 +61,11 @@ namespace Calcpad.Core.Matlab
             return $"rgb({R},{G},{B})";
         }
         private static System.Collections.Generic.List<FigPrim> _figPrims = null;
+        // Animacion EN VIVO: cuando esta activo, la reconstruccion de la malla dibuja PLANO por
+        // cara (sin subdividir el triangulo en 256 sub-caras) -> ~256x mas rapido por frame, como
+        // MATLAB que dibuja plano en cada drawnow. La subdivision suave (Gouraud) se reserva para
+        // el render FINAL. Ver RenderFrame() y BuildRetainedFaces().
+        private static bool _liveFast = false;
         // Datos extra por-cara para el hover (esfuerzo, deformacion, ...): filas alineadas con las caras.
         private static double[][] _hoverVals = null;
         private static string[] _hoverLabels = null;
@@ -2004,8 +2009,18 @@ return {make:make};
             using (var data = img.Encode(SKEncodedImageFormat.Png, 100))
                 return data.ToArray();
         }
-        /// <summary>Descarta la figura actual (para que FinishFigure no la re-emita tras un print/PNG).</summary>
-        public static void ClearFigure() { _figTraces = null; _figAnnotations = null; _figPrims = null; }
+        /// <summary>Descarta la figura actual (para que FinishFigure no la re-emita tras un print/PNG,
+        /// y para clf/cla = limpiar la figura en su sitio como MATLAB). Olvida primitivas, traces,
+        /// anotaciones, HOVER y la malla RETENIDA. Resetear la malla retenida es CRITICO para
+        /// animaciones: drawframe hace `clf; patch; patch; drawnow` por iteracion — sin esto la
+        /// lista retenida creceria 2 mallas por frame (O(N^2): picos de 58s/103s y "Collection was
+        /// modified"). Antes clf/cla eran no-op y esta funcion no tocaba _retList.</summary>
+        public static void ClearFigure()
+        {
+            _figTraces = null; _figAnnotations = null; _figPrims = null;
+            _hoverVals = null; _hoverLabels = null;
+            ResetRetainedMesh();
+        }
 
         /// <summary>¿La figura 2D tiene parches con valor por-cara? (patch FaceVertexCData) -> hover interactivo.</summary>
         public static bool HasFaceValues() =>
@@ -2194,9 +2209,20 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         // resetear el estado) para que drawnow lo emita y el WebView2 lo repinte en sitio. ──
         public static string RenderFrame()
         {
-            if (RetainedActive) BuildRetainedFaces();   // reconstruye la malla desde el estado RETENIDO (mutado por set) = modo MATLAB
-            if (_figPrims == null) return null;
-            return RenderInteractiveMesh(760, 560, "anim", keepState: true);
+            // _liveFast: la malla se dibuja PLANA por cara (sin subdividir) -> frame barato.
+            // try/catch: el estado de figura es estatico; si una re-ejecucion (AutoRun) toca
+            // _figPrims a la vez, la enumeracion podria fallar ("Collection was modified") — en
+            // ese caso SALTAMOS el frame (return null) en vez de tumbar el solver entero.
+            bool prev = _liveFast;
+            try
+            {
+                _liveFast = true;
+                if (RetainedActive) BuildRetainedFaces();   // reconstruye la malla desde el estado RETENIDO (mutado por set) = modo MATLAB
+                if (_figPrims == null) return null;
+                return RenderInteractiveMesh(760, 560, "anim", keepState: true);
+            }
+            catch { return null; }
+            finally { _liveFast = prev; }
         }
 
         // Quita las caras de la malla (patch2d con Val) de _figPrims, para que set(...) la reconstruya.
@@ -2272,9 +2298,10 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
                         if (perVertex) cv[k] = m.CData[vi];
                     }
                     if (!hasC) { Patch2D(xs, ys, m.Face, m.Edge, m.Alpha, m.Lw, double.NaN); continue; }
-                    if (perVertex && nv == 3)
+                    if (perVertex && nv == 3 && !_liveFast)
                         // CData por vertice: subdividir el triangulo y colorear cada sub-cara con el
                         // colormap ACTIVO (Gouraud aproximado, como el patch interp de MATLAB).
+                        // (En animacion EN VIVO _liveFast=true -> se salta esto y cae al plano por cara.)
                         SubTri(xs[0],ys[0],cv[0], xs[1],ys[1],cv[1], xs[2],ys[2],cv[2], clo,chi, m.Edge,m.Alpha,m.Lw, 4);
                     else
                     {
