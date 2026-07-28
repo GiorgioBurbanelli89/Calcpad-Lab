@@ -7015,12 +7015,19 @@ namespace Calcpad.Core.Matlab
                 for (int j = 0; j < src.Cols; j++)
                     for (int i = 0; i < src.Rows; i++)
                         if (src.At(i, j) != 0) hits.Add(j * src.Rows + i + 1);  // column-major 1-based
-                // find(X,k): limitar a los primeros k (MATLAB). 'last' no soportado aún.
-                if (a.Length >= 2 && a[1].IsScalar)
+                // find(X,k) | find(X,k,'first'|'last'): limitar a k resultados. Con 'last'
+                // toma los ULTIMOS k (MATLAB), no los primeros. Antes ignoraba 'last' y
+                // devolvia los primeros -> interp1 casero con find(...,1,'last') daba el
+                // indice equivocado (esquema de cargas del talud ponia la carga en el borde).
+                int fk = -1; bool last = false;
+                for (int t = 1; t < a.Length; t++)
                 {
-                    int k = (int)a[1].Scalar;
-                    if (k >= 0 && k < hits.Count) hits = hits.GetRange(0, k);
+                    if (a[t] == null) continue;
+                    if (a[t].IsString) { if (a[t].StringValue.Trim().ToLowerInvariant() == "last") last = true; }
+                    else if (a[t].IsScalar) fk = (int)a[t].Scalar;
                 }
+                if (fk >= 0 && fk < hits.Count)
+                    hits = last ? hits.GetRange(hits.Count - fk, fk) : hits.GetRange(0, fk);
                 // Orientación como MATLAB: FILA solo si el input es un vector fila (1×n, n>1);
                 // en cualquier otro caso (vector columna o matriz) devuelve COLUMNA. Antes SIEMPRE
                 // devolvía fila, lo que rompía `a.'` y horzcat en código FEM (find de una columna).
