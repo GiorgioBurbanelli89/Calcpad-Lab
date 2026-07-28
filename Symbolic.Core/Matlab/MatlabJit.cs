@@ -341,6 +341,9 @@ namespace Calcpad.Core.Matlab
         // ─── Compile context con clasificación de tipos ─────────────────
         /// <summary>Tipo inferido de una expresión / variable.</summary>
         private enum TKind { Scalar, Matrix, Cell }
+        /// <summary>FORMA inferida (best-effort, como el LXE de MATLAB). Unknown = no se sabe →
+        /// se cae al comportamiento por KIND. Refina decisiones tipo sum(v)=escalar vs sum(A,1)=vector.</summary>
+        private enum TShape { Unknown, Scalar, Row, Col, Mat }
 
         private sealed class CompileCtx
         {
@@ -348,6 +351,7 @@ namespace Calcpad.Core.Matlab
             public MatlabScope Scope;   // scope real: para inferir el tipo de las vars live-in
             public Dictionary<string, int> SlotIdx = new(StringComparer.Ordinal);
             public Dictionary<string, TKind> VarKind = new(StringComparer.Ordinal);
+            public Dictionary<string, TShape> VarShape = new(StringComparer.Ordinal);   // forma conocida por var
             public ParameterExpression CtxParam;
             public MemberExpression SlotsExpr;
             // Fast path "loop completo": variables escalares como locals IL en vez de slots[].
@@ -677,7 +681,12 @@ namespace Calcpad.Core.Matlab
                     if (rhsKind == null) return false;
                     var tgt = a.Targets[0];
                     if (tgt is IdentRef ir)
+                    {
+                        // rastrear FORMA (best-effort): si se reasigna con otra forma → Unknown.
+                        var ns = InferShape(a.Rhs, cc);
+                        cc.VarShape[ir.Name] = cc.VarShape.TryGetValue(ir.Name, out var os) && os != ns ? TShape.Unknown : ns;
                         return SetKind(cc, ir.Name, rhsKind.Value);
+                    }
                     if (tgt is CallOrIndex tgtCall && tgtCall.Target is IdentRef matRef)
                     {
                         // A(i,j) = x : A es matrix var
@@ -820,10 +829,12 @@ namespace Calcpad.Core.Matlab
                             var uk = InferUserFnOutKind(ident.Name, aks, cc);
                             if (uk != null) return uk;
                         }
-                        // BUILTIN con algun arg MATRIZ: norm/det/... SIEMPRE escalar (se coacciona);
-                        // el resto (sum/max/min...) da escalar O vector segun forma → OPACO (Matrix).
+                        // BUILTIN con algun arg MATRIZ: norm/det/.. SIEMPRE escalar; un REDUCTOR de 1 arg
+                        // VECTOR (sum(v)/max(v)) → escalar por FORMA; el resto (sum(A,1), forma desconocida)
+                        // → OPACO (Matrix). Igual que el LXE de MATLAB que propaga formas.
                         foreach (var a2 in aks) if (a2 == TKind.Matrix)
-                            return AlwaysScalarBuiltins.Contains(ident.Name) ? TKind.Scalar : TKind.Matrix;
+                            return (AlwaysScalarBuiltins.Contains(ident.Name) || ReductionToScalar(ident.Name, coi.Args, cc))
+                                   ? TKind.Scalar : TKind.Matrix;
                         // Builtin con args escalares: heurística por nombre.
                         return GuessFnKind(ident.Name);
                     }
@@ -894,6 +905,78 @@ namespace Calcpad.Core.Matlab
         // (sum(v)=escalar pero sum(A,1)=vector) → salida opaca Matrix.
         private static readonly HashSet<string> AlwaysScalarBuiltins = new(StringComparer.OrdinalIgnoreCase)
         { "norm","det","trace","numel","length","rank","cond","nnz","dot","isempty","isscalar","isvector","isrow","iscolumn" };
+
+        // Reductores: con 1 arg VECTOR dan escalar; con matriz o con dim dan vector.
+        private static readonly HashSet<string> ReductionBuiltins = new(StringComparer.OrdinalIgnoreCase)
+        { "sum","prod","max","min","mean","median","var","std","any","all" };
+
+        /// <summary>Infiere la FORMA (best-effort) de una expresion. Unknown si no se sabe.</summary>
+        private static TShape InferShape(MatlabNode node, CompileCtx cc)
+        {
+            switch (node)
+            {
+                case NumberLit _: return TShape.Scalar;
+                case IdentRef ir:
+                    if (cc.VarShape.TryGetValue(ir.Name, out var vs)) return vs;
+                    if (cc.VarKind.TryGetValue(ir.Name, out var k0) && k0 == TKind.Scalar) return TShape.Scalar;
+                    if (cc.Scope != null && cc.Scope.TryGet(ir.Name, out var lv) && lv != null && lv.Data != null && !lv.IsString)
+                        return lv.Rows == 1 && lv.Cols == 1 ? TShape.Scalar : lv.Rows == 1 ? TShape.Row : lv.Cols == 1 ? TShape.Col : TShape.Mat;
+                    return TShape.Unknown;
+                case Range _: return TShape.Row;
+                case UnaryOp u when u.Op == "-" || u.Op == "+": return InferShape(u.Operand, cc);
+                case UnaryOp u when u.Op == "'" || u.Op == ".'":
+                    var t = InferShape(u.Operand, cc);
+                    return t == TShape.Row ? TShape.Col : t == TShape.Col ? TShape.Row : t;
+                case MatrixLit ml:
+                    foreach (var row in ml.Rows) foreach (var el in row) if (InferShape(el, cc) != TShape.Scalar) return TShape.Unknown;
+                    int r = ml.Rows.Count, c = ml.Rows.Count > 0 ? ml.Rows[0].Count : 0;
+                    return r == 1 && c == 1 ? TShape.Scalar : r == 1 ? TShape.Row : c == 1 ? TShape.Col : TShape.Mat;
+                case BinaryOp b:
+                    {
+                        var sl = InferShape(b.Left, cc); var sr = InferShape(b.Right, cc);
+                        if (b.Op is "+" or "-" or ".*" or "./" or ".^" or "<" or ">" or "<=" or ">=" or "==" or "~=" or "!=")
+                        {   // element-wise / comparacion: broadcast
+                            if (sl == TShape.Scalar) return sr;
+                            if (sr == TShape.Scalar) return sl;
+                            if (sl == sr) return sl;
+                            return TShape.Unknown;
+                        }
+                        if (b.Op is "*" or "/")   // escalar*X o X/escalar
+                        {
+                            if (sl == TShape.Scalar) return sr;
+                            if (sr == TShape.Scalar) return sl;
+                            return TShape.Unknown;
+                        }
+                        return TShape.Unknown;
+                    }
+                case CallOrIndex coi when coi.Target is IdentRef id:
+                    {
+                        string lo = id.Name.ToLowerInvariant();
+                        if (AlwaysScalarBuiltins.Contains(id.Name)) return TShape.Scalar;
+                        if (lo == "linspace" || lo == "logspace") return TShape.Row;
+                        if (lo == "abs" || lo == "sqrt" || lo == "sin" || lo == "cos" || lo == "exp"
+                            || lo == "log" || lo == "sign" || lo == "tan" || lo == "floor" || lo == "ceil" || lo == "round")
+                            return coi.Args.Count == 1 ? InferShape(coi.Args[0], cc) : TShape.Unknown;   // element-wise
+                        if (ReductionBuiltins.Contains(id.Name) && coi.Args.Count == 1)
+                        {
+                            var a = InferShape(coi.Args[0], cc);
+                            if (a == TShape.Scalar || a == TShape.Row || a == TShape.Col) return TShape.Scalar;  // reduce vector→escalar
+                            if (a == TShape.Mat) return TShape.Row;   // reduce por columnas → fila
+                            return TShape.Unknown;
+                        }
+                        return TShape.Unknown;   // indexado, otras funciones: no arriesgar
+                    }
+                default: return TShape.Unknown;
+            }
+        }
+
+        /// <summary>Un reductor sum/max/min... con 1 arg VECTOR (o escalar) → salida ESCALAR.</summary>
+        private static bool ReductionToScalar(string name, List<MatlabNode> args, CompileCtx cc)
+        {
+            if (!ReductionBuiltins.Contains(name) || args.Count != 1) return false;
+            var s = InferShape(args[0], cc);
+            return s == TShape.Scalar || s == TShape.Row || s == TShape.Col;
+        }
 
         private static TKind GuessFnKind(string name)
         {
@@ -1510,7 +1593,7 @@ namespace Calcpad.Core.Matlab
                 // resto opaco Matrix (sum(A,1) da vector); builtin con args escalares→heurística.
                 TKind ok = cc.Evaluator.JitIsUserFunction(name)
                     ? (InferUserFnOutKind(name, aks, cc) ?? TKind.Matrix)
-                    : (anyMat ? (AlwaysScalarBuiltins.Contains(name) ? TKind.Scalar : TKind.Matrix)
+                    : (anyMat ? ((AlwaysScalarBuiltins.Contains(name) || ReductionToScalar(name, args, cc)) ? TKind.Scalar : TKind.Matrix)
                               : GuessFnKind(name));
                 if (anyMat || ok == TKind.Matrix)
                 {
