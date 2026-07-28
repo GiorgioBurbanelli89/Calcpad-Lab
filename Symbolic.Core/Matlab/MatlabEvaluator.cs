@@ -364,6 +364,9 @@ namespace Calcpad.Core.Matlab
         /// <summary>Directorio del script en ejecución (para resolver addpath relativos
         /// y buscar funciones hermanas). Lo setea el pipeline.</summary>
         public string PrimaryScriptDir = null;
+        /// <summary>Ruta COMPLETA del script en ejecución (para mfilename('fullpath') como MATLAB,
+        /// y así print/saveas guardan el PNG en el directorio del script). Lo setea el pipeline.</summary>
+        public string PrimaryScriptPath = null;
         /// <summary>Directorios donde buscar archivos .m de funciones (script dir + addpath).</summary>
         public readonly System.Collections.Generic.List<string> FunctionSearchDirs = new();
         /// <summary>Intenta resolver `name` cargándolo de un archivo .m hermano. True si quedó
@@ -2271,6 +2274,15 @@ namespace Calcpad.Core.Matlab
                 // Modo simple posicional: patch(X, Y, color)  o  patch(X, Y, Z, color) para 3D
                 // Modo named-args: patch('Faces', F, 'Vertices', V, 'FaceColor', col, ...)
                 if (a.Length == 0) throw new MatlabRuntimeException("patch needs args");
+                // MATLAB: patch es un primitivo de bajo nivel — dibuja SIEMPRE en los ejes actuales,
+                // creándolos si no existen, y NUNCA los limpia (varios patch se ACUMULAN, con o sin
+                // hold). Aseguramos una figura abierta ANTES de dibujar; si no, el 1er patch corre sin
+                // figura (no se dibuja) y un `hold on` posterior abriría una figura nueva borrando la
+                // malla retenida -> se perdía el 1er patch (p.ej. suelo1 del talud de 2 estratos).
+                if (!MatlabPlots.HasOpenFigure) {
+                    string prevb = MatlabPlots.BeginFigure();
+                    if (!string.IsNullOrEmpty(prevb)) _htmlOut?.Invoke(prevb);
+                }
                 // Detectar modo named: primer arg es string 'Faces' o similar
                 if (a[0].IsString)
                 {
@@ -2811,11 +2823,14 @@ namespace Calcpad.Core.Matlab
                         else if (k == "facevertexcdata") newCData = a[i + 1];
                     }
                 // MALLA RETENIDA (modo MATLAB): set con Vertices/FaceVertexCData MUTA la malla viva;
-                // el próximo render (drawnow) la reconstruye desde ahí → animación. NO depende del handle.
+                // el próximo render (drawnow) la reconstruye desde ahí → animación. Si el handle trae
+                // __meshidx (patch con Faces/Vertices) muta ESA malla; si no, la más reciente.
                 if (MatlabPlots.RetainedActive)
                 {
-                    if (newVerts != null) MatlabPlots.UpdateRetainedVerts(ToJagged(newVerts));
-                    if (newCData != null && newCData.Data != null) MatlabPlots.UpdateRetainedCData((double[])newCData.Data.Clone());
+                    int meshIdx = -1;
+                    if (a[0].Fields != null && a[0].Fields.TryGetValue("__meshidx", out var mi)) meshIdx = (int)mi.Scalar;
+                    if (newVerts != null) MatlabPlots.UpdateRetainedVerts(meshIdx, ToJagged(newVerts));
+                    if (newCData != null && newCData.Data != null) MatlabPlots.UpdateRetainedCData(meshIdx, (double[])newCData.Data.Clone());
                 }
                 return new MValue(0);
             };
@@ -2875,7 +2890,20 @@ namespace Calcpad.Core.Matlab
             _builtins["exportgraphics"] = a => new MValue(0);
             // mfilename / fileparts / fullfile: usados típicamente para armar rutas de guardado.
             // En Lab (render inline) la ruta es irrelevante, pero los implementamos para no romper.
-            _builtins["mfilename"] = a => new MValue("");
+            _builtins["mfilename"] = a => {
+                // MATLAB: mfilename -> nombre del script (sin ext); mfilename('fullpath') -> ruta completa sin ext.
+                // Devolver la ruta REAL para que fileparts(mfilename('fullpath')) dé el directorio del script
+                // y print/saveas guarden el PNG ahí (igual que MATLAB), no en el CWD de Lab.
+                string full = PrimaryScriptPath;
+                if (string.IsNullOrEmpty(full) && !string.IsNullOrEmpty(PrimaryScriptDir))
+                    full = System.IO.Path.Combine(PrimaryScriptDir, "script.m");
+                if (string.IsNullOrEmpty(full)) return new MValue("");
+                string dir = System.IO.Path.GetDirectoryName(full) ?? "";
+                string baseName = System.IO.Path.GetFileNameWithoutExtension(full);
+                bool wantFull = a.Length > 0 && a[0].IsString &&
+                                a[0].StringValue.Equals("fullpath", StringComparison.OrdinalIgnoreCase);
+                return new MValue(wantFull ? System.IO.Path.Combine(dir, baseName) : baseName);
+            };
             _builtins["fileparts"] = a => {
                 string p = a.Length > 0 && a[0].IsString ? a[0].StringValue : "";
                 return new MValue(System.IO.Path.GetDirectoryName(p) ?? "");
@@ -7616,13 +7644,14 @@ namespace Calcpad.Core.Matlab
                 // MALLA RETENIDA (modo MATLAB): guardar Faces/Vertices/CData como fuente de verdad;
                 // el renderer las reconstruye en cada frame y set(...) las muta → drawnow anima.
                 double[] cd = (CData != null && CData.Data != null) ? (double[])CData.Data.Clone() : null;
-                MatlabPlots.SetRetainedMesh(ToJagged(Faces), ToJagged(Vertices), cd, edgeColor, faceColor, faceAlpha, lineWidth);
-                MatlabPlots.BuildRetainedFaces();   // dibuja el estado inicial
+                int meshIdx = MatlabPlots.SetRetainedMesh(ToJagged(Faces), ToJagged(Vertices), cd, edgeColor, faceColor, faceAlpha, lineWidth);
+                MatlabPlots.BuildRetainedFaces();   // dibuja el estado inicial (todas las mallas acumuladas)
                 var hM = new MValue(0) { IsGfxHandle = true };
                 hM.Fields = new System.Collections.Generic.Dictionary<string, MValue>();
                 hM.Fields["faces"] = Faces; hM.Fields["vertices"] = Vertices;
                 if (CData != null) hM.Fields["facevertexcdata"] = CData;
                 hM.Fields["__mesh2d"] = new MValue(1);
+                hM.Fields["__meshidx"] = new MValue(meshIdx);   // set(h,'Vertices',..) muta ESTA malla
                 return hM;
             }
             if (Faces == null || Vertices == null)

@@ -601,12 +601,12 @@ return {make:make};
             // 560×420 = tamaño de figura por defecto de MATLAB (para paridad pixel a pixel).
             if (PngExportMode)
             {
-                if (_retActive) BuildRetainedFaces();
+                if (RetainedActive) BuildRetainedFaces();
                 try { var _png = RasterizeFigurePng(560, 420); if (_png != null && _png.Length > 0) ExportedPngs.Add(_png); }
                 catch { /* figura no rasterizable (p.ej. 3D webgl) → se omite */ }
             }
             // Malla 2D CON valor por-cara (patch FaceVertexCData) → CANVAS interactivo con hover.
-            if (_retActive) BuildRetainedFaces();   // figura FINAL desde el estado retenido (última mutación de set)
+            if (RetainedActive) BuildRetainedFaces();   // figura FINAL desde el estado retenido (última mutación de set)
             if (!_figIs3D && HasFaceValues())
             {
                 string iv = RenderInteractiveMesh(760, 560);
@@ -2193,7 +2193,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         // resetear el estado) para que drawnow lo emita y el WebView2 lo repinte en sitio. ──
         public static string RenderFrame()
         {
-            if (_retActive) BuildRetainedFaces();   // reconstruye la malla desde el estado RETENIDO (mutado por set) = modo MATLAB
+            if (RetainedActive) BuildRetainedFaces();   // reconstruye la malla desde el estado RETENIDO (mutado por set) = modo MATLAB
             if (_figPrims == null) return null;
             return RenderInteractiveMesh(760, 560, "anim", keepState: true);
         }
@@ -2203,49 +2203,85 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             if (_figPrims != null) _figPrims.RemoveAll(p => p.Kind == "patch2d" && !double.IsNaN(p.Val));
         }
-        // ── MALLA RETENIDA (modo MATLAB): UNA fuente de verdad. patch la fija, set la muta,
+        // ── MALLA RETENIDA (modo MATLAB): fuente de verdad. patch la fija, set la muta,
         // y el renderer RECONSTRUYE las caras desde ella en cada frame (como el Handle Graphics
-        // de MATLAB: el objeto patch guarda Faces/Vertices/CData y el dibujo se regenera). ──
-        private static double[][] _retFaces, _retVerts;   // faces: idx de vértice (1-based) por cara; verts: [x,y]
-        private static double[] _retCData;                // valor por cara
-        private static string _retEdge = "black", _retFace = "lightblue";
-        private static double _retAlpha = 1, _retLw = 1;
-        private static bool _retActive = false;
-        public static void SetRetainedMesh(double[][] faces, double[][] verts, double[] cdata, string edge, string face, double alpha, double lw)
+        // de MATLAB: el objeto patch guarda Faces/Vertices/CData y el dibujo se regenera).
+        // Es una LISTA: cada patch('Faces','Vertices',...) con hold on AÑADE una malla (p.ej.
+        // 2 estratos de suelo con colores distintos) en vez de sobrescribir la anterior. ──
+        private class RetMesh
         {
-            _retFaces = faces; _retVerts = verts; _retCData = cdata;
-            _retEdge = edge; _retFace = face; _retAlpha = alpha; _retLw = lw; _retActive = true;
+            public double[][] Faces, Verts;   // faces: idx de vértice (1-based) por cara; verts: [x,y]
+            public double[] CData;            // valor por cara (null = color sólido)
+            public string Edge = "black", Face = "lightblue";
+            public double Alpha = 1, Lw = 1;
         }
-        public static bool RetainedActive => _retActive;
-        public static void UpdateRetainedVerts(double[][] verts) { if (_retActive && verts != null) _retVerts = verts; }
-        public static void UpdateRetainedCData(double[] cdata) { if (_retActive && cdata != null) _retCData = cdata; }
-        public static void ResetRetainedMesh() { _retActive = false; _retFaces = _retVerts = null; _retCData = null; }
-        // Reconstruye las caras de la malla en _figPrims desde el estado RETENIDO actual (llamado antes de renderizar).
+        private static readonly System.Collections.Generic.List<RetMesh> _retList = new System.Collections.Generic.List<RetMesh>();
+        // Devuelve el índice de la malla añadida (para que el handle de patch pueda mutar ESA malla con set()).
+        public static int SetRetainedMesh(double[][] faces, double[][] verts, double[] cdata, string edge, string face, double alpha, double lw)
+        {
+            _retList.Add(new RetMesh { Faces = faces, Verts = verts, CData = cdata, Edge = edge, Face = face, Alpha = alpha, Lw = lw });
+            return _retList.Count - 1;
+        }
+        public static bool RetainedActive => _retList.Count > 0;
+        // Muta por índice de handle (set(h,'Vertices',...)); idx<0 = la más reciente (animación de 1 mesh).
+        public static void UpdateRetainedVerts(int idx, double[][] verts)
+        {
+            if (verts == null || _retList.Count == 0) return;
+            if (idx < 0 || idx >= _retList.Count) idx = _retList.Count - 1;
+            _retList[idx].Verts = verts;
+        }
+        public static void UpdateRetainedCData(int idx, double[] cdata)
+        {
+            if (cdata == null || _retList.Count == 0) return;
+            if (idx < 0 || idx >= _retList.Count) idx = _retList.Count - 1;
+            _retList[idx].CData = cdata;
+        }
+        public static void UpdateRetainedVerts(double[][] verts) => UpdateRetainedVerts(-1, verts);
+        public static void UpdateRetainedCData(double[] cdata) => UpdateRetainedCData(-1, cdata);
+        public static void ResetRetainedMesh() { _retList.Clear(); }
+        // Reconstruye las caras de TODAS las mallas retenidas en _figPrims (llamado antes de renderizar).
         public static void BuildRetainedFaces()
         {
-            if (!_retActive || _figPrims == null || _retFaces == null || _retVerts == null) return;
+            if (_figPrims == null || _retList.Count == 0) return;
             RemoveMeshFaces();
-            bool hasC = _retCData != null && _retCData.Length >= _retFaces.Length;
-            double clo = 0, chi = 1;
-            if (hasC && !TryGetCAxis(out clo, out chi))
+            int firstNew = _figPrims.Count;   // z-order: las caras se re-dibujan al fondo (como MATLAB:
+                                              // el patch va DETRÁS de líneas/texto graficados después)
+            foreach (var m in _retList)
             {
-                clo = double.MaxValue; chi = double.MinValue;
-                foreach (var v in _retCData) { if (v < clo) clo = v; if (v > chi) chi = v; }
-                if (chi <= clo) chi = clo + 1;
-            }
-            for (int f = 0; f < _retFaces.Length; f++)
-            {
-                var face = _retFaces[f]; int nv = face.Length;
-                var xs = new double[nv]; var ys = new double[nv];
-                for (int k = 0; k < nv; k++)
+                if (m.Faces == null || m.Verts == null) continue;
+                bool hasC = m.CData != null && m.CData.Length >= m.Faces.Length;
+                double clo = 0, chi = 1;
+                if (hasC && !TryGetCAxis(out clo, out chi))
                 {
-                    int vi = (int)System.Math.Round(face[k]) - 1;
-                    if (vi < 0) vi = 0; else if (vi >= _retVerts.Length) vi = _retVerts.Length - 1;
-                    xs[k] = _retVerts[vi][0]; ys[k] = _retVerts[vi][1];
+                    clo = double.MaxValue; chi = double.MinValue;
+                    foreach (var v in m.CData) { if (v < clo) clo = v; if (v > chi) chi = v; }
+                    if (chi <= clo) chi = clo + 1;
                 }
-                double val = double.NaN; string fc = _retFace;
-                if (hasC) { val = _retCData[f]; fc = JetCss((val - clo) / (chi - clo)); }
-                Patch2D(xs, ys, fc, _retEdge, _retAlpha, _retLw, val);
+                for (int f = 0; f < m.Faces.Length; f++)
+                {
+                    var face = m.Faces[f]; int nv = face.Length;
+                    var xs = new double[nv]; var ys = new double[nv];
+                    for (int k = 0; k < nv; k++)
+                    {
+                        int vi = (int)System.Math.Round(face[k]) - 1;
+                        if (vi < 0) vi = 0; else if (vi >= m.Verts.Length) vi = m.Verts.Length - 1;
+                        xs[k] = m.Verts[vi][0]; ys[k] = m.Verts[vi][1];
+                    }
+                    double val = double.NaN; string fc = m.Face;
+                    if (hasC) { val = m.CData[f]; fc = JetCss((val - clo) / (chi - clo)); }
+                    Patch2D(xs, ys, fc, m.Edge, m.Alpha, m.Lw, val);
+                }
+            }
+            // Mover las caras recién dibujadas al FONDO (índice 0) para que líneas/texto que el
+            // script graficó DESPUÉS del patch (p.ej. el contorno rojo del talud) queden ENCIMA,
+            // como en MATLAB. Sin esto, al reconstruir la malla retenida en FinishFigure se
+            // re-añaden al final y taparían la línea.
+            int added = _figPrims.Count - firstNew;
+            if (added > 0 && firstNew > 0)
+            {
+                var faces = _figPrims.GetRange(firstNew, added);
+                _figPrims.RemoveRange(firstNew, added);
+                _figPrims.InsertRange(0, faces);
             }
         }
 
