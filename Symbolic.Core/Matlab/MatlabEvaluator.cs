@@ -9021,6 +9021,19 @@ namespace Calcpad.Core.Matlab
             a.IsDecomposition ? MatlabLinAlg.Linsolve(a, b)
                               : (a.IsScalar || b.IsScalar) ? MapBinary(a, b, (x, y) => y / x)
                                                            : MatlabLinAlg.Linsolve(a, b);
+        /// <summary>A.^B element-wise (potencia) y A^B mpower — como el interprete.</summary>
+        public static MValue JitMatEwPow(MValue a, MValue b) => MapBinary(a, b, System.Math.Pow);
+        public static MValue JitMatPow(MValue a, MValue b) => MPowerOp(a, b);
+        /// <summary>Comparacion element-wise A op B → matriz logica (0/1). op: 0:&lt; 1:&gt; 2:&lt;= 3:&gt;= 4:== 5:~=.</summary>
+        public static MValue JitMatCmp(MValue a, MValue b, int op) => op switch
+        {
+            0 => MapBinary(a, b, (x, y) => x <  y ? 1 : 0),
+            1 => MapBinary(a, b, (x, y) => x >  y ? 1 : 0),
+            2 => MapBinary(a, b, (x, y) => x <= y ? 1 : 0),
+            3 => MapBinary(a, b, (x, y) => x >= y ? 1 : 0),
+            4 => MapBinary(a, b, (x, y) => x == y ? 1 : 0),
+            _ => MapBinary(a, b, (x, y) => x != y ? 1 : 0),
+        };
         /// <summary>Rango a:s:b como vector fila (para `v = 1:n` en el JIT).</summary>
         public static MValue JitMakeRange(double a, double step, double b)
         {
@@ -9039,6 +9052,20 @@ namespace Calcpad.Core.Matlab
         }
         /// <summary>Matriz VACIA [] (0×0). Para `n=[]` en el JIT (return-map: grads/depcont).</summary>
         public static MValue JitMakeEmpty() => new MValue(0, 0);
+        /// <summary>Concatenacion HORIZONTAL [a b c] / VERTICAL [a; b; c] para el JIT (bloques matriz).
+        /// Reusa la logica del interprete → misma semantica que `[A B]`, `[A; B]`.</summary>
+        public static MValue JitHorzCat(MValue[] pieces) => HorzConcat(new List<MValue>(pieces));
+        public static MValue JitVertCat(MValue[] pieces) => VertConcat(new List<MValue>(pieces));
+        /// <summary>A(:) → vector COLUMNA con todos los elementos en orden column-major (como MATLAB).</summary>
+        public static MValue JitMatColon(MValue a)
+        {
+            int n = a.Rows * a.Cols;
+            var v = new MValue(n, 1);
+            int k = 0;
+            for (int j = 0; j < a.Cols; j++)
+                for (int i = 0; i < a.Rows; i++) v.Set(k++, 0, a.At(i, j));
+            return v;
+        }
         /// <summary>isempty(v) del JIT: 1.0 si v no tiene elementos, 0.0 si tiene. Cubre matriz vacia,
         /// string vacio y cell vacio.</summary>
         public static double JitIsEmpty(MValue v)
@@ -9085,14 +9112,28 @@ namespace Calcpad.Core.Matlab
         public static MValue JitGather(MValue src, MValue idx)
         {
             int n = idx.Rows * idx.Cols;
-            // Orientacion como MATLAB/Lab: si src es un VECTOR, el resultado hereda la
-            // orientacion de src (u columna -> u(d') columna, Fint columna -> Fint(d)
-            // columna). Solo si src es matriz se usa la forma del indice. Esto importa:
-            // el JIT sumaba Fint(d) [row] + col -> broadcast 12x12 y el FEM divergia.
+            var sd = src.Data;
             bool srcVec = src.Rows == 1 || src.Cols == 1;
+            // MASCARA LOGICA (misma heuristica que el interprete): idx del mismo tamaño que src y
+            // todos 0/1 -> seleccionar elementos donde !=0 (column-major). Cubre A(A>0) y A(mask).
+            bool isMask = n == sd.Length && n > 0;
+            if (isMask) foreach (var x in idx.Data) if (x != 0 && x != 1) { isMask = false; break; }
+            if (isMask)
+            {
+                var picks = new List<double>(n);
+                for (int li = 0; li < n; li++)              // column-major sobre idx (== forma de src)
+                {
+                    double m = idx.At(li % idx.Rows, li / idx.Rows);
+                    if (m != 0) picks.Add(src.At(li % src.Rows, li / src.Rows));
+                }
+                var rm = (srcVec && src.Rows == 1) ? new MValue(1, picks.Count) : new MValue(picks.Count, 1);
+                for (int k = 0; k < picks.Count; k++) rm.Data[k] = picks[k];
+                return rm;
+            }
+            // Indices ENTEROS. Orientacion: si src es vector, hereda la de src (u(d') columna);
+            // si src es matriz, la forma del indice.
             bool col = srcVec ? (src.Cols == 1) : (idx.Cols == 1);
             var r = col ? new MValue(n, 1) : new MValue(1, n);
-            var sd = src.Data;
             for (int k = 0; k < n; k++)
             {
                 int li = (int)idx.Data[k] - 1;     // src es vector: row-major == col-major

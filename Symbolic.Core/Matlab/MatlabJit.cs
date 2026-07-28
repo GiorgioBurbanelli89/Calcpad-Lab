@@ -195,6 +195,12 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MMatEwDiv      = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatEwDiv));
         internal static readonly MethodInfo MMatLDiv       = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatLDiv));
         internal static readonly MethodInfo MMakeRange     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMakeRange));
+        internal static readonly MethodInfo MMatColon      = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatColon));
+        internal static readonly MethodInfo MHorzCat       = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitHorzCat));
+        internal static readonly MethodInfo MVertCat       = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitVertCat));
+        internal static readonly MethodInfo MMatEwPow      = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatEwPow));
+        internal static readonly MethodInfo MMatPow        = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatPow));
+        internal static readonly MethodInfo MMatCmp        = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatCmp));
         internal static readonly MethodInfo MGetMatRow     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatRow));
         internal static readonly MethodInfo MGetMatCol     = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitGetMatCol));
         internal static readonly MethodInfo MMatToScalar   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitMatToScalar));
@@ -595,7 +601,7 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i < def.ParamNames.Count; i++)
                     cc.VarKind[def.ParamNames[i]] = paramIsMatrix[i] ? TKind.Matrix : TKind.Scalar;
                 if (!ClassifyBody(def.Body, cc)) return null;
-                foreach (var kv in cc.VarKind) if (kv.Value == TKind.Cell) return null;   // cells no
+                foreach (var kv in cc.VarKind) if (kv.Value == TKind.Cell) return null;
                 foreach (var kv in cc.VarKind)
                     if (kv.Value == TKind.Scalar && !cc.SlotIdx.ContainsKey(kv.Key)) cc.SlotIdx[kv.Key] = cc.SlotIdx.Count;
                 var body = new List<Expression>();
@@ -814,7 +820,11 @@ namespace Calcpad.Core.Matlab
                             var uk = InferUserFnOutKind(ident.Name, aks, cc);
                             if (uk != null) return uk;
                         }
-                        // Builtin / no inferible: heurística por nombre.
+                        // BUILTIN con algun arg MATRIZ: norm/det/... SIEMPRE escalar (se coacciona);
+                        // el resto (sum/max/min...) da escalar O vector segun forma → OPACO (Matrix).
+                        foreach (var a2 in aks) if (a2 == TKind.Matrix)
+                            return AlwaysScalarBuiltins.Contains(ident.Name) ? TKind.Scalar : TKind.Matrix;
+                        // Builtin con args escalares: heurística por nombre.
                         return GuessFnKind(ident.Name);
                     }
                     // Indexing de matriz
@@ -879,6 +889,12 @@ namespace Calcpad.Core.Matlab
             finally { _fnOutKindBusy.Remove(key); }
         }
 
+        // Builtins que SIEMPRE devuelven escalar aunque el arg sea matriz (norm(v), det(A)...).
+        // Se coaccionan a escalar. El resto de reductores (sum/max/min/prod) dependen de la FORMA
+        // (sum(v)=escalar pero sum(A,1)=vector) → salida opaca Matrix.
+        private static readonly HashSet<string> AlwaysScalarBuiltins = new(StringComparer.OrdinalIgnoreCase)
+        { "norm","det","trace","numel","length","rank","cond","nnz","dot","isempty","isscalar","isvector","isrow","iscolumn" };
+
         private static TKind GuessFnKind(string name)
         {
             // Heurística simple: si el nombre sugiere matrix → matrix; sino scalar.
@@ -886,8 +902,10 @@ namespace Calcpad.Core.Matlab
             // Cualquier función con args múltiples y nombre tipo "*_mat" o "*_vec" → matrix.
             string lo = name.ToLowerInvariant();
             if (lo.EndsWith("_mat") || lo.EndsWith("_vec") || lo == "zeros" || lo == "ones"
-                || lo == "eye" || lo == "transpose" || lo == "inv" || lo == "diag")
-                return TKind.Matrix;
+                || lo == "eye" || lo == "transpose" || lo == "inv" || lo == "diag"
+                || lo == "linspace" || lo == "logspace" || lo == "repmat" || lo == "reshape"
+                || lo == "colon" || lo == "sort" || lo == "cumsum" || lo == "cumprod" || lo == "find")
+                return TKind.Matrix;   // builtins que devuelven vector/matriz aun con args escalares
             return TKind.Scalar;
         }
 
@@ -1379,6 +1397,21 @@ namespace Calcpad.Core.Matlab
                             if (Lm == null || Rm == null) return null;
                             return Expression.Call(JitCtx.MMatLDiv, Lm, Rm);
                         }
+                        if (b.Op == ".^" || b.Op == "^")   // A.^B element-wise / A^B mpower
+                        {
+                            var Lm = ConvertExprAsKind(b.Left, cc, TKind.Matrix);
+                            var Rm = ConvertExprAsKind(b.Right, cc, TKind.Matrix);
+                            if (Lm == null || Rm == null) return null;
+                            return Expression.Call(b.Op == ".^" ? JitCtx.MMatEwPow : JitCtx.MMatPow, Lm, Rm);
+                        }
+                        int cmp = b.Op switch { "<" => 0, ">" => 1, "<=" => 2, ">=" => 3, "==" => 4, "~=" => 5, "!=" => 5, _ => -1 };
+                        if (cmp >= 0)   // comparacion element-wise → matriz logica (v>5, A==B)
+                        {
+                            var Lm = ConvertExprAsKind(b.Left, cc, TKind.Matrix);
+                            var Rm = ConvertExprAsKind(b.Right, cc, TKind.Matrix);
+                            if (Lm == null || Rm == null) return null;
+                            return Expression.Call(JitCtx.MMatCmp, Lm, Rm, Expression.Constant(cmp));
+                        }
                         return null;
                     }
                 case CallOrIndex coi when coi.Target is IdentRef ident:
@@ -1437,7 +1470,11 @@ namespace Calcpad.Core.Matlab
             // FAST-PATH: funcion matematica escalar builtin (mod, floor, sqrt, sin, ...) que el
             // usuario NO redefinio -> llamada estatica nativa, sin MValue ni diccionario.
             // Sin esto, un mod() dentro de un loop FEM tiraba TODO el loop al dispatch lento.
-            if (isFn && JitCtx.InlineMath.TryGetValue(name, out var im)
+            // ¿Todos los args son escalares? Si alguno es matriz, la vía inline (que fuerza escalar)
+            // NO aplica: sqrt(v)/abs(v)/exp(-v) son element-wise sobre el vector -> caen a MCallMV.
+            bool allScalarArgs = true;
+            foreach (var a in args) { var ak = InferKind(a, cc); if (ak == null || ak == TKind.Matrix) { allScalarArgs = false; break; } }
+            if (isFn && allScalarArgs && JitCtx.InlineMath.TryGetValue(name, out var im)
                      && im.Argc == args.Count && !cc.Evaluator.JitIsUserFunction(name))
             {
                 var iargs = new Expression[args.Count];
@@ -1457,7 +1494,7 @@ namespace Calcpad.Core.Matlab
             // La vía rápida inline ya se probó arriba; solo la excluimos si REALMENTE aplica a esta
             // llamada (nombre+aridad+no-redefinida). Así `max(v)`/`min(v)` de 1 arg-matriz (reduccion)
             // caen aquí en vez de forzarse a escalar.
-            bool inlineApplies = JitCtx.InlineMath.TryGetValue(name, out var _im3)
+            bool inlineApplies = allScalarArgs && JitCtx.InlineMath.TryGetValue(name, out var _im3)
                 && _im3.Argc == args.Count && !cc.Evaluator.JitIsUserFunction(name);
             if (isFn && !inlineApplies)
             {
@@ -1469,9 +1506,12 @@ namespace Calcpad.Core.Matlab
                     if (ak == null) return null;
                     aks[i] = ak.Value; if (ak == TKind.Matrix) anyMat = true;
                 }
+                // KIND de salida: usuario→inferido del cuerpo; builtin con arg matriz→norm/det.. escalar,
+                // resto opaco Matrix (sum(A,1) da vector); builtin con args escalares→heurística.
                 TKind ok = cc.Evaluator.JitIsUserFunction(name)
                     ? (InferUserFnOutKind(name, aks, cc) ?? TKind.Matrix)
-                    : GuessFnKind(name);
+                    : (anyMat ? (AlwaysScalarBuiltins.Contains(name) ? TKind.Scalar : TKind.Matrix)
+                              : GuessFnKind(name));
                 if (anyMat || ok == TKind.Matrix)
                 {
                     var argArr = BuildMValueArgs(args, cc);
@@ -1505,7 +1545,11 @@ namespace Calcpad.Core.Matlab
             // Matrix indexing
             if (args.Count == 1)
             {
-                if (args[0] is ColonAll) return null;   // A(:) flatten — no soportado
+                if (args[0] is ColonAll)                 // A(:) → vector columna column-major
+                {
+                    var matC = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(name));
+                    return Expression.Call(JitCtx.MMatColon, matC);
+                }
                 // GATHER: A(vec) con indice vectorial (el u(d') del FEM)
                 if (InferKind(args[0], cc) == TKind.Matrix)
                 {
@@ -1585,43 +1629,49 @@ namespace Calcpad.Core.Matlab
             bool allEmpty = ml.Rows.Count == 0;
             if (!allEmpty) { allEmpty = true; foreach (var row in ml.Rows) if (row.Count > 0) { allEmpty = false; break; } }
             if (allEmpty) return Expression.Call(JitCtx.MMakeEmpty);
-            // Row vector: 1 fila → MakeRowVec
-            if (ml.Rows.Count == 1)
-            {
-                var elems = ml.Rows[0];
-                var exprs = new Expression[elems.Count];
-                for (int i = 0; i < elems.Count; i++)
-                {
-                    // Aplanamos entradas que compilan a un ESCALAR (double): numeros, vars escalares,
-                    // ARITMETICA escalar e INDEXADO de matriz A(i) (=elemento). Si la entrada compila
-                    // a un BLOQUE matriz (MValue: producto A*b, columna A(:,j), etc.) claudicamos ->
-                    // el interprete arma el literal por concatenacion (correcto).
-                    var e = ConvertExpr(elems[i], cc);
-                    if (e == null || e.Type != typeof(double)) return null;
-                    exprs[i] = e;
-                }
-                var arr = Expression.NewArrayInit(typeof(double), exprs);
-                return Expression.Call(JitCtx.MMakeRowVec, arr);
-            }
-            // Matriz 2D: row-major flatten + MakeMatrix2D(rows, cols, flat)
+            // Convertir cada entrada; ¿son TODAS escalares (double)? -> vía rápida flatten.
+            // (numeros, vars escalares, aritmetica escalar, indexado A(i)). Si alguna compila a un
+            // BLOQUE matriz (MValue: A*b, A(:,j), otra matriz) -> vía CONCAT.
             int rows = ml.Rows.Count;
             int cols = ml.Rows[0].Count;
-            // Verificar consistencia
-            for (int i = 0; i < rows; i++)
-                if (ml.Rows[i].Count != cols) return null;
-            var flat = new Expression[rows * cols];
-            for (int i = 0; i < rows; i++)
-                for (int j = 0; j < cols; j++)
+            for (int i = 0; i < rows; i++) if (ml.Rows[i].Count != cols) cols = -1;   // filas desiguales: no flatten
+            bool allScalar = cols >= 0;
+            var conv = new Expression[rows][];
+            for (int i = 0; i < rows && allScalar; i++)
+            {
+                conv[i] = new Expression[ml.Rows[i].Count];
+                for (int j = 0; j < ml.Rows[i].Count; j++)
                 {
-                    // Solo entradas que compilan a ESCALAR (double). Un bloque matriz (A*b, A(:,j))
-                    // haria del literal una concat que el JIT no aplana -> interprete.
                     var e = ConvertExpr(ml.Rows[i][j], cc);
-                    if (e == null || e.Type != typeof(double)) return null;
-                    flat[i * cols + j] = e;
+                    if (e == null) return null;
+                    if (e.Type != typeof(double)) { allScalar = false; break; }
+                    conv[i][j] = e;
                 }
-            var arr2 = Expression.NewArrayInit(typeof(double), flat);
-            return Expression.Call(JitCtx.MMakeMatrix2D,
-                Expression.Constant(rows), Expression.Constant(cols), arr2);
+            }
+            if (allScalar)
+            {
+                if (rows == 1)
+                    return Expression.Call(JitCtx.MMakeRowVec, Expression.NewArrayInit(typeof(double), conv[0]));
+                var flat = new Expression[rows * cols];
+                for (int i = 0; i < rows; i++) for (int j = 0; j < cols; j++) flat[i * cols + j] = conv[i][j];
+                return Expression.Call(JitCtx.MMakeMatrix2D,
+                    Expression.Constant(rows), Expression.Constant(cols), Expression.NewArrayInit(typeof(double), flat));
+            }
+            // CONCAT: cada fila = HorzCat de sus bloques (escalar→1×1, matriz tal cual); luego VertCat.
+            var rowExprs = new Expression[rows];
+            for (int i = 0; i < rows; i++)
+            {
+                var pieces = new Expression[ml.Rows[i].Count];
+                for (int j = 0; j < ml.Rows[i].Count; j++)
+                {
+                    var m = ConvertExprAsKind(ml.Rows[i][j], cc, TKind.Matrix);
+                    if (m == null) return null;
+                    pieces[j] = m;
+                }
+                rowExprs[i] = Expression.Call(JitCtx.MHorzCat, Expression.NewArrayInit(typeof(MValue), pieces));
+            }
+            if (rows == 1) return rowExprs[0];
+            return Expression.Call(JitCtx.MVertCat, Expression.NewArrayInit(typeof(MValue), rowExprs));
         }
 
         // ─── Eval scalar para los limites del range ───────────────────────
