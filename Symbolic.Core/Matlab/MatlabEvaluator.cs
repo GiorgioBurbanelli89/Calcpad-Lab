@@ -2888,6 +2888,25 @@ namespace Calcpad.Core.Matlab
                 return new MValue(0);
             };
             _builtins["exportgraphics"] = a => new MValue(0);
+            // pwd / cd — directorio de trabajo (como MATLAB). Las operaciones de archivo con
+            // ruta RELATIVA (print, saveas, load, fopen, dlmread...) se resuelven contra el CWD
+            // del proceso, asi que cd(...) lo cambia con Directory.SetCurrentDirectory.
+            _builtins["pwd"] = a => new MValue(System.IO.Directory.GetCurrentDirectory());
+            _builtins["cd"] = a => {
+                // cd            -> devuelve el directorio actual (se muestra como ans, igual que MATLAB)
+                // cd('ruta') / cd ruta / cd ..  -> cambia de directorio y no imprime nada
+                if (a.Length == 0 || !a[0].IsString || string.IsNullOrWhiteSpace(a[0].StringValue))
+                    return new MValue(System.IO.Directory.GetCurrentDirectory());
+                string target = a[0].StringValue.Trim();
+                string full = System.IO.Path.IsPathRooted(target)
+                    ? target
+                    : System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), target));
+                if (!System.IO.Directory.Exists(full))
+                    throw new MatlabRuntimeException($"cd: el directorio '{target}' no existe");
+                try { System.IO.Directory.SetCurrentDirectory(full); }
+                catch (Exception ex) { throw new MatlabRuntimeException($"cd: {ex.Message}"); }
+                return new MValue(0);   // cambiar de dir no imprime (EsLlamadaSinSalida lo suprime)
+            };
             // mfilename / fileparts / fullfile: usados típicamente para armar rutas de guardado.
             // En Lab (render inline) la ruta es irrelevante, pero los implementamos para no romper.
             _builtins["mfilename"] = a => {
@@ -7517,7 +7536,8 @@ namespace Calcpad.Core.Matlab
             "colorbar", "colormap", "subplot", "drawnow", "clf", "cla", "close",
             "shading", "lighting", "material", "camlight", "view", "rotate3d", "box",
             "set", "disp", "fprintf", "printf", "warning", "error", "pause", "clc",
-            "clear", "format", "hoverdata", "datacursormode", "print", "saveas", "mex", "mkoctfile"
+            "clear", "format", "hoverdata", "datacursormode", "print", "saveas", "mex", "mkoctfile",
+            "cd"   // cd 'ruta' cambia de directorio sin imprimir; usar pwd para ver el actual
         };
 
         /// <summary>true si la expresion es una llamada que no produce salida visible:

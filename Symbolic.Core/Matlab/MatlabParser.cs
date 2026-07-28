@@ -52,7 +52,7 @@ namespace Calcpad.Core.Matlab
         private static readonly HashSet<string> _commandFormFuncs = new(StringComparer.Ordinal)
         {
             // global/persistent SON keywords, NO command-form — tienen handlers en el switch de ParseStatement
-            "syms", "clear", "close", "hold", "format",
+            "syms", "clear", "close", "hold", "format", "cd",
             "load", "save", "disp", "warning", "error", "echo", "pkg",
             "grid", "axis", "legend", "box",   // plotting on/off commands
             "lighting", "material", "shading", "colormap",   // 3D: lighting gouraud, material dull, shading interp
@@ -82,12 +82,26 @@ namespace Calcpad.Core.Matlab
             {
                 var fnTok = Consume();
                 var args = new List<MatlabNode>();
-                while (Peek().Kind == MatlabTokenKind.Identifier &&
-                       Peek().Text != "end" && Peek().Text != "elseif" && Peek().Text != "else"
-                       && Peek().Text != "case" && Peek().Text != "otherwise" && Peek().Text != "catch")
+                while (true)
                 {
-                    var tok = Consume();
-                    args.Add(new StringLit { Value = tok.Text, Quote = '\'', Line = tok.Line, Column = tok.Column });
+                    var pk = Peek().Kind;
+                    // identificador pelado: `hold on`, `cd Documents`, `axis equal`
+                    if (pk == MatlabTokenKind.Identifier &&
+                        Peek().Text != "end" && Peek().Text != "elseif" && Peek().Text != "else"
+                        && Peek().Text != "case" && Peek().Text != "otherwise" && Peek().Text != "catch")
+                    {
+                        var tok = Consume();
+                        args.Add(new StringLit { Value = tok.Text, Quote = '\'', Line = tok.Line, Column = tok.Column });
+                    }
+                    // string entre comillas: `cd 'C:\ruta'`, `load 'file.mat'`, `disp 'hola'`
+                    else if (pk == MatlabTokenKind.String || pk == MatlabTokenKind.StringDouble)
+                    {
+                        var tok = Consume();
+                        args.Add(new StringLit { Value = tok.Text,
+                            Quote = pk == MatlabTokenKind.StringDouble ? '"' : '\'',
+                            Line = tok.Line, Column = tok.Column });
+                    }
+                    else break;
                 }
                 bool suppr = ConsumeStatementTerminator();
                 var call = new CallOrIndex
@@ -620,7 +634,10 @@ namespace Calcpad.Core.Matlab
             // Look-ahead al siguiente token después del identifier actual
             if (_pos + 1 >= _tokens.Count) return false;
             var next = _tokens[_pos + 1].Kind;
-            return next == MatlabTokenKind.Identifier;
+            // Forma comando: `hold on` (identificador) o `cd 'C:\ruta'` / `load 'f.mat'` (string).
+            return next == MatlabTokenKind.Identifier
+                || next == MatlabTokenKind.String
+                || next == MatlabTokenKind.StringDouble;
         }
         private void ExpectKeyword(string kw)
         {
