@@ -9426,9 +9426,17 @@ namespace Calcpad.Core.Matlab
         private MValue[] InvokeJitMV(MatlabJit.CompiledFnMV mv, MValue[] args, HashSet<string> mutated)
         {
             var local = RentGlobalScope();
+            bool pooled = !mv.PoolBusy;            // reusa slots[]+JitCtx salvo reentrancia de la MISMA funcion
+            if (pooled) mv.PoolBusy = true;
             try
             {
-                var slots = new double[mv.SlotIdx.Count];
+                double[] slots;
+                if (pooled)
+                {
+                    slots = mv.PoolSlots ??= new double[mv.SlotIdx.Count];
+                    System.Array.Clear(slots, 0, slots.Length);
+                }
+                else slots = new double[mv.SlotIdx.Count];
                 for (int i = 0; i < mv.ParamNames.Length; i++)
                 {
                     if (mv.ParamKinds[i] == MatlabJit.TKindPub.Matrix)
@@ -9438,7 +9446,9 @@ namespace Calcpad.Core.Matlab
                     else if (mv.SlotIdx.TryGetValue(mv.ParamNames[i], out var si))
                         slots[si] = args[i].Scalar;
                 }
-                var ctx = new JitCtx { Slots = slots, Scope = local, Evaluator = this };
+                JitCtx ctx;
+                if (pooled) { ctx = mv.PoolCtx ??= new JitCtx(); ctx.Slots = slots; ctx.Scope = local; ctx.Evaluator = this; }
+                else ctx = new JitCtx { Slots = slots, Scope = local, Evaluator = this };
                 mv.Body(ctx);
                 var outs = new MValue[mv.OutputNames.Length];
                 for (int i = 0; i < outs.Length; i++)
@@ -9450,7 +9460,7 @@ namespace Calcpad.Core.Matlab
                 }
                 return outs;
             }
-            finally { ReturnGlobalScope(local); }
+            finally { if (pooled) mv.PoolBusy = false; ReturnGlobalScope(local); }
         }
 
         private MValue CallUserFunction(FunctionDef def, MValue[] args, string[] argNames = null)

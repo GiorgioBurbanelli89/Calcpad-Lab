@@ -577,6 +577,11 @@ namespace Calcpad.Core.Matlab
             public TKindPub[] ParamKinds;
             public string[] OutputNames;
             public TKindPub[] OutputKinds;
+            // Pool de 1 nivel para evitar alocar slots[]+JitCtx por llamada (la vía comun no es
+            // reentrante para la MISMA funcion; si lo fuera, PoolBusy fuerza alocacion fresca).
+            public double[] PoolSlots;
+            public JitCtx PoolCtx;
+            public bool PoolBusy;
         }
         public enum TKindPub { Scalar, Matrix }   // espejo público de TKind (Cell no se soporta aquí)
 
