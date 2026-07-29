@@ -13,6 +13,10 @@
     <AssemblyName>CalcpadLabCli</AssemblyName>
     <AssemblyTitle>Calcpad Lab CLI — MATLAB-syntax to HTML/PDF/DOCX</AssemblyTitle>
     <StartupObject>Calcpad.Cli.Program</StartupObject>
+    <!-- Métodos CON BUCLES compilan a Tier-1 (optimizado) de una, sin esperar el warmup Tier-0->Tier-1
+         del CLR. Elimina el sobrecosto de la 1ª iteración del FEM (return-map): iter1 298->195 ms,
+         total SIN regresión (el arranque no se penaliza como con TieredCompilation=false). -->
+    <TieredCompilationQuickJitForLoops>false</TieredCompilationQuickJitForLoops>
   </PropertyGroup>
 
   <ItemGroup>
