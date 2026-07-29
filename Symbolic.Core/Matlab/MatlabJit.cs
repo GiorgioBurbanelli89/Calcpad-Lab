@@ -589,6 +589,13 @@ namespace Calcpad.Core.Matlab
         public static readonly bool MVEnabled =
             System.Environment.GetEnvironmentVariable("HEK_NO_MVJIT") != "1";
 
+        private static readonly bool JitLog = System.Environment.GetEnvironmentVariable("LAB_JIT_LOG") == "1";
+        private static CompiledFnMV JitBail(FunctionDef def, string reason, MatlabNode st)
+        {
+            if (JitLog) System.Console.Error.WriteLine($"[JIT-MV bail] {def.Name}: {reason}");
+            return null;
+        }
+
         public static CompiledFnMV TryCompileFunctionMV(FunctionDef def, MatlabEvaluator ev, bool[] paramIsMatrix)
         {
             try
@@ -604,8 +611,8 @@ namespace Calcpad.Core.Matlab
                 cc.ReturnLabel = Expression.Label("ret");
                 for (int i = 0; i < def.ParamNames.Count; i++)
                     cc.VarKind[def.ParamNames[i]] = paramIsMatrix[i] ? TKind.Matrix : TKind.Scalar;
-                if (!ClassifyBody(def.Body, cc)) return null;
-                foreach (var kv in cc.VarKind) if (kv.Value == TKind.Cell) return null;
+                if (!ClassifyBody(def.Body, cc)) return JitBail(def, "ClassifyBody", null);
+                foreach (var kv in cc.VarKind) if (kv.Value == TKind.Cell) return JitBail(def, "Cell var: " + kv.Key, null);
                 foreach (var kv in cc.VarKind)
                     if (kv.Value == TKind.Scalar && !cc.SlotIdx.ContainsKey(kv.Key)) cc.SlotIdx[kv.Key] = cc.SlotIdx.Count;
                 var body = new List<Expression>();
@@ -613,7 +620,7 @@ namespace Calcpad.Core.Matlab
                 {
                     if (st is CommentStmt) continue;
                     var e = ConvertStmt(st, cc);
-                    if (e == null) return null;
+                    if (e == null) return JitBail(def, "stmt: " + st.GetType().Name, st);
                     body.Add(e);
                 }
                 body.Add(Expression.Label(cc.ReturnLabel));

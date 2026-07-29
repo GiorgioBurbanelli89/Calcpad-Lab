@@ -9420,10 +9420,10 @@ namespace Calcpad.Core.Matlab
             if (def.JitMV == null) return false;
             var sig = def.JitMVSig;
             for (int i = 0; i < args.Length; i++) if (sig[i] != !args[i].IsScalar) return false;
-            outs = InvokeJitMV((MatlabJit.CompiledFnMV)def.JitMV, args);
+            outs = InvokeJitMV((MatlabJit.CompiledFnMV)def.JitMV, args, GetMutatedParams(def));
             return true;
         }
-        private MValue[] InvokeJitMV(MatlabJit.CompiledFnMV mv, MValue[] args)
+        private MValue[] InvokeJitMV(MatlabJit.CompiledFnMV mv, MValue[] args, HashSet<string> mutated)
         {
             var local = RentGlobalScope();
             try
@@ -9432,7 +9432,9 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i < mv.ParamNames.Length; i++)
                 {
                     if (mv.ParamKinds[i] == MatlabJit.TKindPub.Matrix)
-                        local.Set(mv.ParamNames[i], CloneArg(args[i]));   // valor-semántica MATLAB (clona)
+                        // valor-semantica MATLAB: SOLO clona si la funcion muta el param in-place (param(i)=..).
+                        // Si solo lee/reasigna (return-map: De/sig/deps), pasa el arg directo -> evita clonar 4x4 por llamada.
+                        local.Set(mv.ParamNames[i], mutated.Contains(mv.ParamNames[i]) ? CloneArg(args[i]) : args[i]);
                     else if (mv.SlotIdx.TryGetValue(mv.ParamNames[i], out var si))
                         slots[si] = args[i].Scalar;
                 }
