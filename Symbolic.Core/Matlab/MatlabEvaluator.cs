@@ -7106,6 +7106,36 @@ namespace Calcpad.Core.Matlab
             // Verificado vs MATLAB R2017a: unique([10;30;10;20]) → C=[10;20;30], ia=[1;4;2], ic=[1;3;1;2]
             _multiOutBuiltins["unique"] = a => {
                 var v = a[0];
+                bool byRows = false;
+                for (int i = 1; i < a.Length; i++)
+                    if (a[i].IsString && a[i].StringValue.ToLowerInvariant() == "rows") byRows = true;
+                if (byRows)
+                {
+                    // [C,ia,ic] = unique(A,'rows'): filas unicas ordenadas lexicograficamente.
+                    // C = A(ia,:) (ia = primera aparicion),  A = C(ic,:).
+                    int R = v.Rows, Cc = v.Cols;
+                    var rws = new List<double[]>();
+                    for (int r = 0; r < R; r++) { var row = new double[Cc]; for (int c = 0; c < Cc; c++) row[c] = v.At(r, c); rws.Add(row); }
+                    Comparison<double[]> lex = (x, y) => { for (int c = 0; c < Cc; c++) { int cmp = x[c].CompareTo(y[c]); if (cmp != 0) return cmp; } return 0; };
+                    var order = new List<int>(); for (int i = 0; i < R; i++) order.Add(i);
+                    order.Sort((i, j) => { int cmp = lex(rws[i], rws[j]); return cmp != 0 ? cmp : i.CompareTo(j); });
+                    var uniqRows = new List<double[]>();
+                    var rowToU = new int[R];                       // fila unica (0-based) por fila original
+                    for (int k = 0; k < R; k++)
+                    {
+                        int idx = order[k];
+                        if (uniqRows.Count == 0 || lex(uniqRows[uniqRows.Count - 1], rws[idx]) != 0) uniqRows.Add(rws[idx]);
+                        rowToU[idx] = uniqRows.Count - 1;
+                    }
+                    var iaArr = new double[uniqRows.Count];
+                    for (int j = 0; j < uniqRows.Count; j++) iaArr[j] = double.PositiveInfinity;
+                    for (int i = 0; i < R; i++) { int u = rowToU[i]; if (i + 1 < iaArr[u]) iaArr[u] = i + 1; }   // primera aparicion
+                    var Crows = new MValue(uniqRows.Count, Cc);
+                    for (int r = 0; r < uniqRows.Count; r++) for (int c = 0; c < Cc; c++) Crows.Set(r, c, uniqRows[r][c]);
+                    var icArr = new double[R];
+                    for (int i = 0; i < R; i++) icArr[i] = rowToU[i] + 1;
+                    return new[] { Crows, new MValue(uniqRows.Count, 1, iaArr), new MValue(R, 1, icArr) };
+                }
                 var input = v.Data;
                 int n = input.Length;
                 var sorted = new SortedSet<double>(input);
