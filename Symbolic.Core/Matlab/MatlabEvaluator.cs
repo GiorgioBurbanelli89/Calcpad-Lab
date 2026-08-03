@@ -3827,6 +3827,24 @@ namespace Calcpad.Core.Matlab
                 return new MValue(y.Rows, y.Cols, r);
             };
             _builtins["gradient"] = a => {
+                // SIMBÓLICO: gradient(f, [x y ...]) = derivadas parciales (vector columna).
+                if (a[0].IsSymbolic && a.Length >= 2 && (a[1].IsSymMatrix || a[1].IsSymbolic))
+                {
+                    var vars = new List<string>();
+                    if (a[1].IsSymMatrix)
+                    {
+                        foreach (var cell in a[1].SymCells)
+                            if (cell is SymVar sv2) vars.Add(sv2.Name);
+                    }
+                    else if (a[1].Symbolic is SymVar sv1) vars.Add(sv1.Name);
+                    if (vars.Count > 0)
+                    {
+                        var gcells = new SymNode[vars.Count, 1];
+                        for (int i = 0; i < vars.Count; i++)
+                            gcells[i, 0] = a[0].Symbolic.Diff(vars[i]).Simplify();
+                        return MValue.NewSymMatrix(gcells);
+                    }
+                }
                 var v = a[0];
                 double h = a.Length >= 2 ? a[1].Scalar : 1.0;
                 int n = v.Data.Length;
@@ -6752,8 +6770,24 @@ namespace Calcpad.Core.Matlab
             static double LogGamma(double x) => Math.Log(Math.Abs(GammaFn(x)));
 
             // Linear algebra
-            _builtins["det"] = a => new MValue(MatlabLinAlg.Determinant(a[0]));
-            _builtins["inv"] = a => MatlabLinAlg.Inverse(a[0]);
+            _builtins["det"] = a => {
+                if (a[0].IsSymMatrix)
+                {
+                    int n = a[0].SymCells.GetLength(0);
+                    if (n != a[0].SymCells.GetLength(1)) throw new MatlabRuntimeException("det: matrix must be square");
+                    return MValue.NewSymbolic(SymDet(a[0].SymCells, n).Simplify());
+                }
+                return new MValue(MatlabLinAlg.Determinant(a[0]));
+            };
+            _builtins["inv"] = a => {
+                if (a[0].IsSymMatrix)
+                {
+                    int n = a[0].SymCells.GetLength(0);
+                    if (n != a[0].SymCells.GetLength(1)) throw new MatlabRuntimeException("inv: matrix must be square");
+                    return MValue.NewSymMatrix(SymInverse(a[0].SymCells, n));
+                }
+                return MatlabLinAlg.Inverse(a[0]);
+            };
             _builtins["inverse"] = a => MatlabLinAlg.Inverse(a[0]);
             _builtins["expm"] = a => {
                 // Escalar simbólico → exp(x)
@@ -6824,6 +6858,26 @@ namespace Calcpad.Core.Matlab
                 var r = new MValue(1, list.Count); for (int i = 0; i < list.Count; i++) r.Data[i] = list[i]; return r;
             };
             _builtins["factor"] = a => {
+                // SIMBÓLICO: factorizacion polinomial (giac). NUMÉRICO entero: primos.
+                if (a.Length > 0 && a[0].IsSymbolic)
+                {
+                    if (GiacRunner.IsAvailable())
+                    {
+                        var (okf, resf) = GiacRunner.Eval($"factor({a[0].Symbolic.ToInfix()})");
+                        if (okf) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resf))); } catch { } }
+                    }
+                    string varFac = "x";
+                    if (a.Length >= 2 && a[1].IsSymbolic && a[1].Symbolic is SymVar svf) varFac = svf.Name;
+                    var rootsFac = SymOps.SolvePoly(a[0].Symbolic, varFac);
+                    if (rootsFac.Count == 0) return MValue.NewSymbolic(a[0].Symbolic);
+                    SymNode product = null;
+                    foreach (var r0 in rootsFac)
+                    {
+                        var fac = new SymSub(new SymVar(varFac), new SymConst(r0));
+                        product = product == null ? (SymNode)fac : new SymMul(product, fac);
+                    }
+                    return MValue.NewSymbolic(product.Simplify());
+                }
                 long n = (long)Math.Round(a[0].Scalar); var list = new List<double>();
                 for (long d = 2; d * d <= n; d++) while (n % d == 0) { list.Add(d); n /= d; }
                 if (n > 1) list.Add(n);
@@ -8060,6 +8114,51 @@ namespace Calcpad.Core.Matlab
             return r;
         }
         /// <summary>Laplace transform table-based para expresiones canónicas comunes.</summary>
+        /// <summary>Determinante SIMBÓLICO por expansión de cofactores (cualquier N).</summary>
+        private static SymNode SymDet(SymNode[,] M, int n)
+        {
+            if (n == 1) return M[0, 0];
+            if (n == 2) return new SymSub(new SymMul(M[0, 0], M[1, 1]), new SymMul(M[0, 1], M[1, 0]));
+            SymNode sum = new SymConst(0);
+            for (int j = 0; j < n; j++)
+            {
+                var minor = new SymNode[n - 1, n - 1];
+                for (int r = 1; r < n; r++)
+                {
+                    int cc = 0;
+                    for (int c = 0; c < n; c++) { if (c == j) continue; minor[r - 1, cc++] = M[r, c]; }
+                }
+                var term = new SymMul(M[0, j], SymDet(minor, n - 1));
+                sum = (j % 2 == 0) ? (SymNode)new SymAdd(sum, term) : new SymSub(sum, term);
+            }
+            return sum;
+        }
+
+        /// <summary>Inversa SIMBÓLICA = adjunta / determinante (cofactores).</summary>
+        private static SymNode[,] SymInverse(SymNode[,] M, int n)
+        {
+            var det = SymDet(M, n).Simplify();
+            var inv = new SymNode[n, n];
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                {
+                    // inv[i,j] = cofactor(j,i)/det = (-1)^(i+j)·det(minor sin fila j, col i)/det
+                    var minor = new SymNode[n - 1, n - 1];
+                    int rr = 0;
+                    for (int r = 0; r < n; r++)
+                    {
+                        if (r == j) continue;
+                        int cc = 0;
+                        for (int c = 0; c < n; c++) { if (c == i) continue; minor[rr, cc++] = M[r, c]; }
+                        rr++;
+                    }
+                    var cof = n == 1 ? new SymConst(1) : SymDet(minor, n - 1);
+                    var signed = ((i + j) % 2 == 0) ? cof : new SymMul(new SymConst(-1), cof);
+                    inv[i, j] = new SymDiv(signed, det).Simplify();
+                }
+            return inv;
+        }
+
         private static SymNode LaplaceTransform(SymNode expr, string t, string s)
         {
             var S = new SymVar(s);
