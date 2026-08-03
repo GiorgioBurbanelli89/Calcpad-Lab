@@ -90,30 +90,20 @@ fprintf('Mesh: %d elem (%d x %d), %d joints, %d apoyos\n', n_e, n_a, n_b, n_j, n
 
 %% Constitutive matrix (stress - strain relationship)
 % Matriz constitutiva de flexion de placa, la misma que Calcpad VM:
-%
-%   D = E·t³/(12·(1 − ν²)) · | 1   ν      0    |
-%                            | ν   1      0    |
-%                            | 0   0  (1 − ν)/2 |
-%
+% #noc D = E*t^3/(12*(1 - nu^2))*[1; nu; 0|nu; 1; 0|0; 0; (1 - nu)/2]
 D11 = E_si*t^3/(12*(1 - nu^2));
 D = D11 * [1, nu, 0; nu, 1, 0; 0, 0, (1 - nu)/2];
 
 %% Finite element formulation — Shape functions
 % Funciones base de Hermite cubicas (mismas expresiones que Calcpad VM),
-% a lo largo de cada dimension (x = ξ para a, x = η para b):
-%
-%   Φ_1(x) = 1 − x²·(3 − 2·x)           Φ′_1(x) = −6·(x/l₁)·(1 − x)
-%   Φ_2(x) = x·l₁·(1 − x·(2 − x))       Φ′_2(x) = 1 − x·(4 − 3·x)
-%   Φ_3(x) = x²·(3 − 2·x)               Φ′_3(x) = 6·(x/l₁)·(1 − x)
-%   Φ_4(x) = x²·l₁·(−1 + x)             Φ′_4(x) = −x·(2 − 3·x)
-%
+% a lo largo de cada dimension (x = xi para a, x = eta para b):
+% #noc Phi_1(x) = 1 - x^2*(3 - 2*x)
+% #noc Phi_2(x) = x*l*(1 - x*(2 - x))
+% #noc Phi_3(x) = x^2*(3 - 2*x)
+% #noc Phi_4(x) = x^2*l*(-1 + x)
 % Segundas derivadas (curvaturas):
-%   Φ″_1(x) = −(6/l₁²)·(1 − 2·x)        Φ″_3(x) = (6/l₁²)·(1 − 2·x)
-%   Φ″_2(x) = −(2/l₁)·(2 − 3·x)         Φ″_4(x) = −(2/l₁)·(1 − 3·x)
-%
-% Vector de funciones de forma N (16), por nodo: w, θₓ, θᵧ, ψ (twist):
-%   N_k,w  = Φ_ia(ξ)·Φ_jb(η)     N_k,θₓ = Φ_ia(ξ)·Φ_2b(η)
-%   N_k,θᵧ = Φ_2a(ξ)·Φ_jb(η)     N_k,ψ  = Φ_2a(ξ)·Φ_2b(η)
+% #noc Phi''_1(x) = -(6/l^2)*(1 - 2*x)
+% #noc Phi''_2(x) = -(2/l)*(2 - 3*x)
 %-- Las 4 funciones de Hermite cubicas por dimension
 syms xi eta
 syms aa bb  % parametros a_1 y b_1 simbolicos para diff (sustituidos despues)
@@ -234,12 +224,9 @@ end
 %
 % La matriz de rigidez del elemento se obtiene con la MISMA ecuacion de Calcpad VM,
 % integrando en el cuadrado unitario (aqui por cuadratura de Gauss 4x4):
-%
-%   K_e,ij = a₁·b₁·∫₀¹ ∫₀¹ B_i(ξ; η)ᵀ · D · B_j(ξ; η)  dξ dη
-%
+% #noc K_e = a_1*b_1*$Area{$Area{B_i^T*D*B_j @ xi = 0 : 1} @ eta = 0 : 1}
 % Y el vector de carga consistente del elemento:
-%
-%   F_e,i = q·a₁·b₁·∫₀¹ ∫₀¹ N_i(ξ; η)  dξ dη
+% #noc F_e = q*a_1*b_1*$Area{$Area{N_i @ xi = 0 : 1} @ eta = 0 : 1}
 %-- B matrix at (u, v): row 1 = -d^2N/dx^2, row 2 = -d^2N/dy^2, row 3 = -2*d^2N/dxdy
 %-- Cada columna j (1..16) es la contribucion de la shape function j
 B_e = zeros(3, 16);
@@ -350,5 +337,82 @@ fprintf('Joint central: %d en (%.2f, %.2f) m\n', center_joint, x_j(center_joint)
 w_center = Z(4*(center_joint - 1) + 1);
 %-- Conversion: Z esta en m porque K esta en kN/m, F en kN. w_center en m.
 fprintf('Deflexion central w(a/2, b/2) = %g m = %g mm\n', w_center, w_center*1000);
+
+%% Campos nodales para graficar (deflexion + momentos)
+W_z = zeros(n_a+1, n_b+1);
+for i = 1:n_a+1
+    for k = 1:n_b+1
+        jj = (i-1)*(n_b+1)+k;
+        W_z(i,k) = Z(4*(jj-1)+1);
+    end
+end
+%-- Recuperacion de momentos M = -D*B*Z_e, promediados en nodos
+Mnode = zeros(3, n_j); cnt = zeros(n_j,1);
+locuv = [0 0; 1 0; 1 1; 0 1];
+for e = 1:n_e
+    Ze = zeros(16,1);
+    for ni = 1:4
+        jn = e_j(e,ni);
+        for di = 1:4, Ze(4*(ni-1)+di) = Z(4*(jn-1)+di); end
+    end
+    for ni = 1:4
+        uu = locuv(ni,1); vv = locuv(ni,2);
+        Bm = zeros(3,16);
+        for j = 1:16
+            [ix, iy, d1, d2] = bfs_indices(j);
+            Bm(1,j) = -phi_dd(ix,uu,a_1)*phi(iy,vv,b_1);
+            Bm(2,j) = -phi(ix,uu,a_1)*phi_dd(iy,vv,b_1);
+            Bm(3,j) = -2*phi_d(ix,uu,a_1)*phi_d(iy,vv,b_1);
+        end
+        Mv = -D*Bm*Ze; jn = e_j(e,ni);
+        Mnode(:,jn) = Mnode(:,jn) + Mv; cnt(jn) = cnt(jn)+1;
+    end
+end
+for j = 1:n_j, Mnode(:,j) = Mnode(:,j)/cnt(j); end
+Mxx = zeros(n_a+1, n_b+1); Myy = zeros(n_a+1, n_b+1); Mxy = zeros(n_a+1, n_b+1);
+for i = 1:n_a+1
+    for k = 1:n_b+1
+        jj = (i-1)*(n_b+1)+k;
+        Mxx(i,k) = Mnode(1,jj); Myy(i,k) = Mnode(2,jj); Mxy(i,k) = Mnode(3,jj);
+    end
+end
+%-- Von Mises (esfuerzo en la fibra extrema: sigma = 6*M/t^2), en MPa
+sx = 6*Mxx/t^2; sy = 6*Myy/t^2; sxy = 6*Mxy/t^2;    % [kN/m^2]
+Mvm = sqrt(sx.^2 - sx.*sy + sy.^2 + 3*sxy.^2)/1000; % [MPa]
+
+%% Malla Q4 DISCRETIZADA (elementos + nodos)
+figure; hold on;
+for e = 1:n_e
+    nd = e_j(e,:);
+    xs = [x_j(nd(1)), x_j(nd(2)), x_j(nd(3)), x_j(nd(4))];
+    ys = [y_j(nd(1)), y_j(nd(2)), y_j(nd(3)), y_j(nd(4))];
+    patch(xs, ys, [0.80 0.90 1.0], 'EdgeColor', [0 0.25 0.55], 'LineWidth', 1.2);
+end
+plot(x_j, y_j, 'o', 'MarkerFaceColor', [0.85 0.10 0.10], 'MarkerEdgeColor', 'k', 'MarkerSize', 6);
+axis equal; title('Malla Q4 discretizada (6x4, 35 nodos)'); xlabel('x [m]'); ylabel('y [m]');
+
+%% Contornos con interpolacion SPLINE (malla fina) + colormap
+xg = 0:a_1:a; yg = 0:b_1:b; [Xg,Yg] = meshgrid(xg, yg);
+xf = linspace(0,a,80); yf = linspace(0,b,80); [Xf,Yf] = meshgrid(xf, yf);
+Wf   = interp2(Xg, Yg, -W_z'*1000, Xf, Yf, 'spline');
+Mxxf = interp2(Xg, Yg, Mxx',       Xf, Yf, 'spline');
+Myyf = interp2(Xg, Yg, Myy',       Xf, Yf, 'spline');
+Mxyf = interp2(Xg, Yg, Mxy',       Xf, Yf, 'spline');
+Mvmf = interp2(Xg, Yg, Mvm',       Xf, Yf, 'spline');
+
+figure; contourf(Xf, Yf, Wf, 20, 'LineStyle', 'none'); colorbar; colormap(flipud(jet));
+title('Deflexion w [mm] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
+
+figure; contourf(Xf, Yf, Mxxf, 20, 'LineStyle', 'none'); colorbar; colormap(flipud(jet));
+title('Momento Mxx [kNm/m] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
+
+figure; contourf(Xf, Yf, Myyf, 20, 'LineStyle', 'none'); colorbar; colormap(flipud(jet));
+title('Momento Myy [kNm/m] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
+
+figure; contourf(Xf, Yf, Mxyf, 20, 'LineStyle', 'none'); colorbar; colormap(flipud(jet));
+title('Momento Mxy [kNm/m] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
+
+figure; contourf(Xf, Yf, Mvmf, 20, 'LineStyle', 'none'); colorbar; colormap(flipud(jet));
+title('Von Mises sigma [MPa] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
 
 fprintf('\n=== FIN benchmark BFS slab FEA ===\n');

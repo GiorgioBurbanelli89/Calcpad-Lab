@@ -2,7 +2,7 @@
 ; Genera un instalador setup.exe
 
 #define MyAppName "Hekatan Lab"
-#define MyAppVersion "1.0.95"
+#define MyAppVersion "1.0.96"
 #define MyAppPublisher "Jorge Burbano"
 #define MyAppURL "https://github.com/GiorgioBurbanelli89/hekatan-lab"
 #define MyAppExeName "HekatanLab.exe"
