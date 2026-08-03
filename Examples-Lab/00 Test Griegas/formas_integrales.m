@@ -5,7 +5,8 @@
 
 % #md
 % ## A) Integral SIMPLE
-% $I = \int_0^2 3x^2 dx = 8$  (usamos 5 formas, todas dan **8**).
+% I = integral de 3x^2 en [0, 2] = **8**  (usamos 5 formas, todas dan 8).
+% La formula typeset (con el simbolo integral) va abajo con `#noc`.
 % | # | Forma | Comando |
 % |---|-------|---------|
 % | 1 | Notacion simbolica | `% #noc $Area{...}` |
@@ -40,7 +41,8 @@ I_tz = trapz(xv, 3*xv.^2)
 
 % #md
 % ## B) Integral DOBLE
-% $I_2 = \int_0^1\!\!\int_0^1 x\,y \; dx\,dy = 1/4 = 0.25$  (5 formas, todas dan **0.25**).
+% I2 = integral doble de x*y en [0,1]x[0,1] = 1/4 = **0.25**  (5 formas, todas dan 0.25).
+% La formula typeset (con el doble integral) va abajo con `#noc`.
 % #endmd
 
 %% 1) Notacion simbolica (#noc, Calcpad)
