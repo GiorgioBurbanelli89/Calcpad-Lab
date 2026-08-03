@@ -3669,12 +3669,41 @@ namespace Calcpad.Core.Matlab
                 var X = a[0]; var Y = a[1]; var Z = a[2]; var Xq = a[3]; var Yq = a[4];
                 string method = a.Length >= 6 && a[5].IsString ? a[5].StringValue.ToLowerInvariant() : "linear";
                 bool nearest = method.StartsWith("nearest");
+                // 'cubic'/'makima'/'pchip' -> convolución bicúbica (Keys a=-0.5 = Catmull-Rom =
+                //   MATLAB interp2 'cubic'): superficie suave (curvas).
+                // 'spline' -> spline bicúbico natural SEPARABLE (distinto de cubic, como MATLAB).
+                bool spline = method.StartsWith("spline");
+                bool cubic = method.StartsWith("cubic") || method.StartsWith("makima") || method.StartsWith("pchip");
                 int nx = Z.Cols, ny = Z.Rows;
                 var xv = new double[nx];
                 var yv = new double[ny];
                 for (int j = 0; j < nx; j++) xv[j] = (j < X.Data.Length) ? X.Data[j] : j;   // fila 0 / vector
                 bool yIsVec = (Y.Rows == 1 || Y.Cols == 1);
                 for (int i = 0; i < ny; i++) yv[i] = yIsVec ? (i < Y.Data.Length ? Y.Data[i] : i) : Y.Data[i * Y.Cols];
+                // Precálculo para 'spline': filas de Z y sus segundas derivadas a lo largo de x.
+                double[][] rowZ = null, rowY2 = null;
+                if (spline && nx >= 2 && ny >= 2)
+                {
+                    rowZ = new double[ny][]; rowY2 = new double[ny][];
+                    for (int i = 0; i < ny; i++)
+                    {
+                        var zr = new double[nx];
+                        for (int j = 0; j < nx; j++) zr[j] = Z.Data[i * nx + j];
+                        rowZ[i] = zr; rowY2[i] = SplineY2(xv, zr);
+                    }
+                }
+                else spline = false;   // spline necesita >=2x2; si no, cae a bilineal
+                double ZAt(int ii, int jj)
+                {
+                    if (ii < 0) ii = 0; else if (ii > ny - 1) ii = ny - 1;   // clamp = replicar borde
+                    if (jj < 0) jj = 0; else if (jj > nx - 1) jj = nx - 1;
+                    return Z.Data[ii * nx + jj];
+                }
+                // Cúbica 1-D (Catmull-Rom / convolución cúbica a=-0.5) con 4 puntos y fracción t∈[0,1].
+                double Cubic1(double p0, double p1, double p2, double p3, double t) =>
+                    0.5 * (2 * p1 + (-p0 + p2) * t
+                           + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t
+                           + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
                 double Interp(double xq, double yq)
                 {
                     if (xq < xv[0] || xq > xv[nx - 1] || yq < yv[0] || yq > yv[ny - 1]) return double.NaN;
@@ -3686,6 +3715,24 @@ namespace Calcpad.Core.Matlab
                     {
                         int ii = ty < 0.5 ? i0 : i0 + 1, jj = tx < 0.5 ? j0 : j0 + 1;
                         return Z.Data[ii * nx + jj];
+                    }
+                    if (spline)
+                    {
+                        // Separable: spline en x de cada fila (con y2 precalculado) -> columna;
+                        // luego spline en y de esa columna.
+                        var col = new double[ny];
+                        for (int i = 0; i < ny; i++) col[i] = SplineEvalOne(xv, rowZ[i], rowY2[i], xq);
+                        var cy2 = SplineY2(yv, col);
+                        return SplineEvalOne(yv, col, cy2, yq);
+                    }
+                    if (cubic)
+                    {
+                        // Interpolar 4 filas a lo largo de x, luego esas 4 a lo largo de y.
+                        double c0 = Cubic1(ZAt(i0 - 1, j0 - 1), ZAt(i0 - 1, j0), ZAt(i0 - 1, j0 + 1), ZAt(i0 - 1, j0 + 2), tx);
+                        double c1 = Cubic1(ZAt(i0,     j0 - 1), ZAt(i0,     j0), ZAt(i0,     j0 + 1), ZAt(i0,     j0 + 2), tx);
+                        double c2 = Cubic1(ZAt(i0 + 1, j0 - 1), ZAt(i0 + 1, j0), ZAt(i0 + 1, j0 + 1), ZAt(i0 + 1, j0 + 2), tx);
+                        double c3 = Cubic1(ZAt(i0 + 2, j0 - 1), ZAt(i0 + 2, j0), ZAt(i0 + 2, j0 + 1), ZAt(i0 + 2, j0 + 2), tx);
+                        return Cubic1(c0, c1, c2, c3, ty);
                     }
                     double z00 = Z.Data[i0 * nx + j0], z01 = Z.Data[i0 * nx + j0 + 1];
                     double z10 = Z.Data[(i0 + 1) * nx + j0], z11 = Z.Data[(i0 + 1) * nx + j0 + 1];
@@ -8877,6 +8924,34 @@ namespace Calcpad.Core.Matlab
         }
 
         // ─── Spline cúbica natural ──────────────────────────────────────────
+        /// <summary>Segundas derivadas de un spline cúbico NATURAL (y''=0 en los extremos)
+        /// para las muestras (x,y). Numerical Recipes. Se usa para interp2 'spline' separable.</summary>
+        private static double[] SplineY2(double[] x, double[] y)
+        {
+            int n = x.Length;
+            var y2 = new double[n];
+            var u = new double[n];
+            for (int i = 1; i < n - 1; i++)
+            {
+                double sig = (x[i] - x[i - 1]) / (x[i + 1] - x[i - 1]);
+                double p = sig * y2[i - 1] + 2.0;
+                y2[i] = (sig - 1.0) / p;
+                double d = (y[i + 1] - y[i]) / (x[i + 1] - x[i]) - (y[i] - y[i - 1]) / (x[i] - x[i - 1]);
+                u[i] = (6.0 * d / (x[i + 1] - x[i - 1]) - sig * u[i - 1]) / p;
+            }
+            for (int k = n - 2; k >= 0; k--) y2[k] = y2[k] * y2[k + 1] + u[k];
+            return y2;
+        }
+        /// <summary>Evalúa el spline cúbico natural (con y2 precalculado) en xq.</summary>
+        private static double SplineEvalOne(double[] x, double[] y, double[] y2, double xq)
+        {
+            int n = x.Length, klo = 0, khi = n - 1;
+            while (khi - klo > 1) { int k = (khi + klo) >> 1; if (x[k] > xq) khi = k; else klo = k; }
+            double h = x[khi] - x[klo];
+            if (h == 0) return y[klo];
+            double A = (x[khi] - xq) / h, B = (xq - x[klo]) / h;
+            return A * y[klo] + B * y[khi] + ((A * A * A - A) * y2[klo] + (B * B * B - B) * y2[khi]) * (h * h) / 6.0;
+        }
         private static MValue SplineInterp(double[] x, double[] y, MValue xq)
         {
             int n = x.Length;

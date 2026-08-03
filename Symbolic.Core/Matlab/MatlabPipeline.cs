@@ -247,10 +247,11 @@ namespace Calcpad.Core.Matlab
             // Estado por-corrida (se restaura aquí para que una corrida no herede el
             // #nogreek de otra). Se togglea con % #nogreek … % #greek (ver bucle).
             MatlabHtmlWriter.GreekAutoRender = true;
-            // Salida de fprintf/disp: por defecto TEXTO PLANO (fiel a MATLAB). Con el
-            // toggle % #render … % #plain se renderiza (griegas nu→ν, etc.) el texto
-            // impreso. Estado por-corrida, se restaura aquí a plano.
-            bool renderDisp = false;
+            // Salida de fprintf/disp: por defecto RENDERIZADO (variables itálicas, griegas,
+            // unidades verdes; los segmentos de char() se respetan). Con % #plain … % #render
+            // se puede pasar a texto plano y volver. Pedido de Jorge: "por defecto renderice
+            // todo; si quiero texto plano, un % que lo indique". Estado por-corrida.
+            bool renderDisp = true;
             _evaluator.Output = msg => { if (!hidden) dispBuffer.AppendLine(msg); };
             _evaluator.HtmlOut = html => { if (!hidden) htmlBuffer.Append(html); };
             // FRAMES de animación (drawnow): en StreamingMode (WPF) se emiten EN VIVO con la marca
@@ -814,15 +815,33 @@ namespace Calcpad.Core.Matlab
         private static string RenderDispInline(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return raw;
-            return DispTokenRegex.Replace(raw, m =>
+            // Si hay segmentos HTML pre-renderizados (char() del simbólico, entre sentinels),
+            // NO tocarlos — solo transliterar el TEXTO PLANO fuera de ellos (evita corromper
+            // el HTML de char()).
+            if (raw.IndexOf(HtmlStart) < 0)
+                return DispTokenRegex.Replace(raw, RenderDispToken);
+            var sb = new StringBuilder(raw.Length + 32);
+            int i = 0;
+            while (i < raw.Length)
             {
-                if (m.Groups["u"].Success)
-                    return HtmlStart + RenderUnitToken(m.Groups["u"].Value) + HtmlEnd;
-                var name = m.Groups["v"].Value;
-                if (MatlabHtmlWriter.IsRenderableIdent(name))
-                    return HtmlStart + MatlabHtmlWriter.RenderIdentName(name) + HtmlEnd;
-                return name;   // prosa: texto plano
-            });
+                int s = raw.IndexOf(HtmlStart, i);
+                if (s < 0) { sb.Append(DispTokenRegex.Replace(raw.Substring(i), RenderDispToken)); break; }
+                if (s > i) sb.Append(DispTokenRegex.Replace(raw.Substring(i, s - i), RenderDispToken));
+                int e = raw.IndexOf(HtmlEnd, s + 1);
+                if (e < 0) { sb.Append(raw.Substring(s)); break; }
+                sb.Append(raw, s, e - s + 1);   // segmento HTML pre-renderizado: tal cual
+                i = e + 1;
+            }
+            return sb.ToString();
+        }
+        private static string RenderDispToken(System.Text.RegularExpressions.Match m)
+        {
+            if (m.Groups["u"].Success)
+                return HtmlStart + RenderUnitToken(m.Groups["u"].Value) + HtmlEnd;
+            var name = m.Groups["v"].Value;
+            if (MatlabHtmlWriter.IsRenderableIdent(name))
+                return HtmlStart + MatlabHtmlWriter.RenderIdentName(name) + HtmlEnd;
+            return name;   // prosa: texto plano
         }
 
         /// <summary>Formatea un token de unidad como Calcpad: verde + recto, `*`→`·`,

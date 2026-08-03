@@ -1,3 +1,4 @@
+% #plain
 % CANARIO 4 — decomposition(A): factorizar UNA vez y reusar en dA\b.
 % Se usa la Kff REAL del Demo04 (FEM 2D, malla T6), donde la factorizacion SI es
 % cara — a diferencia de una tridiagonal, que MATLAB factoriza casi gratis por

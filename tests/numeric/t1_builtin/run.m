@@ -1,3 +1,4 @@
+% #plain
 % CANARIO 1 — constantes builtin dentro de bucles compilados por el JIT.
 % Motivo: el JIT trataba pi/e/eps como "variables live-in"; su slot quedaba en 0
 % y devolvia CERO sin avisar. En un FEM eso anulaba el angulo de friccion.

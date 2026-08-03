@@ -1638,8 +1638,11 @@ return {make:make};
             // como MATLAB (más ticks en ejes grandes).
             // target calibrado para que en el tamaño MATLAB por defecto (560×420) den los
             // mismos ticks: X paso 1 (~7-8 ticks), Y paso 0.2 (~11 ticks).
-            int tgtX = Math.Max(4, (int)Math.Round(width * 0.775 / 62.0));
-            int tgtY = Math.Max(4, (int)Math.Round(height * 0.815 / 34.0));
+            // El nº de ticks debe ser como MATLAB (figura de referencia ~560×420),
+            // INDEPENDIENTE de la resolución de rasterizado (el contourf va a 960×700). Antes
+            // escalaba con width/height → demasiados ticks en alta res (x cada 0.5, y cada 0.2).
+            int tgtX = Math.Max(4, (int)Math.Round(560.0 * 0.775 / 62.0));   // ~7 (x: 0,1,…,6)
+            int tgtY = Math.Max(4, (int)Math.Round(420.0 * 0.815 / 34.0));   // ~10 (y: 0,0.5,…,4)
             // Si el script fijó límites explícitos con axis([xmin xmax ymin ymax]) los usamos
             // EXACTOS (como MATLAB), sin extender con NiceLimits.
             var (axXmin, axXmax) = _figXMin.HasValue ? (_figXMin.Value, _figXMax.Value) : NiceLimits(xmin, xmax, tgtX);
@@ -1691,7 +1694,12 @@ return {make:make};
                 using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
                 // MATLAB usa Helvetica; Arial es el equivalente mas cercano (vs Segoe UI default).
                 var tface = SKTypeface.FromFamilyName("Arial") ?? SKTypeface.Default;
-                using var font = new SKFont(tface, 10);
+                // Fuentes PROPORCIONALES a la altura (paridad MATLAB): en 700px dan ~13/16/18,
+                // no 10/11/11 que se veian diminutas frente al plot. Piso para figuras chicas.
+                float fTick  = System.Math.Max(10f, height * 0.019f);
+                float fLabel = System.Math.Max(11f, height * 0.023f);
+                float fTitle = System.Math.Max(12f, height * 0.026f);
+                using var font = new SKFont(tface, fTick);
                 using var txt = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black };
                 var axisCol = new SKColor(0x26, 0x26, 0x26);
                 // ── GRID (gris claro punteado, como MATLAB con grid on) ──
@@ -1709,22 +1717,22 @@ return {make:make};
                 {
                     if (t < axXmin - 1e-9 || t > axXmax + 1e-9) continue; float px = TX(t);
                     canvas.DrawLine(px, plotB, px, plotB - 5, axis);
-                    canvas.DrawText(FmtTick(t), px, plotB + 16, SKTextAlign.Center, font, txt);
+                    canvas.DrawText(FmtTick(t), px, plotB + fTick + 4, SKTextAlign.Center, font, txt);
                 }
                 foreach (var t in ticksY)
                 {
                     if (t < axYmin - 1e-9 || t > axYmax + 1e-9) continue; float py = TY(t);
                     canvas.DrawLine(plotL, py, plotL + 5, py, axis);
-                    canvas.DrawText(FmtTick(t), plotL - 7, py + 4, SKTextAlign.Right, font, txt);
+                    canvas.DrawText(FmtTick(t), plotL - 7, py + fTick * 0.36f, SKTextAlign.Right, font, txt);
                 }
                 // ── BOX (marco) ──
                 canvas.DrawRect(plotL, plotT, plotR - plotL, plotB - plotT, axis);
                 // ── xlabel / ylabel / titulo ──
                 // xlabel/ylabel/titulo se anclan a la CAJA (plotB/plotT), no al borde de la
                 // figura -> con axis-equal (caja centrada y encogida) siguen a la caja como MATLAB.
-                using var lblFont = new SKFont(tface, 11);
+                using var lblFont = new SKFont(tface, fLabel);
                 if (!string.IsNullOrEmpty(_figXLabel))
-                    canvas.DrawText(_figXLabel, (plotL + plotR) / 2f, Math.Min(height - 6, plotB + 34), SKTextAlign.Center, lblFont, txt);
+                    canvas.DrawText(_figXLabel, (plotL + plotR) / 2f, Math.Min(height - 6, plotB + fTick + fLabel + 10), SKTextAlign.Center, lblFont, txt);
                 if (!string.IsNullOrEmpty(_figYLabel))
                 {
                     canvas.Save(); canvas.RotateDegrees(-90, 13, (plotT + plotB) / 2f);
@@ -1732,8 +1740,8 @@ return {make:make};
                     canvas.Restore();
                 }
                 if (!string.IsNullOrEmpty(_figTitle))
-                    using (var tfont = new SKFont(tface, 11) { Embolden = true })
-                        canvas.DrawText(_figTitle, (plotL + plotR) / 2f, Math.Max(14, plotT - 12), SKTextAlign.Center, tfont, txt);
+                    using (var tfont = new SKFont(tface, fTitle) { Embolden = true })
+                        canvas.DrawText(_figTitle, (plotL + plotR) / 2f, Math.Max(fTitle + 2, plotT - fTitle * 0.5f - 3), SKTextAlign.Center, tfont, txt);
                 // ── Curvas / primitivas: CLIPeadas al area de plot ──
                 // Las anotaciones de texto (text2d) NO se clipean (MATLAB las dibuja fuera del box) → diferidas.
                 var pendingText = new System.Collections.Generic.List<FigPrim>();
@@ -1951,7 +1959,7 @@ return {make:make};
                         float ex = cbX - 3, ey = plotT - 5;
                         canvas.DrawText("×10", ex, ey, SKTextAlign.Left, font, txt);
                         float w10 = font.MeasureText("×10");
-                        using var sfont = new SKFont(tface, 8);
+                        using var sfont = new SKFont(tface, fTick * 0.8f);
                         canvas.DrawText(cbExp.ToString(), ex + w10 + 1, ey - 5, SKTextAlign.Left, sfont, txt);
                     }
                 }

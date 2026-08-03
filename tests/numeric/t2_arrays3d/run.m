@@ -1,3 +1,4 @@
+% #plain
 % CANARIO 2 — arreglos 3-D: zeros(m,n,p), A(i,j,k) lectura y escritura.
 % Motivo: la tension de un FEM es 4 x NELEM x NGAUSS. El soporte 3-D se anadio
 % en v1.0.75; este test compara SIEMPRE contra el equivalente aplanado, que es
