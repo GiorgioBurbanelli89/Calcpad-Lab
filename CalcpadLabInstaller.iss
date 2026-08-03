@@ -2,7 +2,7 @@
 ; Genera un instalador setup.exe
 
 #define MyAppName "Hekatan Lab"
-#define MyAppVersion "1.0.94"
+#define MyAppVersion "1.0.95"
 #define MyAppPublisher "Jorge Burbano"
 #define MyAppURL "https://github.com/GiorgioBurbanelli89/hekatan-lab"
 #define MyAppExeName "HekatanLab.exe"
@@ -38,7 +38,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "fileassoc_m"; Description: "Asociar archivos .m (MATLAB) con Hekatan Lab"; GroupDescription: "Asociaciones de archivo:"
-Name: "fileassoc_cpd"; Description: "Asociar archivos .cpd con Hekatan Lab"; GroupDescription: "Asociaciones de archivo:"; Flags: unchecked
+Name: "fileassoc_cpd"; Description: "Asociar archivos .cpd con Hekatan Lab"; GroupDescription: "Asociaciones de archivo:"
 
 [InstallDelete]
 ; Limpiar Examples viejos antes de copiar — evita que queden .m huérfanos de
@@ -75,8 +75,11 @@ Root: HKA; Subkey: "Software\Classes\CalcpadLab.MFile"; ValueType: string; Value
 Root: HKA; Subkey: "Software\Classes\CalcpadLab.MFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: fileassoc_m
 Root: HKA; Subkey: "Software\Classes\CalcpadLab.MFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: fileassoc_m
 
-; .cpd file association (optional)
+; .cpd file association — POR DEFECTO Hekatan Lab (doble-clic lo abre). .cpd es
+; exclusivo de Hekatan/Calcpad, asi que fijamos el predeterminado (a diferencia de
+; .m, que se comparte con MATLAB y solo va en "Abrir con").
 Root: HKA; Subkey: "Software\Classes\.cpd\OpenWithProgids"; ValueType: string; ValueName: "CalcpadLab.CpdFile"; ValueData: ""; Flags: uninsdeletevalue; Tasks: fileassoc_cpd
+Root: HKA; Subkey: "Software\Classes\.cpd"; ValueType: string; ValueName: ""; ValueData: "CalcpadLab.CpdFile"; Flags: uninsdeletevalue; Tasks: fileassoc_cpd
 Root: HKA; Subkey: "Software\Classes\CalcpadLab.CpdFile"; ValueType: string; ValueName: ""; ValueData: "Hekatan Lab Document"; Flags: uninsdeletekey; Tasks: fileassoc_cpd
 Root: HKA; Subkey: "Software\Classes\CalcpadLab.CpdFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: fileassoc_cpd
 Root: HKA; Subkey: "Software\Classes\CalcpadLab.CpdFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: fileassoc_cpd
