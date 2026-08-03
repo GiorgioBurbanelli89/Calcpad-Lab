@@ -5162,6 +5162,24 @@ namespace Calcpad.Core.Matlab
                     try { return new MValue(a[0].Symbolic.Eval(new Dictionary<string, double>())); }
                     catch { throw new MatlabRuntimeException("double: symbolic expression has unbound variables"); }
                 }
+                // MATRIZ simbólica → matriz NUMÉRICA real (no simbólica): así se muestra en
+                // negro/normal, no con el estilo simbólico morado, y con precisión normal.
+                if (a[0].IsSymMatrix)
+                {
+                    int rr = a[0].SymCells.GetLength(0), cc = a[0].SymCells.GetLength(1);
+                    var data = new double[rr * cc];
+                    var empty = new Dictionary<string, double>();
+                    for (int r = 0; r < rr; r++)
+                        for (int c = 0; c < cc; c++)
+                        {
+                            var cell = a[0].SymCells[r, c];
+                            double val;
+                            if (cell is SymConst scc) val = scc.Value;
+                            else { try { val = cell.Eval(empty); } catch { throw new MatlabRuntimeException("double: symbolic matrix has unbound variables"); } }
+                            data[c * rr + r] = val;   // column-major
+                        }
+                    return new MValue(rr, cc, data);
+                }
                 if (a[0].HasUnit) return new MValue(a[0].Data[0]);   // symunit → coef numérico
                 return a[0];
             };
@@ -5275,6 +5293,10 @@ namespace Calcpad.Core.Matlab
                 string vN = varName; SymNode lA = limA, lB = limB;
                 SymNode DoInt(SymNode expr)
                 {
+                    // Expandir a suma de monomios ANTES de integrar: el integrador (giac/SymOps)
+                    // es rapido y robusto sobre monomios, pero se atasca con productos anidados
+                    // (p.ej. B^T*D*B de las funciones de forma). Clave para K_e = int(int(...)).
+                    try { expr = SymNode.Expand(TrigRules.ExpandTrig(expr)); } catch { }
                     if (lA != null)
                     {
                         if (GiacRunner.IsAvailable())
@@ -10507,6 +10529,81 @@ namespace Calcpad.Core.Matlab
         /// si el valor o el destino llevan unidad, reindexa un MAPA DE CÓDIGOS (unidad→entero) con
         /// la MISMA operación para saber qué unidad quedó en cada posición. Solo trabaja extra si
         /// hay unidades → cero impacto en la asignación numérica normal.</summary>
+        /// <summary>Asignación indexada en MATRIZ SIMBÓLICA: B(i,j)=symExpr, B(k)=..., B(:,c)=vec.
+        /// Escribe en SymCells (la ruta numérica normal usa Data y perdía la asignación → B en 0).
+        /// Promueve una matriz numérica a simbólica si el valor es simbólico.</summary>
+        private MValue SymIndexedAssign(MValue m, List<MatlabNode> idxNodes, MValue v, MatlabScope scope)
+        {
+            int nDims = idxNodes.Count;
+            int R = m.Rows, C = m.Cols;
+            SymNode[,] cells;
+            if (m.IsSymMatrix) cells = (SymNode[,])m.SymCells.Clone();
+            else
+            {
+                cells = new SymNode[R, C];
+                for (int r = 0; r < R; r++)
+                    for (int c = 0; c < C; c++)
+                        cells[r, c] = new SymConst(m.Data != null && m.Data.Length > 0 ? m.Data[c * R + r] : 0);
+            }
+            // SymNode del valor v para la posición (ri,ci) dentro del bloque asignado.
+            SymNode ValAt(int ri, int ci)
+            {
+                if (v.IsSymbolic) return v.Symbolic;
+                if (v.IsSymMatrix)
+                    return v.SymCells[Math.Min(ri, v.SymCells.GetLength(0) - 1),
+                                      Math.Min(ci, v.SymCells.GetLength(1) - 1)];
+                if (v.IsScalar) return new SymConst(v.Scalar);
+                int vr = v.Rows, vc = v.Cols;
+                double dv;
+                if (vr == 1 || vc == 1) { int k = (vr == 1) ? ci : ri; dv = v.Data[Math.Min(k, v.Data.Length - 1)]; }
+                else dv = v.Data[Math.Min(ci, vc - 1) * vr + Math.Min(ri, vr - 1)];
+                return new SymConst(dv);
+            }
+            SymNode[,] Grow(SymNode[,] src, int oldR, int oldC, int newR, int newC)
+            {
+                var g = new SymNode[newR, newC];
+                for (int r = 0; r < newR; r++)
+                    for (int c = 0; c < newC; c++)
+                        g[r, c] = (r < oldR && c < oldC && src[r, c] != null) ? src[r, c] : new SymConst(0);
+                return g;
+            }
+            int[][] indices = new int[nDims][];
+            for (int d = 0; d < nDims; d++)
+            {
+                _endCtx.Push((m, d, nDims));
+                try { indices[d] = ResolveIndexArg(idxNodes[d], m, d, nDims, scope); }
+                finally { _endCtx.Pop(); }
+            }
+            if (nDims == 2)
+            {
+                var rows = indices[0]; var cols = indices[1];
+                int maxR = R, maxC = C;
+                foreach (var r in rows) if (r + 1 > maxR) maxR = r + 1;
+                foreach (var c in cols) if (c + 1 > maxC) maxC = c + 1;
+                if (maxR > R || maxC > C) { cells = Grow(cells, R, C, maxR, maxC); R = maxR; C = maxC; }
+                for (int ci = 0; ci < cols.Length; ci++)
+                    for (int ri = 0; ri < rows.Length; ri++)
+                        cells[rows[ri], cols[ci]] = ValAt(ri, ci);
+                return MValue.NewSymMatrix(cells);
+            }
+            // nDims == 1: indexado lineal (column-major)
+            var lin = indices[0];
+            int totalOld = R * C, maxLin = totalOld;
+            foreach (var i in lin) if (i + 1 > maxLin) maxLin = i + 1;
+            if (maxLin > totalOld)
+            {
+                if (C == 1 || totalOld == 0) { cells = Grow(cells, R, C, maxLin, 1); R = maxLin; C = 1; }
+                else if (R == 1) { cells = Grow(cells, R, C, 1, maxLin); C = maxLin; }
+            }
+            for (int t = 0; t < lin.Length; t++)
+            {
+                int i = lin[t];
+                int col0 = R > 0 ? i / R : 0, row0 = i - col0 * R;
+                cells[row0, col0] = ValAt(t, 0);
+            }
+            return MValue.NewSymMatrix(cells);
+        }
+
         private MValue IndexedAssign(MValue m, List<MatlabNode> idxNodes, MValue v, MatlabScope scope)
         {
             var res = IndexedAssignCore(m, idxNodes, v, scope);
@@ -10590,6 +10687,11 @@ namespace Calcpad.Core.Matlab
                 }
                 return MValue.New3D(newPages);
             }
+            // MATRIZ SIMBOLICA: B(i,j) = symExpr  → escribir en SymCells (no en Data).
+            // Tambien promueve una matriz numerica a simbolica si el valor es simbolico
+            // (necesario para construir B con syms: B = sym(zeros(3,4)); B(1,j) = diff(...)).
+            if (nDims <= 2 && (m.IsSymMatrix || v.IsSymbolic || v.IsSymMatrix))
+                return SymIndexedAssign(m, idxNodes, v, scope);
             // Resolve target indices con soporte para `:`, range, end
             int[][] indices = new int[nDims][];
             for (int d = 0; d < nDims; d++)
