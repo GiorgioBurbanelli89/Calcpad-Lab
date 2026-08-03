@@ -62,6 +62,14 @@ namespace Calcpad.Core
         // MKL_Set_Num_Threads(nt) — fuerza el paralelismo de MKL (matmul/solve/eig). Sin esto se
         // quedaba single-thread (matmul 300 ≈ 1.9 ms vs MATLAB multi 0.44 ms). Solo en oneMKL real.
         public static delegate* unmanaged[Cdecl]<int, void> MklSetNumThreads;
+        // VML (Vector Math Library de MKL) — element-wise SIMD + threaded: sqrt/exp/log/sin/cos y
+        // potencia. n, a, [b escalar], y. Es lo que hace rápido el element-wise de MATLAB.
+        public static delegate* unmanaged[Cdecl]<int, double*, double*, void> VdSqrt;
+        public static delegate* unmanaged[Cdecl]<int, double*, double, double*, void> VdPowx;
+        public static delegate* unmanaged[Cdecl]<int, double*, double*, void> VdExp;
+        public static delegate* unmanaged[Cdecl]<int, double*, double*, void> VdLn;
+        public static delegate* unmanaged[Cdecl]<int, double*, double*, void> VdSin;
+        public static delegate* unmanaged[Cdecl]<int, double*, double*, void> VdCos;
         // MKL PARDISO (sparse directo, el solver de OpenSees). Solo existe en mkl_rt.
         // pardiso(pt, maxfct, mnum, mtype, phase, n, a, ia, ja, perm, nrhs, iparm, msglvl, b, x, error)
         public static delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void> Pardiso;
@@ -144,6 +152,13 @@ namespace Calcpad.Core
                 MklSetNumThreads = (delegate* unmanaged[Cdecl]<int, void>)p;
                 try { MklSetNumThreads(Math.Max(1, Environment.ProcessorCount)); } catch { }
             }
+            // VML (element-wise SIMD+threaded)
+            if (NativeLibrary.TryGetExport(h, "vdSqrt", out p)) VdSqrt = (delegate* unmanaged[Cdecl]<int, double*, double*, void>)p;
+            if (NativeLibrary.TryGetExport(h, "vdPowx", out p)) VdPowx = (delegate* unmanaged[Cdecl]<int, double*, double, double*, void>)p;
+            if (NativeLibrary.TryGetExport(h, "vdExp", out p)) VdExp = (delegate* unmanaged[Cdecl]<int, double*, double*, void>)p;
+            if (NativeLibrary.TryGetExport(h, "vdLn", out p)) VdLn = (delegate* unmanaged[Cdecl]<int, double*, double*, void>)p;
+            if (NativeLibrary.TryGetExport(h, "vdSin", out p)) VdSin = (delegate* unmanaged[Cdecl]<int, double*, double*, void>)p;
+            if (NativeLibrary.TryGetExport(h, "vdCos", out p)) VdCos = (delegate* unmanaged[Cdecl]<int, double*, double*, void>)p;
             // PARDISO (solo MKL; OpenBLAS no lo exporta → quedan null)
             if (NativeLibrary.TryGetExport(h, "pardiso", out p)) Pardiso = (delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void>)p;
             if (NativeLibrary.TryGetExport(h, "pardisoinit", out p)) Pardisoinit = (delegate* unmanaged[Cdecl]<void*, int*, int*, void>)p;
@@ -393,6 +408,38 @@ namespace Calcpad.Core
                         C[rowC + j] += aip * B[rowB + j];
                 }
             }
+        }
+
+        // ---- VML: element-wise sqrt/exp/log/sin/cos y potencia a^b (b escalar) ----
+        // Solo compensa el interop nativo si el vector es grande; debajo de esto el
+        // bucle SIMD administrado ya es igual o mejor. Umbral empírico.
+        public const int VmlThreshold = 1024;
+        public static bool VmlAvailable => NativeBlas.VdSqrt != null;
+
+        /// <summary>y = op(a) para fn: 0=sqrt 1=exp 2=ln 3=sin 4=cos. Devuelve false si VML no está.</summary>
+        public static bool VmlUnary(int fn, int n, double[] a, double[] y)
+        {
+            fixed (double* pa = a, py = y)
+            {
+                switch (fn)
+                {
+                    case 0: if (NativeBlas.VdSqrt == null) return false; NativeBlas.VdSqrt(n, pa, py); return true;
+                    case 1: if (NativeBlas.VdExp  == null) return false; NativeBlas.VdExp (n, pa, py); return true;
+                    case 2: if (NativeBlas.VdLn   == null) return false; NativeBlas.VdLn  (n, pa, py); return true;
+                    case 3: if (NativeBlas.VdSin  == null) return false; NativeBlas.VdSin (n, pa, py); return true;
+                    case 4: if (NativeBlas.VdCos  == null) return false; NativeBlas.VdCos (n, pa, py); return true;
+                    default: return false;
+                }
+            }
+        }
+
+        /// <summary>y = a.^b con b escalar (vdPowx). Devuelve false si VML no está.</summary>
+        public static bool VmlPowx(int n, double[] a, double b, double[] y)
+        {
+            if (NativeBlas.VdPowx == null) return false;
+            fixed (double* pa = a, py = y)
+                NativeBlas.VdPowx(n, pa, b, py);
+            return true;
         }
     }
 

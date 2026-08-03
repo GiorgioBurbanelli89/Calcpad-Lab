@@ -494,8 +494,8 @@ namespace Calcpad.Core.Matlab
             };
 
             // Elementary math (element-wise on matrices)
-            _builtins["sin"] = a => MapUnary(a[0], Math.Sin);
-            _builtins["cos"] = a => MapUnary(a[0], Math.Cos);
+            _builtins["sin"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Sin) : MapUnaryVml(a[0], 3, Math.Sin);
+            _builtins["cos"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Cos) : MapUnaryVml(a[0], 4, Math.Cos);
             _builtins["tan"] = a => MapUnary(a[0], Math.Tan);
             _builtins["asin"] = a => MapUnary(a[0], Math.Asin);
             _builtins["acos"] = a => MapUnary(a[0], Math.Acos);
@@ -503,11 +503,11 @@ namespace Calcpad.Core.Matlab
             _builtins["sinh"] = a => MapUnary(a[0], Math.Sinh);
             _builtins["cosh"] = a => MapUnary(a[0], Math.Cosh);
             _builtins["tanh"] = a => MapUnary(a[0], Math.Tanh);
-            _builtins["exp"] = a => MapUnary(a[0], Math.Exp);
-            _builtins["log"] = a => MapUnary(a[0], Math.Log);
+            _builtins["exp"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Exp) : MapUnaryVml(a[0], 1, Math.Exp);
+            _builtins["log"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Log) : MapUnaryVml(a[0], 2, Math.Log);
             _builtins["log2"] = a => MapUnary(a[0], x => Math.Log(x, 2));
             _builtins["log10"] = a => MapUnary(a[0], Math.Log10);
-            _builtins["sqrt"] = a => MapUnary(a[0], Math.Sqrt);
+            _builtins["sqrt"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Sqrt) : MapUnaryVml(a[0], 0, Math.Sqrt);
             _builtins["abs"] = a => {
                 var v = a[0];
                 if (v.IsComplex)
@@ -8476,6 +8476,35 @@ namespace Calcpad.Core.Matlab
             return r;
         }
 
+        // a.^b con b escalar real y a array real grande → VML vdPowx (SIMD+threaded).
+        // Cubre exponentes NO enteros (0.5, 2.5, ...); los enteros ya los toma MapPowFast.
+        private static MValue MapPowVml(MValue a, MValue b)
+        {
+            if (a.IsComplex || a.IsSparseReal || a.IsString || a.IsScalar || a.HasAnyUnit) return null;
+            if (b == null || !b.IsScalar || b.IsComplex) return null;
+            var da = a.Data;
+            if (da == null || da.Length < Calcpad.Core.BlasInterop.VmlThreshold) return null;
+            if (!Calcpad.Core.BlasInterop.VmlAvailable) return null;
+            var r = new MValue(a.Rows, a.Cols);
+            if (!Calcpad.Core.BlasInterop.VmlPowx(da.Length, da, b.Scalar, r.Data)) return null;
+            return r;
+        }
+
+        // op(a) element-wise via VML (0=sqrt 1=exp 2=ln 3=sin 4=cos) para a real grande;
+        // si no aplica devuelve el camino administrado MapUnary(scalar).
+        private static MValue MapUnaryVml(MValue a, int fn, Func<double, double> scalar)
+        {
+            if (!a.IsComplex && !a.IsSparseReal && !a.IsString && !a.HasAnyUnit
+                && a.Data != null && a.Data.Length >= Calcpad.Core.BlasInterop.VmlThreshold
+                && Calcpad.Core.BlasInterop.VmlAvailable)
+            {
+                var r = new MValue(a.Rows, a.Cols);
+                if (Calcpad.Core.BlasInterop.VmlUnary(fn, a.Data.Length, a.Data, r.Data))
+                    return r;
+            }
+            return MapUnary(a, scalar);
+        }
+
         private static MValue MapBinary(MValue a, MValue b, Func<double, double, double> f)
         {
             // Guarda SPARSE: las ops element-wise (+ - .* ./) usan .Data denso; si un
@@ -9437,7 +9466,7 @@ namespace Calcpad.Core.Matlab
                               : (a.IsScalar || b.IsScalar) ? MapBinary(a, b, (x, y) => y / x)
                                                            : MatlabLinAlg.Linsolve(a, b);
         /// <summary>A.^B element-wise (potencia) y A^B mpower — como el interprete.</summary>
-        public static MValue JitMatEwPow(MValue a, MValue b) => MapBinary(a, b, System.Math.Pow);
+        public static MValue JitMatEwPow(MValue a, MValue b) => MapPowFast(a, b) ?? MapPowVml(a, b) ?? MapBinary(a, b, System.Math.Pow);
         public static MValue JitMatPow(MValue a, MValue b) => MPowerOp(a, b);
         /// <summary>Comparacion element-wise A op B → matriz logica (0/1). op: 0:&lt; 1:&gt; 2:&lt;= 3:&gt;= 4:== 5:~=.</summary>
         public static MValue JitMatCmp(MValue a, MValue b, int op) => op switch
