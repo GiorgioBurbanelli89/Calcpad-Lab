@@ -52,7 +52,11 @@ namespace Calcpad.Core.Matlab
                         //  3. Otros casos: rhs source = value, con short-circuit si ambos
                         //     renderean identico (literales, matrices puras, etc).
                         bool symbolicCall = IsSymbolicFunctionCall(asg.Rhs);
-                        bool symbolicResult = result.Value != null && result.Value.IsSymbolic;
+                        // Escalar simbólico O MATRIZ simbólica: mostrar solo el VALOR (una vez).
+                        // Antes solo cubría IsSymbolic (escalar) → una matriz simbólica como
+                        // A = [a b; b a] caía al caso "expr = valor" y se duplicaba.
+                        bool symbolicResult = result.Value != null
+                                              && (result.Value.IsSymbolic || result.Value.IsSymMatrix);
                         if (symbolicCall)
                         {
                             // (1) Pretty notation + value
