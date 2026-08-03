@@ -14,11 +14,11 @@
 % #endmd
 
 %% Datos
-E  = 35000e3    % Modulo elastico [kN/m^2] (= 35000 MPa)
-nu = 0.15       % Coef de Poisson
-t  = 0.1        % Espesor [m]
-a  = 1          % ancho del elemento a_1 [m]
-b  = 1          % alto  del elemento b_1 [m]
+E  = 35000e3    % 'Modulo elastico [kN/m^2] (= 35000 MPa)
+nu = 0.15       % 'Coef de Poisson
+t  = 0.1        % 'Espesor [m]
+a  = 1          % 'ancho del elemento a_1 [m]
+b  = 1          % 'alto  del elemento b_1 [m]
 D11 = E*t^3/(12*(1 - nu^2));
 % Matriz constitutiva de flexion de placa (la MISMA que en el BFS):
 % #noc D = E*t^3/(12*(1 - nu^2))*[1; nu; 0|nu; 1; 0|0; 0; (1 - nu)/2]
