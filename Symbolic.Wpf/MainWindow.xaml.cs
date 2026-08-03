@@ -752,7 +752,7 @@ namespace Calcpad.Wpf
             {
                 // Calcpad Lab: MATLAB-only. Default y filtro: .m
                 DefaultExt = ".m",
-                InitialDirectory = File.Exists(CurrentFileName) ? Path.GetDirectoryName(CurrentFileName) : DocumentPath,
+                InitialDirectory = DialogDir,
                 CheckFileExists = true,
                 Multiselect = false,
                 Filter = "MATLAB Script (*.m)|*.m"
@@ -769,6 +769,33 @@ namespace Calcpad.Wpf
                 FileSaveAs();
             else
                 FileSave(CurrentFileName);
+        }
+
+        /// <summary>Carpeta inicial de los dialogos Abrir/Guardar: (1) el dir de trabajo si se uso
+        /// `cd 'carpeta'`; (2) la carpeta del archivo abierto; (3) Examples por defecto.</summary>
+        private string DialogDir
+        {
+            get
+            {
+                var wd = Calcpad.Core.Matlab.MatlabPipeline.UserWorkingDir;
+                if (!string.IsNullOrEmpty(wd) && Directory.Exists(wd)) return wd;
+                if (File.Exists(CurrentFileName)) return Path.GetDirectoryName(CurrentFileName);
+                return DocumentPath;
+            }
+        }
+
+        /// <summary>Tras correr un script: si el usuario hizo `cd 'ruta\archivo'`, abre ese archivo
+        /// (solo interactivo; en --shot no aplica).</summary>
+        private void TryOpenRequestedFile()
+        {
+            var req = Calcpad.Core.Matlab.MatlabPipeline.RequestedOpenFile;
+            Calcpad.Core.Matlab.MatlabPipeline.RequestedOpenFile = null;
+            if (!string.IsNullOrEmpty(req) && File.Exists(req)
+                && !string.Equals(Path.GetFullPath(req),
+                                  Path.GetFullPath(string.IsNullOrEmpty(CurrentFileName) ? "." : CurrentFileName),
+                                  StringComparison.OrdinalIgnoreCase))
+                _ = Dispatcher.InvokeAsync(() => FileOpen(req),
+                                           System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void ReadSettings()
@@ -1009,7 +1036,7 @@ namespace Calcpad.Wpf
             var dlg = new SaveFileDialog
             {
                 FileName = Path.GetFileName(CurrentFileName),
-                InitialDirectory = File.Exists(CurrentFileName) ? Path.GetDirectoryName(CurrentFileName) : DocumentPath,
+                InitialDirectory = DialogDir,
                 DefaultExt = ".m",
                 OverwritePrompt = true,
                 Filter = "MATLAB Script (*.m)|*.m"
@@ -1606,6 +1633,7 @@ namespace Calcpad.Wpf
                 // el último frame de animación (drawnow) acabe de pintarse en el WebView2.
                 if (_shotPng != null) { await Task.Delay(1200); await CaptureWebViewerAndExit(_shotPng); }
                 else if (_gifDir != null) { await Task.Delay(600); await CaptureFramesAndExit(_gifDir); }
+                else TryOpenRequestedFile();   // cd 'ruta\archivo' -> abrir ese archivo
                 return; // skip RENDER_OUTPUT — el WebView2 ya tiene todo
             }
             if (!string.IsNullOrEmpty(_htmlUnwarpedCode) && !(IsWebForm || toWebForm))
@@ -2342,7 +2370,7 @@ namespace Calcpad.Wpf
                 DefaultExt = ".html",
                 Filter = "Html Files (*.html)|*.html",
                 FileName = Path.ChangeExtension(Path.GetFileName(CurrentFileName), "html"),
-                InitialDirectory = File.Exists(CurrentFileName) ? Path.GetDirectoryName(CurrentFileName) : DocumentPath,
+                InitialDirectory = DialogDir,
                 OverwritePrompt = true
             };
             var result = (bool)dlg.ShowDialog();
@@ -4240,7 +4268,7 @@ namespace Calcpad.Wpf
                 DefaultExt = ".pdf",
                 Filter = "Pdf File (*.pdf)|*.pdf",
                 FileName = Path.ChangeExtension(Path.GetFileName(CurrentFileName), "pdf"),
-                InitialDirectory = File.Exists(CurrentFileName) ? Path.GetDirectoryName(CurrentFileName) : DocumentPath,
+                InitialDirectory = DialogDir,
                 OverwritePrompt = true
             };
             var result = (bool)dlg.ShowDialog();

@@ -2969,10 +2969,24 @@ namespace Calcpad.Core.Matlab
                 string full = System.IO.Path.IsPathRooted(target)
                     ? target
                     : System.IO.Path.GetFullPath(System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), target));
+                // Si el destino es un ARCHIVO existente: pedir a la WPF que lo ABRA (y situar el
+                // cwd en su carpeta). Asi `cd 'C:\proj\modelo.m'` abre el archivo directamente.
+                if (System.IO.File.Exists(full))
+                {
+                    MatlabPipeline.RequestedOpenFile = full;
+                    var dir = System.IO.Path.GetDirectoryName(full);
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        try { System.IO.Directory.SetCurrentDirectory(dir); } catch { }
+                        MatlabPipeline.UserWorkingDir = dir;
+                    }
+                    return new MValue(0);
+                }
                 if (!System.IO.Directory.Exists(full))
-                    throw new MatlabRuntimeException($"cd: el directorio '{target}' no existe");
+                    throw new MatlabRuntimeException($"cd: '{target}' no existe (ni carpeta ni archivo)");
                 try { System.IO.Directory.SetCurrentDirectory(full); }
                 catch (Exception ex) { throw new MatlabRuntimeException($"cd: {ex.Message}"); }
+                MatlabPipeline.UserWorkingDir = full;   // los dialogos Abrir/Guardar abren aqui
                 return new MValue(0);   // cambiar de dir no imprime (EsLlamadaSinSalida lo suprime)
             };
             // mfilename / fileparts / fullfile: usados típicamente para armar rutas de guardado.

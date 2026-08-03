@@ -116,6 +116,13 @@ namespace Calcpad.Core.Matlab
         }
         public static System.Collections.Generic.List<byte[]> ExportedPngs => MatlabPlots.ExportedPngs;
 
+        /// <summary>Puesto por el builtin `cd` cuando su destino es un ARCHIVO: la WPF lo abre
+        /// tras terminar el render (cd 'ruta\archivo.m' -> abre ese archivo).</summary>
+        public static string RequestedOpenFile;
+        /// <summary>Directorio de trabajo puesto por `cd 'carpeta'`: los dialogos Abrir/Guardar
+        /// de la WPF lo usan como carpeta inicial (en vez de Examples) si no hay archivo abierto.</summary>
+        public static string UserWorkingDir;
+
 
         // ── Directivas Calcpad embebidas en comentarios MATLAB ──────────────
         // Un `.m` corre idéntico en MATLAB 2017a (que ve `% #deq ...` como un
