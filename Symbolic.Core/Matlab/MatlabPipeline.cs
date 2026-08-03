@@ -848,6 +848,10 @@ namespace Calcpad.Core.Matlab
             {
                 string line = (lines[i] ?? "").Trim();
                 if (line.Length == 0) { i++; continue; }
+                // Alineacion:  -> texto <-  (centrado).  Aplica a encabezado y parrafo.
+                string al = "left";
+                if (line.StartsWith("->") && line.EndsWith("<-") && line.Length >= 4)
+                { line = line.Substring(2, line.Length - 4).Trim(); al = "center"; }
                 // Tabla: bloque de lineas que empiezan por '|'
                 if (line.StartsWith("|"))
                 {
@@ -862,7 +866,7 @@ namespace Calcpad.Core.Matlab
                     int lvl = 0; while (lvl < line.Length && line[lvl] == '#') lvl++;
                     string txt = line.Substring(lvl).Trim();
                     int h = Math.Min(2 + lvl, 6);   // # -> h3, ## -> h4, ### -> h5
-                    sb.Append($"<h{h} style=\"margin:0.5em 0 0.3em\">{MdInline(txt)}</h{h}>");
+                    sb.Append($"<h{h} style=\"margin:0.5em 0 0.3em;text-align:{al}\">{MdInline(txt)}</h{h}>");
                     i++; continue;
                 }
                 // Regla horizontal
@@ -880,17 +884,18 @@ namespace Calcpad.Core.Matlab
                     sb.Append("</ul>");
                     continue;
                 }
-                // Parrafo: agrupa lineas consecutivas no-especiales
-                var para = new StringBuilder();
+                // Parrafo: agrupa lineas consecutivas no-especiales (empieza en la ya
+                // des-marcada `line` para respetar la alineacion -> ... <-)
+                var para = new StringBuilder(line);
+                i++;
                 while (i < lines.Count)
                 {
                     var l = (lines[i] ?? "").Trim();
                     if (l.Length == 0 || l.StartsWith("#") || l.StartsWith("|") ||
                         l.StartsWith("- ") || l.StartsWith("* ") || l == "---") break;
-                    if (para.Length > 0) para.Append(' ');
-                    para.Append(l); i++;
+                    para.Append(' ').Append(l); i++;
                 }
-                sb.Append($"<p style=\"margin:0.3em 0\">{MdInline(para.ToString())}</p>");
+                sb.Append($"<p style=\"margin:0.3em 0;text-align:{al}\">{MdInline(para.ToString())}</p>");
             }
             sb.Append("</div>");
             return sb.ToString();
@@ -943,20 +948,30 @@ namespace Calcpad.Core.Matlab
             // NO tocarlos — solo transliterar el TEXTO PLANO fuera de ellos (evita corromper
             // el HTML de char()).
             if (raw.IndexOf(HtmlStart) < 0)
-                return DispTokenRegex.Replace(raw, RenderDispToken);
+                return RenderPlainSegment(raw);
             var sb = new StringBuilder(raw.Length + 32);
             int i = 0;
             while (i < raw.Length)
             {
                 int s = raw.IndexOf(HtmlStart, i);
-                if (s < 0) { sb.Append(DispTokenRegex.Replace(raw.Substring(i), RenderDispToken)); break; }
-                if (s > i) sb.Append(DispTokenRegex.Replace(raw.Substring(i, s - i), RenderDispToken));
+                if (s < 0) { sb.Append(RenderPlainSegment(raw.Substring(i))); break; }
+                if (s > i) sb.Append(RenderPlainSegment(raw.Substring(i, s - i)));
                 int e = raw.IndexOf(HtmlEnd, s + 1);
                 if (e < 0) { sb.Append(raw.Substring(s)); break; }
                 sb.Append(raw, s, e - s + 1);   // segmento HTML pre-renderizado: tal cual
                 i = e + 1;
             }
             return sb.ToString();
+        }
+        /// <summary>Renderiza un segmento de TEXTO PLANO de disp/fprintf: nombres→variables/griegas
+        /// (DispTokenRegex) y ademas `^N`→superindice (por defecto, como el resto del render).
+        /// El superindice se envuelve en sentinels para pasar como HTML crudo (no re-escapado).</summary>
+        private static string RenderPlainSegment(string text)
+        {
+            var r = DispTokenRegex.Replace(text, RenderDispToken);
+            r = System.Text.RegularExpressions.Regex.Replace(
+                    r, @"\^(-?\d+)", HtmlStart + "<sup>$1</sup>" + HtmlEnd);
+            return r;
         }
         private static string RenderDispToken(System.Text.RegularExpressions.Match m)
         {
