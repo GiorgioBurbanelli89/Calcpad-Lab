@@ -391,6 +391,18 @@ namespace Calcpad.Core.Matlab
             pendingChunkStart = sb.Length;
             pendingChunkLine = -1;
 
+            // Bloque Markdown  % #md … % #endmd : acumula los comentarios intermedios
+            // y los renderiza como Markdown (encabezados #/##, **negrita**, *cursiva*,
+            // tablas |...|, listas -). El codigo entre medias se ejecuta igual.
+            bool mdMode = false;
+            var mdBuf = new System.Collections.Generic.List<string>();
+            void FlushMd()
+            {
+                if (mdBuf.Count > 0) sb.Append(MarkdownToHtml(mdBuf)).Append('\n');
+                mdBuf.Clear();
+                mdMode = false;
+            }
+
             foreach (var stmt in stmts)
             {
                 int stmtLine = stmt?.Line ?? 0;
@@ -412,6 +424,17 @@ namespace Calcpad.Core.Matlab
                     // % #render → el texto impreso se renderiza (griegas). % #plain → texto plano.
                     if (dt0 == "#render") { renderDisp = true;  continue; }
                     if (dt0 == "#plain")  { renderDisp = false; continue; }
+                    // Bloque Markdown: #md abre (o cierra si ya estaba), #endmd cierra.
+                    if (dt0 == "#md")    { if (mdMode) FlushMd(); else { mdMode = true; mdBuf.Clear(); } continue; }
+                    if (dt0 == "#endmd") { FlushMd(); continue; }
+                }
+
+                // En modo Markdown: los comentarios se acumulan; cualquier statement
+                // no-comentario cierra el bloque y se procesa normal.
+                if (mdMode)
+                {
+                    if (stmt is CommentStmt csMd && !csMd.IsHeading) { mdBuf.Add(csMd.Text); continue; }
+                    FlushMd();
                 }
 
                 // Decision temprana sobre inline-comment: necesita conocer el
@@ -600,6 +623,7 @@ namespace Calcpad.Core.Matlab
                 StatementCompleted.Invoke(pendingChunkLine, pending);
                 pendingChunkStart = sb.Length;
             }
+            if (mdMode) FlushMd();   // bloque #md sin #endmd al final del script
             // Al final del script: cerrar figura abierta (patch/line acumulados sin saveas)
             int finalChunkStart = sb.Length;
             if (MatlabPlots.SubplotActive)
@@ -812,6 +836,106 @@ namespace Calcpad.Core.Matlab
         /// Hekatan Lab (modo % #render): UNIDADES en verde y rectas, VARIABLES en itálica
         /// (con subíndice y griega), prosa como texto. Todo lo estilizado va entre sentinels
         /// para que EncodeWithHtmlSegments no lo escape.</summary>
+        /// <summary>Convierte un bloque de lineas Markdown (de % #md … % #endmd) a HTML:
+        /// encabezados #/##/###, **negrita**, *cursiva*, `codigo`, tablas |...|, listas -/*,
+        /// regla ---. Pensado para documentar ejemplos en el output de Hekatan Lab.</summary>
+        private static string MarkdownToHtml(System.Collections.Generic.List<string> lines)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<div class=\"md-block\" style=\"font-family:'Segoe UI',Segoe,Tahoma,sans-serif;line-height:1.5;color:#222\">");
+            int i = 0;
+            while (i < lines.Count)
+            {
+                string line = (lines[i] ?? "").Trim();
+                if (line.Length == 0) { i++; continue; }
+                // Tabla: bloque de lineas que empiezan por '|'
+                if (line.StartsWith("|"))
+                {
+                    var rows = new System.Collections.Generic.List<string>();
+                    while (i < lines.Count && (lines[i] ?? "").Trim().StartsWith("|")) { rows.Add((lines[i] ?? "").Trim()); i++; }
+                    sb.Append(MdTable(rows));
+                    continue;
+                }
+                // Encabezados  # / ## / ###
+                if (line.StartsWith("#"))
+                {
+                    int lvl = 0; while (lvl < line.Length && line[lvl] == '#') lvl++;
+                    string txt = line.Substring(lvl).Trim();
+                    int h = Math.Min(2 + lvl, 6);   // # -> h3, ## -> h4, ### -> h5
+                    sb.Append($"<h{h} style=\"margin:0.5em 0 0.3em\">{MdInline(txt)}</h{h}>");
+                    i++; continue;
+                }
+                // Regla horizontal
+                if (line == "---" || line == "***" || line == "___") { sb.Append("<hr>"); i++; continue; }
+                // Listas  - / *
+                if (line.StartsWith("- ") || line.StartsWith("* "))
+                {
+                    sb.Append("<ul style=\"margin:0.3em 0 0.3em 1.2em\">");
+                    while (i < lines.Count)
+                    {
+                        var l = (lines[i] ?? "").Trim();
+                        if (!(l.StartsWith("- ") || l.StartsWith("* "))) break;
+                        sb.Append($"<li>{MdInline(l.Substring(2))}</li>"); i++;
+                    }
+                    sb.Append("</ul>");
+                    continue;
+                }
+                // Parrafo: agrupa lineas consecutivas no-especiales
+                var para = new StringBuilder();
+                while (i < lines.Count)
+                {
+                    var l = (lines[i] ?? "").Trim();
+                    if (l.Length == 0 || l.StartsWith("#") || l.StartsWith("|") ||
+                        l.StartsWith("- ") || l.StartsWith("* ") || l == "---") break;
+                    if (para.Length > 0) para.Append(' ');
+                    para.Append(l); i++;
+                }
+                sb.Append($"<p style=\"margin:0.3em 0\">{MdInline(para.ToString())}</p>");
+            }
+            sb.Append("</div>");
+            return sb.ToString();
+        }
+
+        private static string MdTable(System.Collections.Generic.List<string> rows)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<table style=\"border-collapse:collapse;margin:0.4em 0;font-size:95%\">");
+            int cr = 0;
+            foreach (var row in rows)
+            {
+                var cells = row.Trim().Trim('|').Split('|');
+                // fila separadora |---|:--:|
+                bool sep = cells.Length > 0;
+                foreach (var c in cells)
+                {
+                    var cc = c.Trim();
+                    if (cc.Length == 0 || cc.Trim('-', ':', ' ').Length != 0) { sep = false; break; }
+                }
+                if (sep) continue;
+                bool header = cr == 0;
+                sb.Append("<tr>");
+                foreach (var c in cells)
+                {
+                    string tag = header ? "th" : "td";
+                    string extra = header ? "background:#eef3fa;font-weight:600;" : "";
+                    sb.Append($"<{tag} style=\"border:1px solid #bbb;padding:2px 9px;text-align:left;{extra}\">{MdInline(c.Trim())}</{tag}>");
+                }
+                sb.Append("</tr>");
+                cr++;
+            }
+            sb.Append("</table>");
+            return sb.ToString();
+        }
+
+        private static string MdInline(string s)
+        {
+            s = System.Net.WebUtility.HtmlEncode(s ?? "");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\*\*(.+?)\*\*", "<b>$1</b>");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"`(.+?)`", "<code style=\"background:#f2f2f2;padding:0 3px;border-radius:3px\">$1</code>");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"(?<![\*\w])\*(?!\*)([^*]+?)\*(?![\*\w])", "<i>$1</i>");
+            return s;
+        }
+
         private static string RenderDispInline(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return raw;

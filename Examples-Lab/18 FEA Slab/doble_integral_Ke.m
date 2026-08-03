@@ -1,10 +1,17 @@
-% La DOBLE INTEGRAL de la rigidez de elemento K_e, en las 3 FORMAS que Hekatan Lab
-% y MATLAB pueden calcular:
-%   FORMA 1 - expresion simbolica (#noc): solo DECLARA la integral (tipografia).
-%   FORMA 2 - operacion simbolica:  int(int(...))  -> integra EXACTO (racional).
-%   FORMA 3 - loop:                 cuadratura de Gauss 4x4 -> numerico.
-% Las tres dan lo MISMO.  Se usa el bloque 4x4 del NODO 1 (elemento 1x1 m, igual
-% que en el BFS), asi K_e(1,1) = 35191.8 coincide con el ejemplo completo.
+% #md
+% # Doble integral de la rigidez K_e - 3 formas
+% La **doble integral** de la matriz de rigidez de elemento, en las 3 formas que
+% *Hekatan Lab* y *MATLAB* pueden calcular:
+%
+% | Forma | Metodo | Resultado |
+% |-------|--------|-----------|
+% | 1 | Expresion simbolica `#noc` | solo DECLARA la integral (tipografia) |
+% | 2 | Operacion simbolica `int(int(...))` | integra EXACTO (racional) |
+% | 3 | Loop cuadratura de Gauss 4x4 | numerico |
+%
+% Las tres dan lo **mismo**. Se usa el bloque 4x4 del NODO 1 (elemento 1x1 m,
+% igual que en el BFS), asi `K_e(1,1)` = 35191.8 coincide con el ejemplo completo.
+% #endmd
 
 %% Datos
 E  = 35000e3    % Modulo elastico [kN/m^2] (= 35000 MPa)
