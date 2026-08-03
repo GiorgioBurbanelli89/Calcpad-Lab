@@ -399,8 +399,11 @@ h_free = plot(x_j(is_sup==0), y_j(is_sup==0), 'o', 'MarkerFaceColor', [0.20 0.45
 h_sup  = plot(x_j(is_sup==1), y_j(is_sup==1), 's', 'MarkerFaceColor', [0.90 0.15 0.15], 'MarkerEdgeColor', 'k', 'MarkerSize', 9, 'DisplayName', 'Apoyo (borde)');
 %-- Numero de NODO (negro, con leve desplazamiento para no tapar el marcador)
 text(x_j + 0.06, y_j + 0.06, (1:n_j)', 'Color', [0.15 0.15 0.15], 'FontSize', 8);
+%-- Carga q => fuerzas NODALES equivalentes (F_e = int N^T q dA). En EF la carga
+%   entra en los NODOS (vector F), no en el area: anillo hueco = nodo cargado.
+h_q = plot(x_j, y_j, 'o', 'MarkerFaceColor', 'none', 'MarkerEdgeColor', [0.15 0.55 0.20], 'MarkerSize', 16, 'LineWidth', 1.3, 'LineStyle', 'none', 'DisplayName', sprintf('Carga nodal equiv. (q=%g kN/m^2)', q));
 axis equal; xlim([-0.35 7.7]); ylim([-0.35 4.35]);
-legend('show');   % usa los DisplayName => solo las 2 series de nodos (las celdas patch no tienen nombre)
+legend('show');   % usa los DisplayName => nodos libres/apoyos + carga (celdas patch sin nombre no entran)
 title('Malla Q4: numeracion de nodos/elementos + apoyos'); xlabel('x [m]'); ylabel('y [m]');
 
 %% Contornos con interpolacion SPLINE (malla fina) + colormap

@@ -5246,7 +5246,9 @@ namespace Calcpad.Core.Matlab
                 return new MValue(a[0].ToString());
             };
             _builtins["int"] = a => {
-                if (a.Length == 0 || !a[0].IsSymbolic)
+                // MATLAB: int() acepta expresion escalar O MATRIZ simbolica (integra cada
+                // elemento). Esto es lo que necesita K_e = int(int(B'*D*B)) (16x16).
+                if (a.Length == 0 || (!a[0].IsSymbolic && !a[0].IsSymMatrix))
                     throw new MatlabRuntimeException("int(symExpr[, var])");
                 // Casos MATLAB: int(f) · int(f,x) · int(f,a,b) definida · int(f,x,a,b) definida.
                 // El 2o arg es VARIABLE solo si es simbólico o string; si es número son límites.
@@ -5268,25 +5270,39 @@ namespace Calcpad.Core.Matlab
                     limA = a[1].IsSymbolic ? a[1].Symbolic : new SymConst(a[1].Scalar);
                     limB = a[2].IsSymbolic ? a[2].Symbolic : new SymConst(a[2].Scalar);
                 }
-                // PUENTE giac (como MATLAB→MuPAD por strings). Fallback: motor propio SymOps.
-                if (limA != null)
+                // Integra UN SymNode (definida o indefinida): puente giac (MATLAB→MuPAD por
+                // strings), fallback al motor propio SymOps.
+                string vN = varName; SymNode lA = limA, lB = limB;
+                SymNode DoInt(SymNode expr)
                 {
+                    if (lA != null)
+                    {
+                        if (GiacRunner.IsAvailable())
+                        {
+                            var (okd, resd) = GiacRunner.Eval($"integrate({expr.ToInfix()},{vN},{lA.ToInfix()},{lB.ToInfix()})");
+                            if (okd) { try { return GiacRunner.ParseToSym(GiacRunner.ToMatlab(resd)).Simplify(); } catch { } }
+                        }
+                        var antider = SymOps.Integrate(expr, vN).Simplify();
+                        return new SymSub(antider.Subs(vN, lB).Simplify(), antider.Subs(vN, lA).Simplify()).Simplify();
+                    }
                     if (GiacRunner.IsAvailable())
                     {
-                        var (okd, resd) = GiacRunner.Eval($"integrate({a[0].Symbolic.ToInfix()},{varName},{limA.ToInfix()},{limB.ToInfix()})");
-                        if (okd) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resd)).Simplify()); } catch { } }
+                        var (oki, resi) = GiacRunner.Eval($"integrate({expr.ToInfix()},{vN})");
+                        if (oki) { try { return GiacRunner.ParseToSym(GiacRunner.ToMatlab(resi)).Simplify(); } catch { } }
                     }
-                    var antider = SymOps.Integrate(a[0].Symbolic, varName).Simplify();
-                    var Fb_sym = antider.Subs(varName, limB).Simplify();
-                    var Fa_sym = antider.Subs(varName, limA).Simplify();
-                    return MValue.NewSymbolic(new SymSub(Fb_sym, Fa_sym).Simplify());
+                    return SymOps.Integrate(expr, vN).Simplify();
                 }
-                if (GiacRunner.IsAvailable())
+                // MATRIZ simbólica → integra elemento a elemento (como MATLAB).
+                if (a[0].IsSymMatrix)
                 {
-                    var (oki, resi) = GiacRunner.Eval($"integrate({a[0].Symbolic.ToInfix()},{varName})");
-                    if (oki) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resi)).Simplify()); } catch { } }
+                    int rr = a[0].SymCells.GetLength(0), cc = a[0].SymCells.GetLength(1);
+                    var outc = new SymNode[rr, cc];
+                    for (int r = 0; r < rr; r++)
+                        for (int c = 0; c < cc; c++)
+                            outc[r, c] = DoInt(a[0].SymCells[r, c]);
+                    return MValue.NewSymMatrix(outc);
                 }
-                return MValue.NewSymbolic(SymOps.Integrate(a[0].Symbolic, varName).Simplify());
+                return MValue.NewSymbolic(DoInt(a[0].Symbolic));
             };
             _builtins["taylor"] = a => {
                 if (a.Length == 0 || !a[0].IsSymbolic)
