@@ -1967,15 +1967,24 @@ return {make:make};
                 // ── LEGEND (caja con muestras de linea + nombres), como MATLAB ──
                 if (_figShowLegend)
                 {
-                    var items = new System.Collections.Generic.List<(SKColor col, string dash, string name, float lw)>();
+                    var items = new System.Collections.Generic.List<(SKColor col, string dash, string name, float lw, bool isMarker, SKColor mFill, SKColor mEdge, string sym)>();
                     int li = 0;
                     foreach (var p in _figPrims)
                     {
-                        if (p.Kind != "line2d" && p.Kind != "patch2d") continue;
+                        // Las series con marcador (plot(x,y,'o')) TAMBIÉN entran en la leyenda,
+                        // como en MATLAB: se dibuja el glifo del marcador, no una línea.
+                        bool isMk = p.Kind == "markers2d";
+                        if (p.Kind != "line2d" && p.Kind != "patch2d" && !isMk) continue;
                         string nm = (_figLegendNames != null && li < _figLegendNames.Length) ? _figLegendNames[li] : p.Name;
                         li++;
                         if (string.IsNullOrEmpty(nm)) continue;
-                        items.Add((ParseColor(p.Color), p.Dash, nm, (float)Math.Max(0.8, p.LineWidth)));
+                        if (isMk)
+                            items.Add((ParseColor(p.FaceColor), "solid", nm, 1f, true,
+                                       ParseColor(p.FaceColor),
+                                       ParseColor(string.IsNullOrEmpty(p.EdgeColor) ? "black" : p.EdgeColor),
+                                       p.Text ?? "circle"));
+                        else
+                            items.Add((ParseColor(p.Color), p.Dash, nm, (float)Math.Max(0.8, p.LineWidth), false, default, default, null));
                     }
                     if (items.Count > 0)
                     {
@@ -1993,6 +2002,22 @@ return {make:make};
                         {
                             var it = items[k];
                             float cy = by + pad + k * lh + lh / 2f;
+                            if (it.isMarker)
+                            {
+                                // Glifo del marcador centrado en la muestra (círculo o cuadrado).
+                                float mx = bx + pad + sample / 2f, r = 5f;
+                                using var mf = new SKPaint { Style = SKPaintStyle.Fill, Color = it.mFill, IsAntialias = true };
+                                using var me = new SKPaint { Style = SKPaintStyle.Stroke, Color = it.mEdge, StrokeWidth = 1.2f, IsAntialias = true };
+                                if (it.sym != null && (it.sym.Contains("square") || it.sym == "s"))
+                                {
+                                    var rect = new SKRect(mx - r, cy - r, mx + r, cy + r);
+                                    canvas.DrawRect(rect, mf); canvas.DrawRect(rect, me);
+                                }
+                                else { canvas.DrawCircle(mx, cy, r, mf); canvas.DrawCircle(mx, cy, r, me); }
+                                txt.Color = SKColors.Black;
+                                canvas.DrawText(it.name, bx + pad + sample + gap, cy + 4, SKTextAlign.Left, font, txt);
+                                continue;
+                            }
                             stroke.Color = it.col; stroke.StrokeWidth = it.lw;
                             stroke.PathEffect = it.dash switch
                             {

@@ -380,16 +380,28 @@ end
 sx = 6*Mxx/t^2; sy = 6*Myy/t^2; sxy = 6*Mxy/t^2;    % [kN/m^2]
 Mvm = sqrt(sx.^2 - sx.*sy + sy.^2 + 3*sxy.^2)/1000; % [MPa]
 
-%% Malla Q4 DISCRETIZADA (elementos + nodos)
+%% Malla Q4 DISCRETIZADA: numeracion de elementos/nodos + apoyos (leyenda por color)
 figure; hold on;
+cxe = zeros(n_e,1); cye = zeros(n_e,1);
 for e = 1:n_e
     nd = e_j(e,:);
     xs = [x_j(nd(1)), x_j(nd(2)), x_j(nd(3)), x_j(nd(4))];
     ys = [y_j(nd(1)), y_j(nd(2)), y_j(nd(3)), y_j(nd(4))];
-    patch(xs, ys, [0.80 0.90 1.0], 'EdgeColor', [0 0.25 0.55], 'LineWidth', 1.2);
+    patch(xs, ys, [0.93 0.96 1.0], 'EdgeColor', [0 0.25 0.55], 'LineWidth', 1.2);
+    cxe(e) = mean(xs); cye(e) = mean(ys);
 end
-plot(x_j, y_j, 'o', 'MarkerFaceColor', [0.85 0.10 0.10], 'MarkerEdgeColor', 'k', 'MarkerSize', 6);
-axis equal; title('Malla Q4 discretizada (6x4, 35 nodos)'); xlabel('x [m]'); ylabel('y [m]');
+%-- Numero de ELEMENTO (azul, centrado en el centroide)
+text(cxe, cye, (1:n_e)', 'Color', [0 0.35 0.75], 'HorizontalAlignment', 'center', 'FontSize', 11);
+%-- Nodos: apoyo (rojo) vs libre (azul) => leyenda por color
+is_sup = zeros(n_j, 1);
+for i = 1:n_s, is_sup(s_j(i)) = 1; end
+h_free = plot(x_j(is_sup==0), y_j(is_sup==0), 'o', 'MarkerFaceColor', [0.20 0.45 0.90], 'MarkerEdgeColor', 'k', 'MarkerSize', 7, 'DisplayName', 'Nodo libre');
+h_sup  = plot(x_j(is_sup==1), y_j(is_sup==1), 's', 'MarkerFaceColor', [0.90 0.15 0.15], 'MarkerEdgeColor', 'k', 'MarkerSize', 9, 'DisplayName', 'Apoyo (borde)');
+%-- Numero de NODO (negro, con leve desplazamiento para no tapar el marcador)
+text(x_j + 0.06, y_j + 0.06, (1:n_j)', 'Color', [0.15 0.15 0.15], 'FontSize', 8);
+axis equal; xlim([-0.35 7.7]); ylim([-0.35 4.35]);
+legend('show');   % usa los DisplayName => solo las 2 series de nodos (las celdas patch no tienen nombre)
+title('Malla Q4: numeracion de nodos/elementos + apoyos'); xlabel('x [m]'); ylabel('y [m]');
 
 %% Contornos con interpolacion SPLINE (malla fina) + colormap
 xg = 0:a_1:a; yg = 0:b_1:b; [Xg,Yg] = meshgrid(xg, yg);
