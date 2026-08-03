@@ -8376,9 +8376,26 @@ namespace Calcpad.Core.Matlab
             bool canReuse = reuse != null && !reuse.IsSparseReal && reuse.Imag == null
                             && reuse.Data != null && reuse.Data.Length == n && !ReferenceContains(datas, reuse.Data);
             double[] rd = canReuse ? reuse.Data : new double[n];
-            int w = System.Numerics.Vector<double>.Count, i = 0;
-            for (; i <= n - w; i += w) vk(datas, i).CopyTo(rd, i);
-            for (; i < n; i++) rd[i] = sk(datas, i);
+            int w = System.Numerics.Vector<double>.Count;
+            // n grande → repartir en hilos (como MATLAB). Cada tramo arranca en múltiplo de w
+            // para que el bucle SIMD quede alineado; los elementos son independientes (bit-idéntico).
+            if (n >= 65536 && Environment.ProcessorCount > 1)
+            {
+                int chunk = Math.Max(w, ((n / Environment.ProcessorCount) / w) * w);
+                int nChunks = (n + chunk - 1) / chunk;
+                System.Threading.Tasks.Parallel.For(0, nChunks, c =>
+                {
+                    int start = c * chunk, end = Math.Min(start + chunk, n), j = start;
+                    for (; j <= end - w; j += w) vk(datas, j).CopyTo(rd, j);
+                    for (; j < end; j++) rd[j] = sk(datas, j);
+                });
+            }
+            else
+            {
+                int i = 0;
+                for (; i <= n - w; i += w) vk(datas, i).CopyTo(rd, i);
+                for (; i < n; i++) rd[i] = sk(datas, i);
+            }
             if (canReuse && reuse.Rows == rows && reuse.Cols == cols) return reuse;
             return new MValue(rows, cols, rd);
         }

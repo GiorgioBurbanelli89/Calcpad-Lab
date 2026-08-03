@@ -218,6 +218,11 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MJitColSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitColSlice));
         internal static readonly MethodInfo MJitRowSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitRowSlice));
         internal static readonly ConstructorInfo CMValueScalar = typeof(MValue).GetConstructor(new[] { typeof(double) });
+        // Intrínsecos para la fusión element-wise: sqrt/abs tienen versión SIMD sobre Vector<double>.
+        internal static readonly MethodInfo MVecSqrt  = typeof(System.Numerics.Vector).GetMethod("SquareRoot").MakeGenericMethod(typeof(double));
+        internal static readonly MethodInfo MVecAbs   = typeof(System.Numerics.Vector).GetMethod("Abs").MakeGenericMethod(typeof(double));
+        internal static readonly MethodInfo MMathSqrt = typeof(Math).GetMethod("Sqrt", new[] { typeof(double) });
+        internal static readonly MethodInfo MMathAbs  = typeof(Math).GetMethod("Abs", new[] { typeof(double) });
 
         // ─── Mapa de funciones matematicas escalares que el JIT INLINEA como
         // llamada estatica nativa (Math.* o JitCtx.J*), evitando el dispatch
@@ -1257,6 +1262,16 @@ namespace Calcpad.Core.Matlab
                     return CollectEw(u.Operand, cc, leaves);
                 case BinaryOp b when b.Op is "+" or "-" or ".*" or "./":
                     return CollectEw(b.Left, cc, leaves) && CollectEw(b.Right, cc, leaves);
+                // A.^n con n entero constante 1..8 → se expande a multiplicaciones (SIMD).
+                case BinaryOp b when b.Op == ".^" && b.Right is NumberLit np
+                        && np.Value > 0 && np.Value <= 8 && np.Value == Math.Floor(np.Value):
+                    return CollectEw(b.Left, cc, leaves);
+                // sqrt(x)/abs(x): tienen intrínseco SIMD (Vector.SquareRoot/Abs). Solo si el
+                // nombre NO es una variable (si lo fuera, A(i) sería indexado, no llamada).
+                case CallOrIndex ci when ci.Args != null && ci.Args.Count == 1
+                        && ci.Target is IdentRef fn && (fn.Name == "sqrt" || fn.Name == "abs")
+                        && !cc.VarKind.ContainsKey(fn.Name):
+                    return CollectEw(ci.Args[0], cc, leaves);
                 default: return false;
             }
         }
@@ -1283,9 +1298,22 @@ namespace Calcpad.Core.Matlab
                     return Expression.Negate(GenEw(u.Operand, leaves, datas, pos, vec));
                 case UnaryOp u when u.Op == "+":
                     return GenEw(u.Operand, leaves, datas, pos, vec);
+                // A.^n con n entero → base·base·…·base (base evaluada una sola vez).
+                case BinaryOp bp when bp.Op == ".^" && bp.Right is NumberLit np:
+                    {
+                        var baseE = GenEw(bp.Left, leaves, datas, pos, vec);
+                        if (baseE == null) return null;
+                        int p = (int)np.Value;
+                        if (p == 1) return baseE;
+                        var tmp = Expression.Variable(baseE.Type, "b");
+                        Expression acc = tmp;
+                        for (int k = 1; k < p; k++) acc = Expression.Multiply(acc, tmp);
+                        return Expression.Block(new[] { tmp }, Expression.Assign(tmp, baseE), acc);
+                    }
                 case BinaryOp b:
                     var L = GenEw(b.Left, leaves, datas, pos, vec);
                     var R = GenEw(b.Right, leaves, datas, pos, vec);
+                    if (L == null || R == null) return null;
                     return b.Op switch
                     {
                         "+" => Expression.Add(L, R),
@@ -1294,6 +1322,16 @@ namespace Calcpad.Core.Matlab
                         "./" => Expression.Divide(L, R),
                         _ => null
                     };
+                case CallOrIndex ci when ci.Target is IdentRef fn && ci.Args != null && ci.Args.Count == 1:
+                    {
+                        var argE = GenEw(ci.Args[0], leaves, datas, pos, vec);
+                        if (argE == null) return null;
+                        if (fn.Name == "sqrt")
+                            return Expression.Call(vec ? JitCtx.MVecSqrt : JitCtx.MMathSqrt, argE);
+                        if (fn.Name == "abs")
+                            return Expression.Call(vec ? JitCtx.MVecAbs : JitCtx.MMathAbs, argE);
+                        return null;
+                    }
                 default: return null;
             }
         }
