@@ -120,6 +120,24 @@ namespace Calcpad.Core
                     else
                         isSubscript = false;
 
+                    // Notación científica: dígitos seguidos de e/E + [signo] + dígito(s) son
+                    // parte del NÚMERO (2e8, 1.5e-3), no la 'e' de Euler ni una unidad. Solo se
+                    // activa cuando lo que sigue a e/E es (opcional +/-) y un dígito.
+                    if (pt == TokenTypes.Constant && unitsLiteral.IsEmpty && (c == 'e' || c == 'E'))
+                    {
+                        int k = i + 1;
+                        if (k < n && (expression[k] == '+' || expression[k] == '-')) ++k;
+                        if (k < n && char.IsDigit(expression[k]))
+                        {
+                            int j = i + 1;
+                            if (j < n && (expression[j] == '+' || expression[j] == '-')) ++j;
+                            while (j < n && char.IsDigit(expression[j])) ++j;
+                            tokenLiteral.ExpandTo(j);   // el literal numérico incluye e[±]dígitos
+                            i = j - 1;                  // el ++i del bucle avanza al siguiente char
+                            continue;                   // pt sigue Constant
+                        }
+                    }
+
                     if (!isInput && InputSolver(c, tt, ref textSpan, tokenLiteral, i))
                         continue;
 

@@ -64,6 +64,16 @@ namespace Calcpad.Core
 
             internal static double Parse(string s)
             {
+                // Notación científica (2e8, 1.5e-3, 2E+8): mantisa e[±]exponente. El lexer la
+                // entrega como un solo literal; el parser decimal de abajo no lee 'e', así que
+                // aquí se separa: valor = mantisa · 10^exponente.
+                for (int p = 1; p < s.Length; ++p)
+                {
+                    var ce = s[p];
+                    if (ce == 'e' || ce == 'E')
+                        return Parse(s[..p]) * System.Math.Pow(10,
+                            int.Parse(s[(p + 1)..], System.Globalization.CultureInfo.InvariantCulture));
+                }
                 var maxDigits = 16;
                 var digits = s.Length;
                 var decimalPosition = digits;
