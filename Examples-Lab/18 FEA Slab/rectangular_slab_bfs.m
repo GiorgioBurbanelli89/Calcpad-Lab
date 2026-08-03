@@ -1,11 +1,16 @@
-%% Rectangular Slab FEA — BFS (Bogner-Fox-Schmit, 16 DOF/elem)
-%-- Benchmark de placa rectangular simply-supported, carga uniforme q.
-%-- Equivalente al Rectangular Slab FEA.cpd de Hekatan.
-%-- Compara: deflexion central w(a/2, b/2) — el dato canonico.
+%% Finite Element Analysis of Rectangular Slab
+% Analisis por elementos finitos de una placa rectangular simplemente apoyada
+% bajo carga uniforme, con el elemento rectangular BFS (Bogner-Fox-Schmit) de 16 GDL.
+% Motor: Hekatan Lab (MATLAB). Notacion: la que Calcpad VM usa por defecto.
 
 clear; clc;
 
 %% Input data
+% Slab dimensions — a = 6 m,  b = 4 m
+% Thickness — t = 0.1 m
+% Load — q = 10 kN/m²
+% Modulus of elasticity — E = 35000 MPa
+% Poisson`s ratio — ν = 0.15
 a = 6     % Dimension en x [m]
 b = 4     % Dimension en y [m]
 t = 0.1   % Espesor [m]
@@ -16,7 +21,13 @@ nu = 0.15 % Coef de Poisson
 % Conversion a unidades consistentes (kN, m): E en kN/m^2 = MPa * 1000
 E_si = E*1000 % [kN/m^2]
 
-%% Mesh: n_a x n_b elementos
+%% Finite element mesh
+% Usamos el elemento finito rectangular con n = 16 grados de libertad.
+% Number of elements along a and b — n_a = 6,  n_b = 4
+% Total number of elements — n_e = n_a·n_b
+% Total number of joints — n_j = (n_a + 1)·(n_b + 1)
+% Element dimensions — a₁ = a/n_a,  b₁ = b/n_b
+% Supported joints count — n_s = 2·(n_a + n_b)
 n_a = 6   % elementos en a
 n_b = 4   % elementos en b
 n_e = n_a*n_b           % total elementos
@@ -77,11 +88,32 @@ end
 
 fprintf('Mesh: %d elem (%d x %d), %d joints, %d apoyos\n', n_e, n_a, n_b, n_j, n_s);
 
-%% Matriz constitutiva D (bending plate)
+%% Constitutive matrix (stress - strain relationship)
+% Matriz constitutiva de flexion de placa, la misma que Calcpad VM:
+%
+%   D = E·t³/(12·(1 − ν²)) · | 1   ν      0    |
+%                            | ν   1      0    |
+%                            | 0   0  (1 − ν)/2 |
+%
 D11 = E_si*t^3/(12*(1 - nu^2));
 D = D11 * [1, nu, 0; nu, 1, 0; 0, 0, (1 - nu)/2];
 
-%% Shape functions Hermite cubicas (Phi_k(xi)) en [0, 1]
+%% Finite element formulation — Shape functions
+% Funciones base de Hermite cubicas (mismas expresiones que Calcpad VM),
+% a lo largo de cada dimension (x = ξ para a, x = η para b):
+%
+%   Φ_1(x) = 1 − x²·(3 − 2·x)           Φ′_1(x) = −6·(x/l₁)·(1 − x)
+%   Φ_2(x) = x·l₁·(1 − x·(2 − x))       Φ′_2(x) = 1 − x·(4 − 3·x)
+%   Φ_3(x) = x²·(3 − 2·x)               Φ′_3(x) = 6·(x/l₁)·(1 − x)
+%   Φ_4(x) = x²·l₁·(−1 + x)             Φ′_4(x) = −x·(2 − 3·x)
+%
+% Segundas derivadas (curvaturas):
+%   Φ″_1(x) = −(6/l₁²)·(1 − 2·x)        Φ″_3(x) = (6/l₁²)·(1 − 2·x)
+%   Φ″_2(x) = −(2/l₁)·(2 − 3·x)         Φ″_4(x) = −(2/l₁)·(1 − 3·x)
+%
+% Vector de funciones de forma N (16), por nodo: w, θₓ, θᵧ, ψ (twist):
+%   N_k,w  = Φ_ia(ξ)·Φ_jb(η)     N_k,θₓ = Φ_ia(ξ)·Φ_2b(η)
+%   N_k,θᵧ = Φ_2a(ξ)·Φ_jb(η)     N_k,ψ  = Φ_2a(ξ)·Φ_2b(η)
 %-- Las 4 funciones de Hermite cubicas por dimension
 syms xi eta
 syms aa bb  % parametros a_1 y b_1 simbolicos para diff (sustituidos despues)
@@ -193,6 +225,21 @@ function [ix, iy, tx, ty] = bfs_indices(j)
     tx = 0; ty = 0; % unused, but MATLAB needs all outputs
 end
 
+%% Strain-displacement matrix B  y  Element stiffness matrix
+% Matriz deformacion-desplazamiento (curvaturas), 3 filas x 16 columnas.
+% Fila 1 = Φ″a(ξ)·Φb(η)   (κ_x),  Fila 2 = Φa(ξ)·Φ″b(η)   (κ_y),
+% Fila 3 = 2·Φ′a(ξ)·Φ′b(η)  (κ_xy):
+%
+%   B(j; ξ; η) = [ B_1(j; ξ; η) ; B_2(j; ξ; η) ; B_3(j; ξ; η) ]
+%
+% La matriz de rigidez del elemento se obtiene con la MISMA ecuacion de Calcpad VM,
+% integrando en el cuadrado unitario (aqui por cuadratura de Gauss 4x4):
+%
+%   K_e,ij = a₁·b₁·∫₀¹ ∫₀¹ B_i(ξ; η)ᵀ · D · B_j(ξ; η)  dξ dη
+%
+% Y el vector de carga consistente del elemento:
+%
+%   F_e,i = q·a₁·b₁·∫₀¹ ∫₀¹ N_i(ξ; η)  dξ dη
 %-- B matrix at (u, v): row 1 = -d^2N/dx^2, row 2 = -d^2N/dy^2, row 3 = -2*d^2N/dxdy
 %-- Cada columna j (1..16) es la contribucion de la shape function j
 B_e = zeros(3, 16);
@@ -279,11 +326,19 @@ for i = 1:n_s
     end
 end
 
-%% Solucion
+%% Solution
+% Ensamblada la rigidez global K y el vector de carga global F, e impuestas las
+% condiciones de contorno (simply supported en el contorno), se resuelve el sistema:
+%
+%   Z = K⁻¹ · F        (K·Z = F)
+%
+% Z contiene los desplazamientos de todos los GDL (w, θₓ, θᵧ, ψ por joint), en m.
 fprintf('Resolviendo sistema (%d ecs)...\n', n_g);
 Z = K \ F;
 
-%% Resultados — deflexion central
+%% Results — Joint displacements (deflexion central)
+% El dato canonico del benchmark es la deflexion vertical en el centro de la placa,
+% w(a/2, b/2), que se reporta en mm (como en Calcpad VM).
 %-- El joint central esta en (a/2, b/2). Para mesh 6x4, los joints estan
 %-- en intervalos a/6 x b/4. El centro NO necesariamente coincide con un joint.
 %-- Para mesh par: centro = joint en columna (n_a/2 + 1), fila (n_b/2 + 1)

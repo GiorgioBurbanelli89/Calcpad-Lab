@@ -78,7 +78,51 @@ namespace Calcpad.Core.Matlab
         public Calcpad.Core.BlasInterop.PardisoFactorization Decomp;
         public bool IsDecomposition => Decomp != null;
 
-        public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null && MapData == null && Decomp == null;
+        /// <summary>Si no-null: este escalar lleva una UNIDAD Calcpad (el symunit de MATLAB:
+        /// L = 6*u.m). Los valores normales lo tienen null → la numérica FEM NO se afecta
+        /// (la aritmética con unidad vive en un camino aparte que solo se activa con unidad).</summary>
+        internal Calcpad.Core.Unit Unit;
+        public bool HasUnit => Unit != null;
+        /// <summary>Unidades POR ELEMENTO (row-major, paralelo a Data) para vectores/matrices
+        /// con unidades — como el sym array de MATLAB, admite unidad distinta por elemento
+        /// (ej. matriz de rigidez FEM). null = sin unidades por elemento. Cada entrada puede
+        /// ser null (ese elemento es adimensional).</summary>
+        internal Calcpad.Core.Unit[] UnitData;
+        public bool HasUnitData => UnitData != null;
+        /// <summary>¿Este MValue lleva CUALQUIER unidad (escalar o por-elemento)?</summary>
+        public bool HasAnyUnit => Unit != null || UnitData != null;
+        /// <summary>Unidad del elemento lineal i (row-major): UnitData[i] si existe, si no la escalar.</summary>
+        internal Calcpad.Core.Unit UnitAt(int i)
+            => UnitData != null ? (i >= 0 && i < UnitData.Length ? UnitData[i] : null) : Unit;
+        /// <summary>Matriz con unidades por elemento.</summary>
+        internal static MValue NewUnitMatrix(int rows, int cols, double[] data, Calcpad.Core.Unit[] units)
+        {
+            var v = new MValue(rows, cols, data);
+            // Si TODAS las unidades son null → matriz normal (no marcar).
+            bool any = false;
+            if (units != null) foreach (var u in units) if (u != null) { any = true; break; }
+            if (any) v.UnitData = units;
+            return v;
+        }
+        /// <summary>True si es el proveedor devuelto por <c>u = symunit</c>: u.m, u.kN…
+        /// se resuelven dinámicamente contra el registro de unidades de Calcpad.</summary>
+        public bool IsUnitProvider;
+        /// <summary>Escalar con unidad Calcpad (symunit). coef = número, unit = la unidad.</summary>
+        internal static MValue NewUnitScalar(double coef, Calcpad.Core.Unit unit)
+        {
+            var v = new MValue(coef);
+            v.Unit = unit;
+            return v;
+        }
+        /// <summary>Proveedor de unidades de <c>symunit</c>.</summary>
+        public static MValue NewUnitProvider()
+        {
+            var v = new MValue(0);
+            v.IsUnitProvider = true;
+            return v;
+        }
+
+        public bool IsScalar => Rows == 1 && Cols == 1 && !IsString && Callable == null && Fields == null && CellData == null && Symbolic == null && SymCells == null && StringArrayData == null && MapData == null && Decomp == null && !IsUnitProvider;
         public bool IsCallable => Callable != null;
         public bool IsComplex => Imag != null;
         public static MValue NewSymbolic(SymNode s)
@@ -5071,7 +5115,25 @@ namespace Calcpad.Core.Matlab
                     try { return new MValue(a[0].Symbolic.Eval(new Dictionary<string, double>())); }
                     catch { throw new MatlabRuntimeException("double: symbolic expression has unbound variables"); }
                 }
+                if (a[0].HasUnit) return new MValue(a[0].Data[0]);   // symunit → coef numérico
                 return a[0];
+            };
+            // ── symunit (unidades reales estilo MATLAB R2017a) ──────────────
+            // u = symunit;  L = 6*u.m;  q = 10*u.kN/u.m^2;  (Hekatan las renderiza en verde).
+            _builtins["symunit"] = a => MValue.NewUnitProvider();
+            // isUnit(x): true si x lleva unidad.
+            _builtins["isUnit"] = a => new MValue(a.Length > 0 && a[0].HasUnit ? 1 : 0);
+            // separateUnits(x): número expresado en su unidad actual (quita la unidad).
+            _builtins["separateUnits"] = a =>
+                (a.Length > 0 && a[0].HasUnit) ? new MValue(a[0].Data[0]) : (a.Length > 0 ? a[0] : new MValue(0));
+            // unitConvert(x, u.target): convierte x a la unidad destino.
+            _builtins["unitConvert"] = a =>
+            {
+                if (a.Length < 2) throw new MatlabRuntimeException("unitConvert: faltan argumentos (x, unidad)");
+                if (!a[0].HasUnit) throw new MatlabRuntimeException("unitConvert: el 1er argumento no tiene unidad");
+                if (!a[1].HasUnit) throw new MatlabRuntimeException("unitConvert: el 2do argumento debe ser una unidad (u.mm)");
+                double factor = a[0].Unit.ConvertTo(a[1].Unit);
+                return MValue.NewUnitScalar(a[0].Data[0] * factor, a[1].Unit);
             };
             _builtins["char"] = a => {
                 if (a[0].IsSymbolic)
@@ -9439,6 +9501,9 @@ namespace Calcpad.Core.Matlab
             int bf = def.BodyFlags ??= ComputeBodyFlags(def);
             if ((bf & 1) != 0) return false;                       // tiene función anidada → no
             if (args.Length != def.ParamNames.Count) return false;
+            // symunit: el JIT compila a doubles y descartaría las unidades. Si algún
+            // argumento lleva unidad, bailout al intérprete (que sí las propaga).
+            for (int i = 0; i < args.Length; i++) if (args[i] != null && args[i].HasAnyUnit) return false;
             if (!def.JitMVTried)
             {
                 var sig0 = new bool[args.Length];
@@ -9508,7 +9573,8 @@ namespace Calcpad.Core.Matlab
             if (def.JitBody != null && args.Length == def.ParamNames.Count)
             {
                 bool allScalar = true;
-                for (int i = 0; i < args.Length; i++) if (!args[i].IsScalar) { allScalar = false; break; }
+                // symunit: un arg con unidad NO puede ir por el JIT (descartaría la unidad).
+                for (int i = 0; i < args.Length; i++) if (!args[i].IsScalar || args[i].HasAnyUnit) { allScalar = false; break; }
                 if (allScalar)
                 {
                     var din = new double[args.Length];
@@ -9677,7 +9743,8 @@ namespace Calcpad.Core.Matlab
             if (v == null) return null;
             // Tipos por referencia en MATLAB (o inmutables): no copiar.
             if (v.IsGfxHandle || v.Callable != null || v.IsInstance || v.IsMap
-                || v.IsSymbolic || v.IsSymMatrix || v.Is3D || v.IsSparseReal || v.IsString)
+                || v.IsSymbolic || v.IsSymMatrix || v.Is3D || v.IsSparseReal || v.IsString
+                || v.IsUnitProvider)                    // symunit: proveedor inmutable
                 return v;
             if (v.Fields != null)                       // struct por valor
             {
@@ -9707,8 +9774,11 @@ namespace Calcpad.Core.Matlab
             if (v.Data != null)                         // numérico (real/complejo) por valor
             {
                 var d = (double[])v.Data.Clone();
-                return v.Imag != null ? new MValue(v.Rows, v.Cols, d, (double[])v.Imag.Clone())
-                                      : new MValue(v.Rows, v.Cols, d);
+                var cl = v.Imag != null ? new MValue(v.Rows, v.Cols, d, (double[])v.Imag.Clone())
+                                        : new MValue(v.Rows, v.Cols, d);
+                cl.Unit = v.Unit;                       // symunit: preservar la unidad escalar
+                if (v.UnitData != null) cl.UnitData = (Calcpad.Core.Unit[])v.UnitData.Clone();
+                return cl;
             }
             return v;
         }
@@ -9845,11 +9915,14 @@ namespace Calcpad.Core.Matlab
                 && leftId.Name == tgtId.Name
                 && SameIndexArgs(leftIdx.Args, tgtIdx.Args))
             {
-                if (scope.TryGet(tgtId.Name, out var existingFast))
+                if (scope.TryGet(tgtId.Name, out var existingFast) && !existingFast.HasUnitData)
                 {
                     var deltaVal = Eval(rhsBin.Right, scope);
                     bool isAdd = rhsBin.Op == "+";
-                    if (IndexedAddInPlace(existingFast, tgtIdx.Args, deltaVal, isAdd, scope))
+                    // symunit: si el delta lleva unidad, NO usar el fast-path in-place (descartaría
+                    // la unidad) → caer al path general (IndexInto + IndexedAssign, unit-aware).
+                    if (!deltaVal.HasAnyUnit
+                        && IndexedAddInPlace(existingFast, tgtIdx.Args, deltaVal, isAdd, scope))
                     {
                         return new StatementResult(tgtId.Name, existingFast, asg.Suppressed);
                     }
@@ -10316,7 +10389,51 @@ namespace Calcpad.Core.Matlab
             }
             catch { return false; }
         }
+        /// <summary>Indexado-asignación con propagación de unidades (symunit): ensamblaje FEM
+        /// `K(i,j)=v*u.kN`, `K(dofs,dofs)=K(dofs,dofs)+ke`. Hace la asignación numérica normal y,
+        /// si el valor o el destino llevan unidad, reindexa un MAPA DE CÓDIGOS (unidad→entero) con
+        /// la MISMA operación para saber qué unidad quedó en cada posición. Solo trabaja extra si
+        /// hay unidades → cero impacto en la asignación numérica normal.</summary>
         private MValue IndexedAssign(MValue m, List<MatlabNode> idxNodes, MValue v, MatlabScope scope)
+        {
+            var res = IndexedAssignCore(m, idxNodes, v, scope);
+            if ((!v.HasAnyUnit && !m.HasUnitData) || res == null || res.Data == null
+                || res.IsString || res.Fields != null || res.CellData != null
+                || res.IsSymbolic || res.IsSymMatrix || res.Is3D || res.IsComplex)
+                return res;
+            // Registro de unidades distintas → códigos double (0 = null/sin unidad).
+            var reg = new List<Calcpad.Core.Unit> { null };
+            var codeOf = new Dictionary<Calcpad.Core.Unit, double>();
+            double Code(Calcpad.Core.Unit uu)
+            {
+                if (uu == null) return 0;
+                if (codeOf.TryGetValue(uu, out var cc)) return cc;
+                double c = reg.Count; reg.Add(uu); codeOf[uu] = c; return c;
+            }
+            int mn = m.Rows * m.Cols;
+            var mCodes = new double[mn];
+            for (int i = 0; i < mn; i++) mCodes[i] = Code(m.UnitAt(i));
+            int vn = v.Rows * v.Cols;
+            var vCodes = new double[System.Math.Max(vn, 1)];
+            for (int i = 0; i < vn; i++) vCodes[i] = Code(v.UnitAt(i));
+            var mCodesM = new MValue(m.Rows, m.Cols, mCodes);
+            MValue vCodesM = (vn == 1) ? new MValue(vCodes[0]) : new MValue(v.Rows, v.Cols, vCodes);
+            MValue resCodes;
+            try { resCodes = IndexedAssignCore(mCodesM, idxNodes, vCodesM, scope); }
+            catch { return res; }
+            if (resCodes == null || resCodes.Data == null || resCodes.Data.Length != res.Data.Length)
+                return res;
+            var outU = new Calcpad.Core.Unit[res.Data.Length];
+            bool any = false;
+            for (int i = 0; i < outU.Length; i++)
+            {
+                int code = (int)System.Math.Round(resCodes.Data[i]);
+                if (code > 0 && code < reg.Count) { outU[i] = reg[code]; any = true; }
+            }
+            res.UnitData = any ? outU : null;
+            return res;
+        }
+        private MValue IndexedAssignCore(MValue m, List<MatlabNode> idxNodes, MValue v, MatlabScope scope)
         {
             int nDims = idxNodes.Count;
             // 3D array: A(i,j,k) = v  → delegar a la página k (espejo de IndexInto)
@@ -10525,6 +10642,17 @@ namespace Calcpad.Core.Matlab
                 case AnonFunction af: return MakeAnonHandle(af, scope);
                 case FieldAccess fa: {
                     var target = Eval(fa.Target, scope);
+                    // symunit: u.m, u.kN, u.MPa… → escalar 1 con esa unidad Calcpad.
+                    // Cubre TODO el registro de unidades de Calcpad (no una lista fabricada).
+                    if (target.IsUnitProvider)
+                    {
+                        Calcpad.Core.Unit un;
+                        try { un = Calcpad.Core.Unit.Get(fa.FieldName); }
+                        catch { un = null; }
+                        if (un == null)
+                            throw new MatlabRuntimeException($"symunit: unidad desconocida '{fa.FieldName}'");
+                        return MValue.NewUnitScalar(1.0, un);
+                    }
                     // struct-array res.n en contexto escalar -> primer elemento (la expansión
                     // como comma-list {res.n} se maneja en EvalCellLit).
                     if (target.IsStructArray)
@@ -10630,6 +10758,176 @@ namespace Calcpad.Core.Matlab
                 _ => throw new MatlabRuntimeException($"Unsupported unary op: {u.Op}")
             };
         }
+        /// <summary>Aritmética escalar con unidades (symunit), delegada al RealValue de
+        /// Calcpad (número+unidad, con conversión y propagación dimensional). Devuelve null
+        /// si no aplica (no-escalar, complejo, u operador no aritmético) → cae al camino
+        /// normal, que ignora la unidad. Cubre + - * / ^ y sus formas elementwise.</summary>
+        private static MValue TryEvalUnitBinary(string op, MValue l, MValue r)
+        {
+            // Escalares con unidad (1×1). Matrices/complejos → null (los ve TryEvalUnitMatrix).
+            if (l.Rows * l.Cols != 1 || r.Rows * r.Cols != 1) return null;
+            if (l.IsComplex || r.IsComplex || l.IsString || r.IsString) return null;
+            if (l.Fields != null || r.Fields != null || l.IsUnitProvider || r.IsUnitProvider) return null;
+            if (!ComputeUnitOp(l.Data[0], l.Unit, r.Data[0], r.Unit, op, out double rn, out var ru))
+                return null;
+            return ru == null ? new MValue(rn) : MValue.NewUnitScalar(rn, ru);
+        }
+
+        /// <summary>Aritmética de un par (número, unidad) con otro, vía el RealValue de Calcpad.
+        /// Devuelve false si el operador no es aritmético (comparaciones, etc.) o el exponente
+        /// trae unidad. Cubre + - * / ^ y elementwise (.*  ./  .^). El resultado se "embellece"
+        /// (kN/kPa/MPa) con <see cref="BeautifyRaw"/>.</summary>
+        private static bool ComputeUnitOp(double an, Calcpad.Core.Unit au, double bn, Calcpad.Core.Unit bu,
+                                          string op, out double rn, out Calcpad.Core.Unit ru)
+        {
+            var a  = new Calcpad.Core.RealValue(an, au);
+            var b2 = new Calcpad.Core.RealValue(bn, bu);
+            Calcpad.Core.RealValue res;
+            switch (op)
+            {
+                case "+":               res = a + b2; break;
+                case "-":               res = a - b2; break;
+                case "*": case ".*":    res = a * b2; break;   // RealValue simplifica dims (m·m→m², cancela)
+                case "/": case "./":    res = a / b2; break;
+                case "^": case ".^":
+                {
+                    // OJO: el operador ^ de RealValue es XOR lógico, NO potencia → usar Math.Pow +
+                    // Unit.Pow. El exponente debe ser adimensional.
+                    if (bu != null) { rn = 0; ru = null; return false; }
+                    var nu = au == null ? null : Calcpad.Core.Unit.Pow(au, b2, true);
+                    BeautifyRaw(System.Math.Pow(an, bn), nu, out rn, out ru);
+                    return true;
+                }
+                default: rn = 0; ru = null; return false;   // comparaciones y demás
+            }
+            BeautifyRaw(res.D, res.Units, out rn, out ru);
+            return true;
+        }
+
+        /// <summary>Nombra la unidad como Calcpad dentro de % : campo Mecánico → kN/kPa/MPa
+        /// (GetForceUnit), Eléctrico → GetElectricalUnit; ajustando el número por el cambio de
+        /// escala. Réplica de GetFieldUnit del MathParser (paridad con el render de %).</summary>
+        private static void BeautifyRaw(double d, Calcpad.Core.Unit u, out double rn, out Calcpad.Core.Unit ru)
+        {
+            if (u == null) { rn = d; ru = null; return; }
+            var field = u.GetField();
+            var disp = field == Calcpad.Core.Unit.Field.Mechanical ? Calcpad.Core.Unit.GetForceUnit(u)
+                     : field == Calcpad.Core.Unit.Field.Electrical ? Calcpad.Core.Unit.GetElectricalUnit(u)
+                     : u;
+            rn = ReferenceEquals(disp, u) ? d : d * u.ConvertTo(disp);
+            ru = disp;
+        }
+
+        /// <summary>Aritmética con unidades para VECTORES/MATRICES (como el sym array de MATLAB:
+        /// admite unidad distinta por elemento). Cubre broadcast escalar⊗matriz y elementwise
+        /// matriz⊗matriz para + - .* ./ .^ (y * / con un escalar). El producto/ división de dos
+        /// MATRICES (mtimes real) se defiere → null (cae al camino numérico, que descarta unidad).
+        /// Solo se invoca si algún operando lleva unidad → cero impacto en matrices normales.</summary>
+        private static MValue TryEvalUnitMatrix(string op, MValue l, MValue r)
+        {
+            if (l.IsComplex || r.IsComplex || l.IsString || r.IsString) return null;
+            if (l.Fields != null || r.Fields != null || l.IsUnitProvider || r.IsUnitProvider) return null;
+            if (l.IsSymbolic || r.IsSymbolic || l.IsSymMatrix || r.IsSymMatrix) return null;
+            if (l.CellData != null || r.CellData != null || l.Is3D || r.Is3D) return null;
+            if (l.IsSparseReal || r.IsSparseReal || l.Data == null || r.Data == null) return null;
+
+            bool lScalar = l.Rows * l.Cols == 1, rScalar = r.Rows * r.Cols == 1;
+            bool elemOp = op == "+" || op == "-" || op == ".*" || op == "./" || op == ".^";
+            bool starSlash = op == "*" || op == "/";
+            if (starSlash && !lScalar && !rScalar) return null;   // mtimes/mrdivide real → defer
+            if (!elemOp && !starSlash) return null;               // ^, comparaciones, etc → defer
+
+            int R, C;
+            if (lScalar) { R = r.Rows; C = r.Cols; }
+            else if (rScalar) { R = l.Rows; C = l.Cols; }
+            else { if (l.Rows != r.Rows || l.Cols != r.Cols) return null; R = l.Rows; C = l.Cols; }
+            int n = R * C;
+            var outD = new double[n];
+            var outU = new Calcpad.Core.Unit[n];
+            // * y / con escalar se comportan elementwise (.* ./)
+            string eop = op == "*" ? ".*" : op == "/" ? "./" : op;
+            for (int i = 0; i < n; i++)
+            {
+                int li = lScalar ? 0 : i, ri = rScalar ? 0 : i;
+                if (!ComputeUnitOp(l.Data[li], l.UnitAt(li), r.Data[ri], r.UnitAt(ri), eop,
+                                   out double rn, out var ru))
+                    return null;
+                outD[i] = rn; outU[i] = ru;
+            }
+            return MValue.NewUnitMatrix(R, C, outD, outU);
+        }
+
+        /// <summary>Producto matriz·matriz (mtimes) con unidades: C(i,j)=Σ_p A(i,p)·B(p,j),
+        /// propagando unidad por término (producto) y por acumulación (suma, con conversión).
+        /// Iguala a MATLAB (K[kN/m]·x[m] → [kN]). Solo se invoca si hay unidad → matrices
+        /// normales usan el MatMul/MKL de siempre. Devuelve null si no aplica (defer).</summary>
+        private static MValue TryEvalUnitMatMul(MValue l, MValue r)
+        {
+            if (l.IsComplex || r.IsComplex || l.IsString || r.IsString) return null;
+            if (l.Fields != null || r.Fields != null || l.IsUnitProvider || r.IsUnitProvider) return null;
+            if (l.IsSymbolic || r.IsSymbolic || l.IsSymMatrix || r.IsSymMatrix) return null;
+            if (l.CellData != null || r.CellData != null || l.Is3D || r.Is3D) return null;
+            if (l.IsSparseReal || r.IsSparseReal || l.Data == null || r.Data == null) return null;
+            int m = l.Rows, k = l.Cols, n = r.Cols;
+            if (k != r.Rows || m * n == 0 || k == 0) return null;   // dim mismatch → camino normal
+            var outD = new double[m * n];
+            var outU = new Calcpad.Core.Unit[m * n];
+            // PERF: acumular con RealValue crudo (struct, sin alloc ni beautify) y "embellecer"
+            // (GetField/GetForceUnit/ConvertTo) SOLO 1 vez por elemento de salida — no por término.
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < n; j++)
+                {
+                    Calcpad.Core.RealValue acc = default; bool first = true;
+                    for (int p = 0; p < k; p++)
+                    {
+                        var a = new Calcpad.Core.RealValue(l.Data[i * k + p], l.UnitAt(i * k + p));
+                        var b = new Calcpad.Core.RealValue(r.Data[p * n + j], r.UnitAt(p * n + j));
+                        var prod = a * b;
+                        acc = first ? prod : acc + prod;
+                        first = false;
+                    }
+                    BeautifyRaw(acc.D, acc.Units, out outD[i * n + j], out outU[i * n + j]);
+                }
+            return MValue.NewUnitMatrix(m, n, outD, outU);
+        }
+
+        /// <summary>Solve con unidades (mldivide): x = K\b, el flujo FEM real K·u = f.
+        /// Números: Linsolve numérico (ignora unidades — para unidades escala-consistentes
+        /// da el x correcto). Unidad de x(r) = uB(i)/uK(i,r) del primer i con K(i,r)≠0
+        /// (K·u debe balancear cada fila). Ej: K[kN/m,kN;kN,kN·m]\f[kN;kN·m] → u[m; rad].
+        /// Solo se invoca si hay unidad → matrices normales usan el solve/MKL de siempre.</summary>
+        private static MValue TryEvalUnitSolve(MValue K, MValue b)
+        {
+            if (K.Data == null || b.Data == null || K.IsComplex || b.IsComplex) return null;
+            if (K.IsString || b.IsString || K.Fields != null || b.Fields != null) return null;
+            if (K.IsUnitProvider || b.IsUnitProvider || K.IsSymbolic || b.IsSymbolic) return null;
+            if (K.IsSymMatrix || b.IsSymMatrix || K.CellData != null || b.CellData != null) return null;
+            if (K.Is3D || b.Is3D || K.IsSparseReal || b.IsSparseReal) return null;
+            if (K.Rows != K.Cols || K.Rows == 0) return null;      // no cuadrada → camino normal
+            int n = K.Rows, c = b.Cols;
+            if (b.Rows != n) return null;
+            MValue xnum;
+            try { xnum = MatlabLinAlg.Linsolve(K, b); }   // numérico (ignora UnitData)
+            catch { return null; }
+            if (xnum == null || xnum.Data == null || xnum.Rows * xnum.Cols != n * c) return null;
+            var outU = new Calcpad.Core.Unit[n * c];
+            bool any = false;
+            for (int r = 0; r < n; r++)
+            {
+                Calcpad.Core.Unit uXr = null;
+                for (int i = 0; i < n; i++)   // primer i con K(i,r)≠0 y unidad → uX = uB(i)/uK(i,r)
+                {
+                    var uKir = K.UnitAt(i * n + r);
+                    if (uKir == null || K.Data[i * n + r] == 0) continue;
+                    ComputeUnitOp(1.0, b.UnitAt(i * c + 0), 1.0, uKir, "/", out _, out uXr);
+                    break;
+                }
+                for (int j = 0; j < c; j++) { outU[r * c + j] = uXr; if (uXr != null) any = true; }
+            }
+            if (!any) return xnum;
+            return MValue.NewUnitMatrix(xnum.Rows, xnum.Cols, xnum.Data, outU);
+        }
+
         private MValue EvalBinary(BinaryOp b, MatlabScope scope)
         {
             // ── Short-circuit logical operators (MATLAB semantics) ──────────
@@ -10653,6 +10951,35 @@ namespace Calcpad.Core.Matlab
             }
             var l = Eval(b.Left, scope);
             var r = Eval(b.Right, scope);
+            // ── Unidades (symunit) ──────────────────────────────────────────
+            // Solo se activa si algún operando lleva unidad Calcpad (escalar o por-elemento).
+            // Los valores normales (sin unidad) NUNCA entran aquí → cero impacto en la numérica.
+            if (l.HasAnyUnit || r.HasAnyUnit)
+            {
+                // Escalar puro con escalar puro → camino escalar; si no, camino matriz.
+                if (l.Rows * l.Cols == 1 && r.Rows * r.Cols == 1 && !l.HasUnitData && !r.HasUnitData)
+                {
+                    var uu = TryEvalUnitBinary(b.Op, l, r);
+                    if (uu != null) return uu;
+                }
+                else
+                {
+                    // Producto matriz·matriz con unidades (mtimes real): K[kN/m]·x[m] → [kN].
+                    if (b.Op == "*" && l.Rows * l.Cols > 1 && r.Rows * r.Cols > 1)
+                    {
+                        var mm = TryEvalUnitMatMul(l, r);
+                        if (mm != null) return mm;
+                    }
+                    // Solve con unidades (mldivide): K[kN/m,…]\f[kN,…] → u[m,rad,…] (el FEM real).
+                    if (b.Op == "\\" && l.Rows * l.Cols > 1 && r.Rows * r.Cols > 1)
+                    {
+                        var sv = TryEvalUnitSolve(l, r);
+                        if (sv != null) return sv;
+                    }
+                    var um = TryEvalUnitMatrix(b.Op, l, r);
+                    if (um != null) return um;
+                }
+            }
             // ── OOP operator overloading ────────────────────────────────────
             // Si alguno operando es instancia OOP con un método de overload, lo invocamos.
             if (l.IsInstance || r.IsInstance)
@@ -11341,7 +11668,38 @@ namespace Calcpad.Core.Matlab
         /// contexto _endCtx (empujado solo en el camino general) para resolverse.</summary>
         private static bool IsFastIdx(MatlabNode n) =>
             n is NumberLit || (n is IdentRef ir && ir.Name != "end");
+        /// <summary>Indexado de lectura con propagación de unidades (symunit). Ejecuta el
+        /// indexado numérico normal y, si la matriz lleva unidades por-elemento, re-indexa un
+        /// mapa de índices lineales con la MISMA operación para saber qué elementos se
+        /// seleccionaron, y mapea sus unidades. Solo trabaja extra si hay unidades.</summary>
         private MValue IndexInto(MValue m, List<MatlabNode> idxNodes, MatlabScope scope)
+        {
+            var res = IndexIntoCore(m, idxNodes, scope);
+            if (!m.HasUnitData || res == null || res.Data == null || res.IsString
+                || res.Fields != null || res.CellData != null || res.IsSymbolic || res.IsSymMatrix
+                || res.Is3D || res.IsComplex)
+                return res;
+            int n = m.Rows * m.Cols;
+            var idxData = new double[n];
+            for (int i = 0; i < n; i++) idxData[i] = i;
+            MValue sel;
+            try { sel = IndexIntoCore(new MValue(m.Rows, m.Cols, idxData), idxNodes, scope); }
+            catch { return res; }
+            if (sel == null || sel.Data == null || sel.Data.Length != res.Data.Length) return res;
+            var ru = new Calcpad.Core.Unit[res.Data.Length];
+            bool any = false;
+            for (int k = 0; k < ru.Length; k++)
+            {
+                int src = (int)System.Math.Round(sel.Data[k]);
+                ru[k] = (src >= 0 && src < m.UnitData.Length) ? m.UnitData[src] : null;
+                if (ru[k] != null) any = true;
+            }
+            if (!any) return res;
+            if (res.Rows * res.Cols == 1) return MValue.NewUnitScalar(res.Data[0], ru[0]);
+            res.UnitData = ru;
+            return res;
+        }
+        private MValue IndexIntoCore(MValue m, List<MatlabNode> idxNodes, MatlabScope scope)
         {
             // 3D array: A(:,:,k) o A(i,j,k)
             if (m.Is3D && idxNodes.Count == 3)
@@ -11829,7 +12187,63 @@ namespace Calcpad.Core.Matlab
                     if (!rowMats[i].IsSymMatrix) rowMats[i] = LiftToSymMatrix(rowMats[i]);
                 return VertConcatSym(rowMats);
             }
-            return VertConcat(rowMats);
+            var resultNum = VertConcat(rowMats);
+            // Unidades por elemento (symunit) en el literal: [5*u.m; 3*u.kN], rigidez mixta.
+            // Solo si alguna pieza lleva unidad → cero impacto en literales normales.
+            if (resultNum.Data != null && !resultNum.IsString && resultNum.Rows * resultNum.Cols > 0)
+            {
+                bool anyU = false;
+                foreach (var row in allPieces) { foreach (var p in row) if (p.HasAnyUnit) { anyU = true; break; } if (anyU) break; }
+                if (anyU)
+                {
+                    var uarr = TryBuildLiteralUnits(allPieces, resultNum.Rows, resultNum.Cols);
+                    if (uarr != null) resultNum.UnitData = uarr;
+                }
+            }
+            return resultNum;
+        }
+        /// <summary>Construye el arreglo de unidades por-elemento (row-major) de un literal de
+        /// matriz, espejando el layout de HorzConcat/VertConcat. Solo piezas densas numéricas;
+        /// si algo no encaja (sub-matriz irregular, etc.) devuelve null → unidades descartadas
+        /// (seguro). Mirror del salto de filas vacías del camino numérico.</summary>
+        private static Calcpad.Core.Unit[] TryBuildLiteralUnits(List<List<MValue>> allPieces, int R, int C)
+        {
+            var rows = new List<Calcpad.Core.Unit[]>();
+            foreach (var pieces in allPieces)
+            {
+                int rowR = -1, rowC = 0;
+                var parts = new List<(int r, int c, Calcpad.Core.Unit[] u)>();
+                foreach (var p in pieces)
+                {
+                    if (p.Data == null || p.IsString || p.IsSymbolic || p.IsSymMatrix || p.CellData != null) return null;
+                    int pr = p.Rows, pc = p.Cols;
+                    if (pr * pc == 0) continue;               // pieza vacía
+                    if (rowR < 0) rowR = pr; else if (pr != rowR) return null;
+                    var pu = new Calcpad.Core.Unit[pr * pc];
+                    for (int k = 0; k < pr * pc; k++) pu[k] = p.UnitAt(k);
+                    parts.Add((pr, pc, pu)); rowC += pc;
+                }
+                if (rowR < 0) continue;                        // fila vacía (mirror numérico)
+                for (int i = 0; i < rowR; i++)
+                {
+                    var oneRow = new Calcpad.Core.Unit[rowC];
+                    int col = 0;
+                    foreach (var (pr, pc, pu) in parts)
+                    {
+                        for (int j = 0; j < pc; j++) oneRow[col + j] = pu[i * pc + j];
+                        col += pc;
+                    }
+                    rows.Add(oneRow);
+                }
+            }
+            if (rows.Count != R) return null;
+            var outU = new Calcpad.Core.Unit[R * C];
+            for (int i = 0; i < R; i++)
+            {
+                if (rows[i].Length != C) return null;
+                Array.Copy(rows[i], 0, outU, i * C, C);
+            }
+            return outU;
         }
         /// <summary>Convierte un MValue numérico a su equivalente symbolic matrix (SymConst por celda).</summary>
         private static MValue LiftToSymMatrix(MValue v)

@@ -65,6 +65,13 @@ namespace Calcpad.Core.Matlab
                             // (2) Solo valor (evita duplicacion polinomica)
                             sb.Append(RenderValue(result.Value));
                         }
+                        else if (asg.Rhs is CallOrIndex)
+                        {
+                            // (3b) RHS = LLAMADA o INDEXADO (v(2), K(1,1), double(L), isUnit(x)…):
+                            // NO re-echar la llamada como texto — eso es código y ya está en el
+                            // script. El render muestra SOLO el resultado (nombre = valor).
+                            sb.Append(RenderValue(result.Value));
+                        }
                         else
                         {
                             // (3) Default: source = value con short-circuit visual
@@ -228,7 +235,12 @@ namespace Calcpad.Core.Matlab
             // Complex scalar tiene prioridad sobre IsScalar real
             if (v.IsComplex && v.Rows == 1 && v.Cols == 1)
                 return FormatComplex(v.Data[0], v.Imag[0]);
-            if (v.IsScalar) return FormatNumber(v.Scalar);
+            if (v.IsScalar)
+            {
+                var numStr = FormatNumber(v.Scalar);
+                // symunit: escalar con unidad → "6 m" con la unidad en VERDE y recta.
+                return v.HasUnit ? numStr + " " + UnitToHtml(v.Unit.Text) : numStr;
+            }
             if (v.Is3D)
             {
                 var sb3 = new StringBuilder();
@@ -351,7 +363,15 @@ namespace Calcpad.Core.Matlab
                         sb.Append(FormatComplex(v.Data[idx], v.Imag[idx]));
                     }
                     else
+                    {
                         sb.Append(FormatNumber(v.At(ri, cj)));
+                        // symunit por elemento: unidad verde tras el número (como MATLAB 10*[kN]).
+                        if (v.HasUnitData)
+                        {
+                            var cu = v.UnitAt(ri * v.Cols + cj);
+                            if (cu != null) sb.Append(" " + UnitToHtml(cu.Text));
+                        }
+                    }
                     sb.Append("</span>");
                 }
                 // Bracket derecho
@@ -462,17 +482,26 @@ namespace Calcpad.Core.Matlab
                 MatrixLit m => RenderMatrixLit(m),
                 ColonAll => ":",
                 AnonFunction af => RenderAnonFunction(af),
-                FieldAccess fa => RenderExpression(fa.Target) + "." + RenderIdentName(fa.FieldName),
+                FieldAccess fa => RenderFieldAccess(fa),
                 CellLit cl => RenderCellLit(cl),
                 CellIndex ci => RenderCellIndex(ci),
                 _ => HttpUtility.HtmlEncode("[" + node?.GetType().Name + "]")
             };
         }
+        /// <summary>Render de acceso a campo. Caso symunit: `u.kN`, `u.m`, `u.MPa` (target
+        /// identificador simple, campo = nombre de unidad Calcpad) → se muestra SOLO la unidad
+        /// en verde, sin el `u.` (como MATLAB muestra [kN]). Es cosmético (no afecta el cálculo).</summary>
+        private static string RenderFieldAccess(FieldAccess fa)
+        {
+            if (fa.Target is IdentRef && Calcpad.Core.Unit.TryGet(fa.FieldName, out _))
+                return UnitToHtml(fa.FieldName);
+            return RenderExpression(fa.Target) + "." + RenderIdentName(fa.FieldName);
+        }
         /// <summary>Renderiza un identificador con underscore como subíndice HTML.
         /// Ej: "a_2" → "a<sub>2</sub>", "M_xx" → "M<sub>xx</sub>", "x_max" → "x<sub>max</sub>".
         /// Múltiples underscore: "sigma_x_max" → "sigma<sub>x,max</sub>" (notación Calcpad).
         /// Si el nombre empieza con _ o es solo _, lo deja literal.</summary>
-        private static string RenderIdentName(string name)
+        public static string RenderIdentName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
             int idx = name.IndexOf('_');
@@ -480,15 +509,60 @@ namespace Calcpad.Core.Matlab
             {
                 // Sin underscore: igual probamos translit a letra griega.
                 // Ej: `xi` → ξ, `phi` → φ, `Phi` → Φ. Si no matchea, se queda
-                // como texto literal.
-                string greek = GreekLetterMap(name);
+                // como texto literal. Se respeta el toggle GreekAutoRender
+                // (% #nogreek … % #greek): si está OFF, el nombre queda literal.
+                string greek = GreekAutoRender ? GreekLetterMap(name) : null;
                 return $"<var>{(greek ?? HttpUtility.HtmlEncode(name))}</var>";
             }
             string baseName = name.Substring(0, idx);
             string sub = name.Substring(idx + 1).Replace("_", ",");
             // Greek letters: si baseName matches greek prefix, renderizar como letra griega
-            string baseRendered = GreekLetterMap(baseName) ?? HttpUtility.HtmlEncode(baseName);
+            string baseRendered = (GreekAutoRender ? GreekLetterMap(baseName) : null)
+                                  ?? HttpUtility.HtmlEncode(baseName);
             return $"<var>{baseRendered}<sub>{HttpUtility.HtmlEncode(sub)}</sub></var>";
+        }
+        /// <summary>Transliteración de nombres griegos → símbolo Unicode en el OUTPUT.
+        /// Por defecto ACTIVADA (los nombres ASCII `nu`, `phi`, `xi`… se muestran ν, φ, ξ,
+        /// manteniendo el código MATLAB-válido). Se apaga/enciende por bloque con las
+        /// directivas de comentario <c>% #nogreek</c> … <c>% #greek</c>. Estado por-corrida:
+        /// el pipeline lo restaura a true al iniciar cada ejecución.</summary>
+        public static bool GreekAutoRender = true;
+        /// <summary>Transliteración pública para expresiones simbólicas (#noc/#val/#equ):
+        /// reemplaza los identificadores que son nombres de letra griega por su símbolo
+        /// Unicode, respetando límites de palabra (no toca `phin` ni `nu_x` parcialmente).
+        /// Devuelve la cadena intacta si GreekAutoRender está OFF.</summary>
+        public static string TransliterateGreek(string expr)
+        {
+            if (!GreekAutoRender || string.IsNullOrEmpty(expr)) return expr;
+            return System.Text.RegularExpressions.Regex.Replace(
+                expr, "[A-Za-z]+",
+                m => GreekLetterMap(m.Value) ?? m.Value);
+        }
+        /// <summary>¿Este identificador merece typeset de variable (itálica/subíndice/griega)
+        /// dentro de una cadena de fprintf/disp? Sí si es letra griega, si tiene subíndice
+        /// (underscore interno), o si es de una sola letra (E, t, q, x…). Las palabras
+        /// latinas de varias letras (grados, plano) se dejan como PROSA.</summary>
+        public static bool IsRenderableIdent(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            int idx = name.IndexOf('_');
+            if (idx > 0 && idx < name.Length - 1) return true;              // subíndice a_b
+            string bas = idx > 0 ? name.Substring(0, idx) : name;
+            if (GreekLetterMap(bas) != null) return true;                   // griega
+            return bas.Length == 1 && char.IsLetter(bas[0]);                // 1 letra
+        }
+        /// <summary>Formatea el texto de una unidad Calcpad (symunit) como HTML verde y recto:
+        /// `*`→`·`, `^N`→superíndice. Ej "kN/m^2" → &lt;i class="unit"&gt;kN/m&lt;sup&gt;2&lt;/sup&gt;&lt;/i&gt;.</summary>
+        private static string UnitToHtml(string unitText)
+        {
+            if (string.IsNullOrEmpty(unitText)) return "";
+            var u = HttpUtility.HtmlEncode(unitText);
+            // Markup IDÉNTICO a Calcpad dentro de %: <i> plano (→ .eq i, verde #086, recto,
+            // SIN vertical-align) y <sup class="unit"> para exponentes. Antes usaba
+            // <i class="unit"> que lleva vertical-align:-1pt → se veía una posición más abajo.
+            u = System.Text.RegularExpressions.Regex.Replace(u, @"\^(-?\d+)", "<sup class=\"unit\">$1</sup>");
+            u = u.Replace("*", "·");
+            return "<i>" + u + "</i>";
         }
         /// <summary>Mapea nombres de letras griegas a su unicode. Null si no es griega.</summary>
         private static string GreekLetterMap(string name) => name switch

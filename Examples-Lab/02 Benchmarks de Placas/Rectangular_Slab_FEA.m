@@ -67,20 +67,20 @@ end
 %% Constitutive matrix (stress-strain)
 %-- OJO: el contenido de #noc es sintaxis CALCPAD (matriz: ; = columna, | = fila),
 %-- no MATLAB. La matriz MATLAB de abajo usa , y ; (distinto).
-% #noc D = E*t^3/(12*(1 - nu^2))*[1; nu; 0|nu; 1; 0|0; 0; (1 - nu)/2]
+% #noc D = E*t^3/(12*(1 - ν^2))*[1; ν; 0|ν; 1; 0|0; 0; (1 - ν)/2]
 D = E_si*t^3/(12*(1-nu^2)) * [1, nu, 0; nu, 1, 0; 0, 0, (1-nu)/2];
 
 %% Shape functions (Hermite cubics, BFS)
-% #noc Phi_1(x) = 1 - x^2*(3 - 2*x)
-% #noc Phi_2(x) = x*l*(1 - x*(2 - x))
-% #noc Phi_3(x) = x^2*(3 - 2*x)
-% #noc Phi_4(x) = x^2*l*(-1 + x)
+% #noc Φ_1(x) = 1 - x^2*(3 - 2*x)
+% #noc Φ_2(x) = x*l*(1 - x*(2 - x))
+% #noc Φ_3(x) = x^2*(3 - 2*x)
+% #noc Φ_4(x) = x^2*l*(-1 + x)
 
 %% Element stiffness matrix
 % Se calcula por doble integracion de Gauss (formula simbolica):
-% #noc K_e = a_1*b_1*$Area{$Area{B_i^T*D*B_j @ xi = 0 : 1} @ eta = 0 : 1}
+% #noc K_e = a_1*b_1*$Area{$Area{B_i^T*D*B_j @ ξ = 0 : 1} @ η = 0 : 1}
 % Element load vector:
-% #noc F_e = a_1*b_1*$Area{$Area{N_i^T*q @ xi = 0 : 1} @ eta = 0 : 1}
+% #noc F_e = a_1*b_1*$Area{$Area{N_i^T*q @ ξ = 0 : 1} @ η = 0 : 1}
 
 %-- Gauss-Legendre 4x4 mapped to [0,1]
 gp4 = [-0.861136311594053; -0.339981043584856; 0.339981043584856; 0.861136311594053];

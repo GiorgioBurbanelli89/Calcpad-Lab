@@ -243,6 +243,14 @@ namespace Calcpad.Core.Matlab
             // Bloque  % #hide … % #show  (estilo Calcpad): ejecuta TODO pero no renderiza nada
             // en Lab (oculta fprintf/disp/resultados). En MATLAB el codigo corre igual.
             bool hidden = false;
+            // Transliteración de nombres griegos (nu→ν, phi→φ) en el output: ON por defecto.
+            // Estado por-corrida (se restaura aquí para que una corrida no herede el
+            // #nogreek de otra). Se togglea con % #nogreek … % #greek (ver bucle).
+            MatlabHtmlWriter.GreekAutoRender = true;
+            // Salida de fprintf/disp: por defecto TEXTO PLANO (fiel a MATLAB). Con el
+            // toggle % #render … % #plain se renderiza (griegas nu→ν, etc.) el texto
+            // impreso. Estado por-corrida, se restaura aquí a plano.
+            bool renderDisp = false;
             _evaluator.Output = msg => { if (!hidden) dispBuffer.AppendLine(msg); };
             _evaluator.HtmlOut = html => { if (!hidden) htmlBuffer.Append(html); };
             // FRAMES de animación (drawnow): en StreamingMode (WPF) se emiten EN VIVO con la marca
@@ -304,6 +312,7 @@ namespace Calcpad.Core.Matlab
                 if (dispBuffer.Length > 0)
                 {
                     var dispRawI = dispBuffer.ToString().TrimEnd();
+                    if (renderDisp) dispRawI = RenderDispInline(dispRawI);
                     var dispProcessedI = RenderDispWithMatrices(dispRawI);
                     var encodedI = EncodeWithHtmlSegments(dispProcessedI);
                     var stretchedI = StretchInlineBrackets(encodedI);
@@ -393,6 +402,15 @@ namespace Calcpad.Core.Matlab
                     var dt0 = cdir0.Text.Trim();
                     if (dt0 == "#hide") { hidden = true; continue; }
                     if (dt0 == "#show") { hidden = false; continue; }
+                    // Toggle de bloque para la transliteración de griegas (default ON).
+                    // % #nogreek → los nombres (nu, phi…) quedan como texto literal.
+                    // % #greek   → vuelve a mostrarlos como símbolo (ν, φ…).
+                    if (dt0 == "#nogreek") { MatlabHtmlWriter.GreekAutoRender = false; continue; }
+                    if (dt0 == "#greek")   { MatlabHtmlWriter.GreekAutoRender = true;  continue; }
+                    // Toggle de bloque para el render de fprintf/disp (default plano).
+                    // % #render → el texto impreso se renderiza (griegas). % #plain → texto plano.
+                    if (dt0 == "#render") { renderDisp = true;  continue; }
+                    if (dt0 == "#plain")  { renderDisp = false; continue; }
                 }
 
                 // Decision temprana sobre inline-comment: necesita conocer el
@@ -451,6 +469,7 @@ namespace Calcpad.Core.Matlab
                 if (dispBuffer.Length > 0)
                 {
                     var dispRaw = dispBuffer.ToString().TrimEnd();
+                    if (renderDisp) dispRaw = RenderDispInline(dispRaw);
                     var dispProcessed = RenderDispWithMatrices(dispRaw);
                     var encoded = EncodeWithHtmlSegments(dispProcessed);
                     var stretched = StretchInlineBrackets(encoded);
@@ -656,8 +675,27 @@ namespace Calcpad.Core.Matlab
             html = null;
             if (string.IsNullOrEmpty(commentText)) return false;
             var t = commentText.Trim();
+            // Modificador INLINE de griegas: prefijo opcional sobre UNA directiva, que
+            // fuerza texto plano (o griego) SOLO en esa línea, sin tocar el estado de
+            // bloque. Ej:  % #nogreek #noc D = ...(nu queda literal en esta línea)
+            //             % #greek   #noc D = ...(fuerza símbolo aunque el bloque esté OFF)
+            bool? greekOverride = null;
+            if (TryMarker(t, "#nogreek", out var afterNg)) { greekOverride = false; t = afterNg; }
+            else if (TryMarker(t, "#greek", out var afterG)) { greekOverride = true; t = afterG; }
             var expr = ParseDirective(t, out string mode);
             if (expr == null || expr.Length == 0) return false;
+            // Transliterar nombres griegos ASCII → símbolo Unicode (nu→ν, phi→φ) para que
+            // el .m se mantenga MATLAB-válido y el output muestre las griegas. El override
+            // inline gana sobre el estado de bloque; sin override, respeta el bloque
+            // (% #nogreek … % #greek). Así el usuario NO teclea Unicode en el script.
+            bool doGreek = greekOverride ?? MatlabHtmlWriter.GreekAutoRender;
+            if (doGreek)
+            {
+                bool prev = MatlabHtmlWriter.GreekAutoRender;
+                MatlabHtmlWriter.GreekAutoRender = true;
+                expr = MatlabHtmlWriter.TransliterateGreek(expr);
+                MatlabHtmlWriter.GreekAutoRender = prev;
+            }
             try
             {
                 _calcpadSettings ??= new Settings();
@@ -769,6 +807,33 @@ namespace Calcpad.Core.Matlab
         /// HtmlEncode selectivo: escapa todo el texto SALVO los segmentos
         /// delimitados por ... (HTML pre-renderizado del simbólico).
         /// </summary>
+        /// <summary>Render inline de una cadena de fprintf/disp con el typeset real de
+        /// Hekatan Lab (modo % #render): UNIDADES en verde y rectas, VARIABLES en itálica
+        /// (con subíndice y griega), prosa como texto. Todo lo estilizado va entre sentinels
+        /// para que EncodeWithHtmlSegments no lo escape.</summary>
+        private static string RenderDispInline(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw;
+            return DispTokenRegex.Replace(raw, m =>
+            {
+                if (m.Groups["u"].Success)
+                    return HtmlStart + RenderUnitToken(m.Groups["u"].Value) + HtmlEnd;
+                var name = m.Groups["v"].Value;
+                if (MatlabHtmlWriter.IsRenderableIdent(name))
+                    return HtmlStart + MatlabHtmlWriter.RenderIdentName(name) + HtmlEnd;
+                return name;   // prosa: texto plano
+            });
+        }
+
+        /// <summary>Formatea un token de unidad como Calcpad: verde + recto, `*`→`·`,
+        /// `^N`→superíndice. Ej: "kN/m^2" → &lt;i class="unit"&gt;kN/m&lt;sup&gt;2&lt;/sup&gt;&lt;/i&gt;.</summary>
+        private static string RenderUnitToken(string u)
+        {
+            u = System.Text.RegularExpressions.Regex.Replace(u, @"\^(\d)", "<sup>$1</sup>");
+            u = u.Replace("*", "·");
+            return "<i class=\"unit\">" + u + "</i>";
+        }
+
         private static string RenderDispWithMatrices(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return raw ?? string.Empty;
@@ -920,6 +985,18 @@ namespace Calcpad.Core.Matlab
             "mm", "cm", "km", "m", "s", "rad", "deg",
             "N"
         };
+
+        // Tokenizador del modo % #render (definido DESPUÉS de UnitTokens por el orden de
+        // inicialización estática): en UNA pasada reconoce, en este orden,
+        //   (u) UNIDAD  → verde + recta (<i class="unit">), superíndice para ^N y · para *.
+        //   (v) VARIABLE → itálica (<var>), con subíndice y símbolo griego.
+        // Las unidades van PRIMERO (m, kN, MPa… con prioridad sobre "variable de 1 letra"),
+        // como Calcpad dentro de %. La prosa (grados, plano) no matchea. Se permite un
+        // exponente colgante (kN/m + ^2 → kN/m^2). El lookbehind evita cazar la 'e' de 1e-4.
+        private static readonly System.Text.RegularExpressions.Regex DispTokenRegex =
+            new(@"(?<![A-Za-z])(?<u>(?:" + string.Join("|", UnitTokens) + @")(?:\^\d)?)(?![A-Za-z])"
+              + @"|(?<![0-9A-Za-z_])(?<v>[A-Za-z_][A-Za-z0-9_]*)",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
 
         private static readonly System.Text.RegularExpressions.Regex UnitRegex =
             new(@"(?<![A-Za-z])(" + string.Join("|", UnitTokens) + @")(?![A-Za-z])",
