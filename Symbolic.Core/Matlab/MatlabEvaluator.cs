@@ -5125,7 +5125,29 @@ namespace Calcpad.Core.Matlab
             _builtins["isUnit"] = a => new MValue(a.Length > 0 && a[0].HasUnit ? 1 : 0);
             // separateUnits(x): número expresado en su unidad actual (quita la unidad).
             _builtins["separateUnits"] = a =>
-                (a.Length > 0 && a[0].HasUnit) ? new MValue(a[0].Data[0]) : (a.Length > 0 ? a[0] : new MValue(0));
+                (a.Length > 0 && a[0].HasAnyUnit) ? StripUnits(a[0]) : (a.Length > 0 ? a[0] : new MValue(0));
+            // [v, u] = separateUnits(x): valor SIN unidad + la unidad (como MATLAB). Multi-salida.
+            _multiOutBuiltins["separateUnits"] = a =>
+            {
+                if (a.Length < 1) throw new MatlabRuntimeException("[v,u]=separateUnits(x)");
+                var x = a[0];
+                int r = x.Rows, c = x.Cols, n = r * c;
+                MValue value, unit;
+                if (x.HasUnitData)
+                {
+                    value = new MValue(r, c, (double[])x.Data.Clone());       // números sin unidad
+                    var ones = new double[n];
+                    for (int i = 0; i < n; i++) ones[i] = 1.0;
+                    unit = MValue.NewUnitMatrix(r, c, ones, (Calcpad.Core.Unit[])x.UnitData.Clone());
+                }
+                else if (x.HasUnit)
+                {
+                    value = new MValue(x.Data[0]);
+                    unit = MValue.NewUnitScalar(1.0, x.Unit);
+                }
+                else { value = x; unit = new MValue(1); }                     // adimensional
+                return new[] { value, unit };
+            };
             // unitConvert(x, u.target): convierte x a la unidad destino.
             _builtins["unitConvert"] = a =>
             {
@@ -10807,6 +10829,15 @@ namespace Calcpad.Core.Matlab
         /// <summary>Nombra la unidad como Calcpad dentro de % : campo Mecánico → kN/kPa/MPa
         /// (GetForceUnit), Eléctrico → GetElectricalUnit; ajustando el número por el cambio de
         /// escala. Réplica de GetFieldUnit del MathParser (paridad con el render de %).</summary>
+        /// <summary>Quita las unidades de un valor (symunit): devuelve solo los números.
+        /// Escalar con unidad → número; matriz con UnitData → matriz numérica; si no tiene
+        /// unidad, se devuelve tal cual.</summary>
+        private static MValue StripUnits(MValue x)
+        {
+            if (x.HasUnitData) return new MValue(x.Rows, x.Cols, (double[])x.Data.Clone());
+            if (x.HasUnit) return new MValue(x.Data[0]);
+            return x;
+        }
         private static void BeautifyRaw(double d, Calcpad.Core.Unit u, out double rn, out Calcpad.Core.Unit ru)
         {
             if (u == null) { rn = d; ru = null; return; }
