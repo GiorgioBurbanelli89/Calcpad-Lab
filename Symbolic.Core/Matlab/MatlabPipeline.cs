@@ -839,9 +839,17 @@ namespace Calcpad.Core.Matlab
             if (m.Groups["u"].Success)
                 return HtmlStart + RenderUnitToken(m.Groups["u"].Value) + HtmlEnd;
             var name = m.Groups["v"].Value;
-            if (MatlabHtmlWriter.IsRenderableIdent(name))
-                return HtmlStart + MatlabHtmlWriter.RenderIdentName(name) + HtmlEnd;
-            return name;   // prosa: texto plano
+            var idx = m.Groups["idx"].Value;   // "(1,1)" para A(i,j), "(3)" para v(i), o ""
+            if (!MatlabHtmlWriter.IsRenderableIdent(name))
+                return name + idx;             // prosa / funcion: tal cual (no perder parentesis)
+            string baseHtml = MatlabHtmlWriter.RenderIdentName(name);
+            if (string.IsNullOrEmpty(idx))
+                return HtmlStart + baseHtml + HtmlEnd;
+            // Elemento de vector/matriz: los indices van como SUBINDICE (clase .idx:
+            // cursiva + color de la paleta), NO como llamada a funcion A(i,j).
+            string inner = System.Text.RegularExpressions.Regex.Replace(
+                               idx.Substring(1, idx.Length - 2), @"\s+", "");
+            return HtmlStart + baseHtml + "<sub class=\"idx\">" + inner + "</sub>" + HtmlEnd;
         }
 
         /// <summary>Formatea un token de unidad como Calcpad: verde + recto, `*`→`·`,
@@ -1014,7 +1022,7 @@ namespace Calcpad.Core.Matlab
         // exponente colgante (kN/m + ^2 → kN/m^2). El lookbehind evita cazar la 'e' de 1e-4.
         private static readonly System.Text.RegularExpressions.Regex DispTokenRegex =
             new(@"(?<![A-Za-z])(?<u>(?:" + string.Join("|", UnitTokens) + @")(?:\^\d)?)(?![A-Za-z])"
-              + @"|(?<![0-9A-Za-z_])(?<v>[A-Za-z_][A-Za-z0-9_]*)",
+              + @"|(?<![0-9A-Za-z_])(?<v>[A-Za-z_][A-Za-z0-9_]*)(?<idx>\(\d+(?:\s*,\s*\d+)*\))?",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
         private static readonly System.Text.RegularExpressions.Regex UnitRegex =
