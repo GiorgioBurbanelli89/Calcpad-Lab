@@ -135,6 +135,22 @@ namespace Calcpad.Core
             // 3) nada → managed
         }
 
+        // Nº de hilos para MKL. Override: env var HEKATAN_MKL_THREADS. Default: núcleos de
+        // RENDIMIENTO en CPU híbrido. i7-14650HX = 8P(+HT=16 lóg) + 8E; usar los 24 lastra el
+        // GEMM con los E-cores. Heurística: si lógicos > físicos (hay HT) el equipo suele ser
+        // híbrido/HT → usar ~2/3 de los lógicos (P-cores + su HT, sin E-cores). Cae a físicos.
+        internal static int MklThreads { get; private set; } = 1;
+        private static int ResolveMklThreads()
+        {
+            int logical = Math.Max(1, Environment.ProcessorCount);
+            var env = Environment.GetEnvironmentVariable("HEKATAN_MKL_THREADS");
+            if (int.TryParse(env, out int t) && t >= 1 && t <= logical) { MklThreads = t; return t; }
+            // Heurística híbrido: 24 lóg → 16 (P-cores con HT). En no-híbrido queda ≈ lógicos.
+            int guess = logical >= 20 ? (logical * 2 + 1) / 3 : logical;
+            MklThreads = Math.Max(1, guess);
+            return MklThreads;
+        }
+
         private static bool Bind(IntPtr h)
         {
             if (!NativeLibrary.TryGetExport(h, "cblas_dgemm", out var dgemm)) return false;
@@ -147,10 +163,14 @@ namespace Calcpad.Core
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dsygv", out p)) Dsygv = (delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgeev", out p)) Dgeev = (delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int>)p;
             // Forzar multi-threading de MKL (por defecto se quedaba en 1 thread en este proceso).
+            // CPU HÍBRIDO (Raptor Lake: 8 P + 8 E cores): usar TODOS los lógicos mete a los
+            // E-cores lentos como rezagados en BLAS compute-bound. Por defecto usamos solo los
+            // núcleos "de rendimiento" ~ mitad de los lógicos (heurística P-core), con override
+            // por env var HEKATAN_MKL_THREADS para tuning.
             if (NativeLibrary.TryGetExport(h, "MKL_Set_Num_Threads", out p))
             {
                 MklSetNumThreads = (delegate* unmanaged[Cdecl]<int, void>)p;
-                try { MklSetNumThreads(Math.Max(1, Environment.ProcessorCount)); } catch { }
+                try { MklSetNumThreads(ResolveMklThreads()); } catch { }
             }
             // VML (element-wise SIMD+threaded)
             if (NativeLibrary.TryGetExport(h, "vdSqrt", out p)) VdSqrt = (delegate* unmanaged[Cdecl]<int, double*, double*, void>)p;
