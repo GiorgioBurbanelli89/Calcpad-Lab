@@ -50,8 +50,8 @@
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="true">
                                 <Setter Property="Foreground" Value="Black"/>
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#A03C7FB1"/>
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#A0BEE6FD"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#C0E5382B"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#26E5382B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -84,8 +84,8 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="true">
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#A03C7FB1"/>
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#A0BEE6FD"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#C0E5382B"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#26E5382B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -115,8 +115,8 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="true">
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#A03C7FB1"/>
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#A0BEE6FD"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#C0E5382B"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#26E5382B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -167,8 +167,8 @@
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="true">
                                 <Setter Property="Foreground" Value="Black"/>
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#A03C7FB1"/>
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#A0BEE6FD"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#C0E5382B"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#26E5382B"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -271,11 +271,19 @@
                       Header="{x:Static wpf:MainWindowResources.Insert}">
                 <!-- ================= Hekatan Lab: menu Insert con sintaxis MATLAB (no Calcpad) ================= -->
                 <MenuItem Header="Comment / sections">
-                    <MenuItem Click="Button_Click" Tag="% " Header="%  comment"            ToolTip="Comentario de linea (MATLAB)"/>
-                    <MenuItem Click="Button_Click" Tag="%% " Header="%% section heading"    ToolTip="Encabezado de seccion (celda MATLAB)"/>
-                    <MenuItem Click="Button_Click" Tag="%-- " Header="%-- hidden (Lab)"     ToolTip="Comentario que Hekatan Lab NO muestra en la salida"/>
-                    <MenuItem Click="Button_Click" Tag="%{§§%}" Header="%{ ... %}  block"   ToolTip="Comentario de bloque MATLAB"/>
-                    <MenuItem Click="Button_Click" Tag="..." Header="...  continuation"     ToolTip="Continuar la sentencia en la linea siguiente"/>
+                    <!-- VISIBLES en el output (llevan marcador) -->
+                    <MenuItem Click="Button_Click" Tag="% '" Header="% '  texto VISIBLE"          ToolTip="Texto visible en el output (apostrofo ' = texto)"/>
+                    <MenuItem Click="Button_Click" Tag="%% " Header="%%  encabezado (visible)"    ToolTip="Encabezado de seccion, visible en el output"/>
+                    <MenuItem Click="Button_Click" Tag="% #noc " Header="% #noc  formula"         ToolTip="Formula tipografiada (Calcpad), visible"/>
+                    <MenuItem Click="Button_Click" Tag="% #md§§% #endmd" Header="% #md ... #endmd  (Markdown)" ToolTip="Bloque Markdown: titulos #, tablas, listas, **negrita**, -&gt; centrado &lt;-"/>
+                    <MenuItem Click="Button_Click" Tag="% #plain§§% #render" Header="% #plain ... #render" ToolTip="Texto plano vs renderizado en disp/fprintf"/>
+                    <Separator/>
+                    <!-- OCULTOS (Hekatan Lab NO los muestra) -->
+                    <MenuItem Click="Button_Click" Tag="% " Header="%  comentario OCULTO"         ToolTip="Comentario de codigo: Hekatan Lab NO lo muestra (como MATLAB)"/>
+                    <MenuItem Click="Button_Click" Tag="%-- " Header="%--  oculto (explicito)"    ToolTip="Comentario que Hekatan Lab NO muestra en la salida"/>
+                    <MenuItem Click="Button_Click" Tag="%{§§%}" Header="%{ ... %}  bloque oculto" ToolTip="Comentario de bloque MATLAB (oculto)"/>
+                    <Separator/>
+                    <MenuItem Click="Button_Click" Tag="..." Header="...  continuacion"           ToolTip="Continuar la sentencia en la linea siguiente"/>
                 </MenuItem>
                 <MenuItem Header="{x:Static wpf:ConstantsResources.Constants_Header}">
                     <MenuItem Click="Button_Click" Tag="pi"       Header="pi"       ToolTip="3.14159..."/>
