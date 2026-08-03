@@ -57,6 +57,8 @@ namespace Calcpad.Core
         public static delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int> Dpbsv;
         // LAPACKE_dsygv(layout, itype, jobz, uplo, n, A, lda, B, ldb, w) -> info  (LAPACKE gestiona el workspace)
         public static delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int> Dsygv;
+        // LAPACKE_dgeev(layout, jobvl, jobvr, n, a, lda, wr, wi, vl, ldvl, vr, ldvr) -> info  (eig NO simétrica)
+        public static delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int> Dgeev;
         // MKL PARDISO (sparse directo, el solver de OpenSees). Solo existe en mkl_rt.
         // pardiso(pt, maxfct, mnum, mtype, phase, n, a, ia, ja, perm, nrhs, iparm, msglvl, b, x, error)
         public static delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void> Pardiso;
@@ -132,6 +134,7 @@ namespace Calcpad.Core
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgesv", out p)) Dgesv = (delegate* unmanaged[Cdecl]<int, int, int, double*, int, int*, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpbsv", out p)) Dpbsv = (delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dsygv", out p)) Dsygv = (delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int>)p;
+            if (NativeLibrary.TryGetExport(h, "LAPACKE_dgeev", out p)) Dgeev = (delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int>)p;
             // PARDISO (solo MKL; OpenBLAS no lo exporta → quedan null)
             if (NativeLibrary.TryGetExport(h, "pardiso", out p)) Pardiso = (delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void>)p;
             if (NativeLibrary.TryGetExport(h, "pardisoinit", out p)) Pardisoinit = (delegate* unmanaged[Cdecl]<void*, int*, int*, void>)p;
@@ -504,6 +507,24 @@ namespace Calcpad.Core
                 for (int i = 0; i < n; i++)
                     V[i * n + k] = A[k * n + i];
             return (w, V);
+        }
+
+        public static bool HasGeev => NativeBlas.Dgeev != null;
+
+        /// <summary>Eigenvalores de matriz GENERAL (no simétrica) via LAPACKE_dgeev.
+        /// Devuelve (parte real wr, parte imaginaria wi), n cada una. Los eigenvalores no
+        /// dependen del layout, así que row-major va directo.</summary>
+        public static (double[] wr, double[] wi) Geev(int n, double[] A_row)
+        {
+            var A = (double[])A_row.Clone();   // dgeev sobreescribe A
+            var wr = new double[n];
+            var wi = new double[n];
+            var dummy = new double[1];
+            int info;
+            fixed (double* pA = A, pWr = wr, pWi = wi, pD = dummy)
+                info = NativeBlas.Dgeev(NativeBlas.LapackRowMajor, (sbyte)'N', (sbyte)'N', n, pA, n, pWr, pWi, pD, 1, pD, 1);
+            if (info != 0) throw new InvalidOperationException($"dgeev info={info}");
+            return (wr, wi);
         }
     }
 }

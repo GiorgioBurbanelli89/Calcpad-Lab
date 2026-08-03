@@ -976,7 +976,7 @@ namespace Calcpad.Core.Matlab
             _builtins["atan2"] = a => MapBinary(a[0], a[1], Math.Atan2);
             _builtins["mod"] = a => MapBinary(a[0], a[1], (x, y) => y == 0 ? x : x - y * Math.Floor(x / y));
             _builtins["rem"] = a => MapBinary(a[0], a[1], (x, y) => y == 0 ? x : x - y * Math.Truncate(x / y));
-            _builtins["power"] = a => MapBinary(a[0], a[1], Math.Pow);
+            _builtins["power"] = a => MapPowFast(a[0], a[1]) ?? MapBinary(a[0], a[1], Math.Pow);
             _builtins["max"] = a => MinMaxBuiltin(a, true);
             _builtins["min"] = a => MinMaxBuiltin(a, false);
             _builtins["sum"] = a => (a[0].IsSymbolic || a[0].IsSymMatrix)
@@ -7072,6 +7072,22 @@ namespace Calcpad.Core.Matlab
                     var col = new MValue(ns, 1); for (int i = 0; i < ns; i++) col.Set(i, 0, wv[i]);
                     return col;
                 }
+                // Matriz GENERAL numérica (no simétrica): eig via LAPACKE_dgeev — mucho más
+                // rápido que el QR en C#. Devuelve complejo si hay eigenvalores complejos.
+                if (a.Length == 1 && !a[0].IsSymMatrix && !a[0].IsComplex && !a[0].HasAnyUnit
+                    && a[0].Rows == a[0].Cols && a[0].Rows >= 2
+                    && Calcpad.Core.LapackInterop.Available && Calcpad.Core.LapackInterop.HasGeev)
+                {
+                    try
+                    {
+                        int ne = a[0].Rows;
+                        var (wr, wi) = Calcpad.Core.LapackInterop.Geev(ne, ToRowMajor(a[0]));
+                        bool anyIm = false;
+                        foreach (var im in wi) if (im != 0.0) { anyIm = true; break; }
+                        return anyIm ? new MValue(ne, 1, wr, wi) : new MValue(ne, 1, wr);
+                    }
+                    catch { /* fallback al algoritmo C# */ }
+                }
                 return MatlabLinAlg.Eig(a.Length >= 2 ? MatlabLinAlg.Linsolve(a[1], a[0]) : a[0]).eigenvalues;
             };
             _builtins["eigenvals"] = a => MatlabLinAlg.Eig(a[0]).eigenvalues;
@@ -8420,6 +8436,42 @@ namespace Calcpad.Core.Matlab
                     (op switch { '+' => vs + vb, '-' => vs - vb, '*' => vs * vb, _ => vs / vb }).CopyTo(rd, i);
                 }
                 for (; i < n; i++) rd[i] = ApplyOp(op, sa, db[i]);
+            }
+            return r;
+        }
+
+        /// <summary>Fast-path de A.^n con n ENTERO escalar: multiplicación (SIMD), NO Math.Pow.
+        /// Math.Pow(x,2) es ~10× más lento que x·x. Cubre exponentes enteros pequeños (incl.
+        /// negativos → recíproco). Devuelve null si no aplica (→ Math.Pow genérico).</summary>
+        private static MValue MapPowFast(MValue a, MValue b)
+        {
+            if (a.IsComplex || a.IsSparseReal || a.IsString || a.IsScalar || a.HasAnyUnit) return null;
+            if (!b.IsScalar) return null;
+            double p = b.Scalar;
+            if (p != Math.Floor(p) || Math.Abs(p) > 64) return null;
+            int n = (int)Math.Abs(p);
+            bool neg = p < 0;
+            var da = a.Data; if (da == null) return null;
+            int len = da.Length;
+            var r = new MValue(a.Rows, a.Cols); var rd = r.Data;
+            int w = System.Numerics.Vector<double>.Count; int i = 0;
+            if (len >= 2 * w)
+            {
+                var one = System.Numerics.Vector<double>.One;
+                for (; i <= len - w; i += w)
+                {
+                    var vx = new System.Numerics.Vector<double>(da, i);
+                    var acc = one;
+                    for (int k = 0; k < n; k++) acc *= vx;
+                    if (neg) acc = one / acc;
+                    acc.CopyTo(rd, i);
+                }
+            }
+            for (; i < len; i++)
+            {
+                double x = da[i], acc = 1.0;
+                for (int k = 0; k < n; k++) acc *= x;
+                rd[i] = neg ? 1.0 / acc : acc;
             }
             return r;
         }
@@ -11385,7 +11437,7 @@ namespace Calcpad.Core.Matlab
                         : MatlabLinAlg.Linsolve(l, r),
                 ".\\" => MapBinary(l, r, (a, c) => c / a),
                 "^" => MPowerOp(l, r),
-                ".^" => MapBinary(l, r, Math.Pow),
+                ".^" => MapPowFast(l, r) ?? MapBinary(l, r, Math.Pow),
                 "==" => MapBinary(l, r, (a, c) => a == c ? 1 : 0),
                 "~=" => MapBinary(l, r, (a, c) => a != c ? 1 : 0),
                 "<" => MapBinary(l, r, (a, c) => a < c ? 1 : 0),
