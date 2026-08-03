@@ -59,6 +59,9 @@ namespace Calcpad.Core
         public static delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int> Dsygv;
         // LAPACKE_dgeev(layout, jobvl, jobvr, n, a, lda, wr, wi, vl, ldvl, vr, ldvr) -> info  (eig NO simétrica)
         public static delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int> Dgeev;
+        // MKL_Set_Num_Threads(nt) — fuerza el paralelismo de MKL (matmul/solve/eig). Sin esto se
+        // quedaba single-thread (matmul 300 ≈ 1.9 ms vs MATLAB multi 0.44 ms). Solo en oneMKL real.
+        public static delegate* unmanaged[Cdecl]<int, void> MklSetNumThreads;
         // MKL PARDISO (sparse directo, el solver de OpenSees). Solo existe en mkl_rt.
         // pardiso(pt, maxfct, mnum, mtype, phase, n, a, ia, ja, perm, nrhs, iparm, msglvl, b, x, error)
         public static delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void> Pardiso;
@@ -135,6 +138,12 @@ namespace Calcpad.Core
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpbsv", out p)) Dpbsv = (delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dsygv", out p)) Dsygv = (delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgeev", out p)) Dgeev = (delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int>)p;
+            // Forzar multi-threading de MKL (por defecto se quedaba en 1 thread en este proceso).
+            if (NativeLibrary.TryGetExport(h, "MKL_Set_Num_Threads", out p))
+            {
+                MklSetNumThreads = (delegate* unmanaged[Cdecl]<int, void>)p;
+                try { MklSetNumThreads(Math.Max(1, Environment.ProcessorCount)); } catch { }
+            }
             // PARDISO (solo MKL; OpenBLAS no lo exporta → quedan null)
             if (NativeLibrary.TryGetExport(h, "pardiso", out p)) Pardiso = (delegate* unmanaged[Cdecl]<void*, int*, int*, int*, int*, int*, double*, int*, int*, int*, int*, int*, int*, double*, double*, int*, void>)p;
             if (NativeLibrary.TryGetExport(h, "pardisoinit", out p)) Pardisoinit = (delegate* unmanaged[Cdecl]<void*, int*, int*, void>)p;
