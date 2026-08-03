@@ -510,10 +510,19 @@ namespace Calcpad.Core.Matlab
                 }
                 // Render del statement (incluye el comando como fórmula)
                 // NO renderizar void functions (fprintf/disp/figure/plot/...) — solo su side effect.
-                // NO renderizar comentarios `%-- ...` (anotación pura de código, opt-in hide).
-                bool isHiddenComment = stmt is CommentStmt csHide
-                                       && !csHide.IsHeading
-                                       && csHide.Text.StartsWith("--");
+                // Comentarios en LINEA PROPIA: OCULTOS por defecto (como MATLAB). Visibles solo si:
+                //   %% encabezado · % 'texto (caption) · % #noc/#val/#equ (formula tipografiada).
+                // (#md/#hide/#plain/#greek ya se consumieron antes; los inline visibles llevan
+                //  isInlineComment y no pasan por aqui.)
+                bool isHiddenComment = false;
+                if (stmt is CommentStmt csHide && !isInlineComment)
+                {
+                    var ct = csHide.Text.TrimStart();
+                    bool visible = csHide.IsHeading
+                                   || ct.StartsWith("'")
+                                   || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ");
+                    isHiddenComment = !visible;
+                }
                 if (!result.Suppressed && !IsVoidStatement(stmt) && !isHiddenComment && !hidden)
                 {
                     try
@@ -521,7 +530,17 @@ namespace Calcpad.Core.Matlab
                         // Directiva Calcpad escondida en `% #deq ...` — typeset via
                         // el ExpressionParser de Calcpad-puro. MATLAB 2017a la ignora
                         // (comentario); acá enriquece el reporte sin tocar números.
-                        if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
+                        if (stmt is CommentStmt csCap && !csCap.IsHeading && !isInlineComment
+                            && csCap.Text.TrimStart().StartsWith("'"))
+                        {
+                            // % 'texto en LINEA PROPIA -> texto visible, sin el apostrofo.
+                            var capText = csCap.Text.TrimStart();
+                            capText = capText.Length > 1 ? capText.Substring(1) : "";
+                            var capEnc = System.Net.WebUtility.HtmlEncode(capText);
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        else if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
                             && TryRenderCalcpadDirective(cdir.Text, stmtLine, out var directiveHtml))
                         {
                             sb.Append(directiveHtml);
