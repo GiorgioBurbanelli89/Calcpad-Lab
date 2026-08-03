@@ -11735,7 +11735,10 @@ namespace Calcpad.Core.Matlab
                 var rT = MatMul(bT, aT);
                 return TransposeSimple(rT);
             }
-            var rd = new MValue(a.Rows, b.Cols);
+            // Buffer de salida SIN zero-init: todos los caminos densos lo sobrescriben entero
+            // (dgemv/dgemm con beta=0; el fallback naive de BLAS hace Array.Clear; el loop naive
+            // de abajo escribe cada elemento). Ahorra el memset del buffer (n=1200 => 11.5 MB).
+            var rd = new MValue(a.Rows, b.Cols, GC.AllocateUninitializedArray<double>(a.Rows * b.Cols));
             // FAST PATH 1: matrix-vector (b.Cols == 1) → DGEMV nativo
             // Para FEM: M_vec = D*Bm*Z_e es cadena de matvec — DGEMV es L2 BLAS
             // optimizado, ~2x mas rapido que DGEMM con n=1.
