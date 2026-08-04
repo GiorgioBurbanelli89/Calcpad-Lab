@@ -518,8 +518,9 @@ namespace Calcpad.Core.Matlab
                 if (stmt is CommentStmt csHide && !isInlineComment)
                 {
                     var ct = csHide.Text.TrimStart();
-                    bool visible = csHide.IsHeading
-                                   || ct.StartsWith("'")
+                    // `%%` (SectionHeading) es como en MATLAB: comentario de sección OCULTO,
+                    // no produce salida. Para texto/título VISIBLE se usa `%' texto`.
+                    bool visible = ct.StartsWith("'")
                                    || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ")
                                    // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
                                    // renderiza en modo #equ). Antes quedaba oculto pese a que

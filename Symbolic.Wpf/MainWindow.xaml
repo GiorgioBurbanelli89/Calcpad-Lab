@@ -322,7 +322,7 @@
                 <MenuItem Header="Comment / sections">
                     <!-- VISIBLES en el output (llevan marcador) -->
                     <MenuItem Click="Button_Click" Tag="% '" Header="% '  texto VISIBLE"          ToolTip="Texto visible en el output (apostrofo ' = texto)"/>
-                    <MenuItem Click="Button_Click" Tag="%% " Header="%%  encabezado (visible)"    ToolTip="Encabezado de seccion, visible en el output"/>
+                    <MenuItem Click="Button_Click" Tag="%% " Header="%%  seccion (OCULTO, como MATLAB)" ToolTip="Comentario de seccion: NO sale en el output (como MATLAB). Para titulo visible usa %'"/>
                     <MenuItem Click="Button_Click" Tag="% #noc " Header="% #noc  formula"         ToolTip="Formula tipografiada (Calcpad), visible"/>
                     <MenuItem Click="Button_Click" Tag="% #md§§% #endmd" Header="% #md ... #endmd  (Markdown)" ToolTip="Bloque Markdown: titulos #, tablas, listas, **negrita**, -&gt; centrado &lt;-"/>
                     <MenuItem Click="Button_Click" Tag="% #plain§§% #render" Header="% #plain ... #render" ToolTip="Texto plano vs renderizado en disp/fprintf"/>
