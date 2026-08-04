@@ -4849,9 +4849,10 @@ namespace Calcpad.Wpf
             {
                 Task.Run(() => Dispatcher.InvokeAsync(() => _autoCompleteManager.InitAutoComplete(e.Text, _currentParagraph), DispatcherPriority.Send));
             }
-            // Disparo de la ventana-loop: ".loop" termina en 'p'.
+            // Disparo de la ventana-loop: ".loop" termina en 'p'. Task.Run para
+            // que corra DESPUÉS de que la 'p' se inserte (igual que autocomplete).
             if (e.Text == "p")
-                Dispatcher.InvokeAsync(CheckLoopTrigger, DispatcherPriority.Send);
+                Task.Run(() => Dispatcher.InvokeAsync(CheckLoopTrigger, DispatcherPriority.Send));
         }
 
         private void Window_Activated(object sender, EventArgs e)
