@@ -90,6 +90,50 @@ namespace Calcpad.Wpf
             items.Add(new ListBoxItem() { Content = "title('text')", FontWeight = FontWeights.Bold });
             items.Add(new ListBoxItem() { Content = "xlabel('text')", FontWeight = FontWeights.Bold });
             items.Add(new ListBoxItem() { Content = "ylabel('text')", FontWeight = FontWeights.Bold });
+            // ───────── MATLAB builtins REALES del motor Hekatan Lab ─────────
+            // Extraídos de MatlabEvaluator._builtins (no inventados). Aparecen
+            // bold. Al teclear una letra, el autocomplete filtra estos igual que
+            // en cualquier IDE MATLAB.
+            foreach (var fn in new[] {
+                // trig / exp / redondeo
+                "sin(x)", "cos(x)", "tan(x)", "asin(x)", "acos(x)", "atan(x)", "atan2(y, x)",
+                "sinh(x)", "cosh(x)", "tanh(x)", "exp(x)", "log(x)", "log2(x)", "log10(x)",
+                "sqrt(x)", "abs(x)", "sign(x)", "floor(x)", "ceil(x)", "round(x)", "fix(x)",
+                "mod(a, b)", "rem(a, b)", "hypot(a, b)", "gcd(a, b)", "lcm(a, b)", "factorial(n)", "nchoosek(n, k)",
+                "sind(x)", "cosd(x)", "tand(x)", "deg2rad(x)", "rad2deg(x)",
+                // reducción / estadística
+                "sum(v)", "prod(v)", "mean(v)", "median(v)", "std(v)", "var(v)",
+                "max(v)", "min(v)", "cumsum(v)", "cumprod(v)", "sort(v)", "unique(v)",
+                "norm(v)", "dot(a, b)", "cross(a, b)",
+                // creación / forma
+                "zeros(m, n)", "ones(m, n)", "eye(n)", "rand(m, n)", "randn(m, n)", "randi(k, m, n)",
+                "linspace(a, b, n)", "logspace(a, b, n)", "repmat(A, m, n)", "reshape(A, m, n)",
+                "diag(v)", "kron(A, B)", "cat(dim, A, B)", "horzcat(A, B)", "vertcat(A, B)",
+                "length(v)", "numel(A)", "size(A)", "ndims(A)", "find(v)", "any(v)", "all(v)",
+                "flipud(A)", "fliplr(A)", "rot90(A)", "circshift(A, k)", "isempty(A)",
+                // álgebra lineal
+                "inv(A)", "det(A)", "rank(A)", "trace(A)", "transpose(A)", "eig(A)", "svd(A)",
+                "lu(A)", "qr(A)", "chol(A)", "pinv(A)", "null(A)", "expm(A)", "cond(A)",
+                "linsolve(A, b)", "mldivide(A, b)", "kron(A, B)",
+                // cálculo / interpolación
+                "integral(@f, a, b)", "gaussint(@f, a, b, N)", "trapz(x, y)", "cumtrapz(x, y)",
+                "gradient(f)", "diff(v)", "interp1(x, y, xq)", "interp2(X, Y, Z, Xq, Yq)",
+                "polyfit(x, y, n)", "polyval(p, x)", "roots(p)", "conv(a, b)", "spline(x, y, xq)",
+                // resolución no lineal / ODE
+                "fzero(@f, x0)", "fsolve(@f, x0)", "fminbnd(@f, a, b)", "fminsearch(@f, x0)",
+                "ode45(@f, tspan, y0)", "ode23(@f, tspan, y0)",
+                // handles / funcional
+                "arrayfun(@f, A)", "cellfun(@f, C)", "feval(@f, x)", "bsxfun(@f, A, B)",
+                // simbólico
+                "syms x", "diff(f, x)", "int(f, x)", "jacobian(f, v)", "simplify(f)", "expand(f)",
+                "solve(eq, x)", "subs(f, x, v)", "taylor(f, x)", "limit(f, x, a)", "factor(f)", "latex(f)",
+                // cadenas / IO
+                "sprintf('%g', x)", "fprintf('%d\\n', x)", "num2str(x)", "str2num(s)", "strcat(a, b)",
+                "strrep(s, a, b)", "strsplit(s)", "strjoin(c, d)", "disp(x)",
+                // tiempo
+                "tic", "toc",
+            })
+                items.Add(new ListBoxItem() { Content = fn, FontWeight = FontWeights.Bold });
             items.Add(new ListBoxItem() { Content = "$Area{f(x) @ x = a : b}", Foreground = Brushes.DarkMagenta });
             items.Add(new ListBoxItem() { Content = "$Block{ }", Foreground = Brushes.DarkMagenta });
             items.Add(new ListBoxItem() { Content = "$Chart{x; y @ type=line : title=Title}", Foreground = Brushes.DarkMagenta });

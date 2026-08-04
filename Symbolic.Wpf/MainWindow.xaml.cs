@@ -2920,6 +2920,41 @@ namespace Calcpad.Wpf
             Keyboard.Focus(RichTextBox);
         }
 
+        // ── Transpilador $Op{} → MATLAB ────────────────────────────────────
+        // Al terminar una línea con notación Calcpad ($Area, $Sum, …) la
+        // reescribe EN EL SCRIPT a MATLAB puro (gaussint/arrayfun/fzero…).
+        // Hekatan Lab es MATLAB; el $Op es solo un atajo de entrada.
+        private bool TranspileParagraph(Paragraph p)
+        {
+            if (p is null) return false;
+            var range = new TextRange(p.ContentStart, p.ContentEnd);
+            string text = range.Text;
+            if (!DollarTranspiler.ContainsMathOp(text)) return false;
+            string outText = DollarTranspiler.Transpile(text);
+            if (string.Equals(outText, text, StringComparison.Ordinal)) return false;
+            RichTextBox.BeginChange();
+            try
+            {
+                p.Inlines.Clear();
+                p.Inlines.Add(new Run(outText));
+                HighLighter.Clear(p);
+                _highlighter.Parse(p, IsComplex, GetLineNumber(p), false);
+            }
+            finally { RichTextBox.EndChange(); }
+            return true;
+        }
+
+        /// <summary>Transpila el párrafo que el cursor acaba de dejar al pulsar Enter.
+        /// Se agenda tras el split para no interferir con el caret.</summary>
+        private void ScheduleTranspileOnEnter(Paragraph leftParagraph)
+        {
+            if (leftParagraph is null) return;
+            Dispatcher.InvokeAsync(() =>
+            {
+                try { TranspileParagraph(leftParagraph); } catch { }
+            }, DispatcherPriority.Background);
+        }
+
         private void CaptureWindowToPng(string path)
         {
             try
@@ -3560,7 +3595,11 @@ namespace Calcpad.Wpf
                     e.Handled = true;
                 }
                 else
+                {
+                    // Reescribe la notación $Op{} de la línea que dejamos → MATLAB.
+                    ScheduleTranspileOnEnter(RichTextBox.Selection.Start.Paragraph);
                     RichTextBox.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, Brushes.Black);
+                }
             }
             else if (e.Key == Key.Back)
             {
