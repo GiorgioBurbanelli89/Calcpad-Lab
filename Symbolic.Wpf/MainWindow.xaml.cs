@@ -631,7 +631,7 @@ namespace Calcpad.Wpf
                 {
                     _scrollOffset = await _wv2Warper.GetVerticalPositionAsync(line);
                     _scrollOutputToLine = line;
-                    await _wv2Warper.NavigateToStringAsync(_htmlUnwarpedCode);
+                    await _wv2Warper.NavigateToStringAsync(WithThemeClass(_htmlUnwarpedCode));
                     WebViewer.Tag = true;
                     CodeCheckBox.IsChecked = true;
                 }
@@ -1478,7 +1478,7 @@ namespace Calcpad.Wpf
                 var streamingPage = BuildStreamingPage();
                 try
                 {
-                    await _wv2Warper.NavigateToStringAsync(streamingPage);
+                    await _wv2Warper.NavigateToStringAsync(WithThemeClass(streamingPage));
                 }
                 catch
                 {
@@ -1731,7 +1731,7 @@ namespace Calcpad.Wpf
                     }
                     else
                     {
-                        await _wv2Warper.NavigateToStringAsync(htmlResult);
+                        await _wv2Warper.NavigateToStringAsync(WithThemeClass(htmlResult));
                     }
                     StartupMark($"Output rendered (HTML: {htmlResult.Length / 1024} KB)");
                 }
@@ -2888,10 +2888,25 @@ namespace Calcpad.Wpf
         {
             try
             {
+                string cls = dark ? "dark" : "gold";
                 WebViewer?.CoreWebView2?.ExecuteScriptAsync(
-                    $"document.documentElement.classList.toggle('dark', {(dark ? "true" : "false")});");
+                    $"var h=document.documentElement; h.classList.remove('dark','gold'); h.classList.add('{cls}');");
             }
             catch { }
+        }
+
+        /// <summary>Incrusta la clase de tema (dark/gold) en el &lt;html&gt; del reporte ANTES
+        /// de escribirlo. Necesario porque NavigateToStringAsync hace document.write y
+        /// reemplaza el documento — la clase puesta por ApplyReportTheme se perdía → reporte
+        /// en blanco. Con la clase incrustada, el tema se aplica desde el primer frame.</summary>
+        private string WithThemeClass(string html)
+        {
+            if (string.IsNullOrEmpty(html)) return html;
+            string cls = _isDarkTheme ? "dark" : "gold";
+            int i = html.IndexOf("<html", StringComparison.OrdinalIgnoreCase);
+            if (i >= 0)
+                return html.Substring(0, i + 5) + $" class=\"{cls}\"" + html.Substring(i + 5);
+            return $"<html class=\"{cls}\">" + html;
         }
 
         /// <summary>Cambia el tema completo (chrome + sintaxis + reporte) y lo persiste.</summary>
