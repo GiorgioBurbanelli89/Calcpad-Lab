@@ -65,6 +65,16 @@ namespace Calcpad.Wpf
             // en EndAutoComplete (empieza con "loop").
             items.Add(new ListBoxItem() { Content = "loop  ∑ ∏ ∫  (constructor)", Foreground = Brushes.DarkMagenta,
                                           ToolTip = "Abre la ventana de sumatoria / productoria / integral" });
+            // ───────── Operadores con punto de MATLAB (al escribir ".") ─────────
+            // Aparecen al teclear '.'. Elemento-a-elemento y transpuesta. El
+            // primero (.loop) abre la ventana-loop (interceptado en EndAutoComplete).
+            items.Add(new ListBoxItem() { Content = ".loop  ∑ ∏ ∫  (constructor)", Foreground = Brushes.DarkMagenta,
+                                          ToolTip = "Abre la ventana de sumatoria / productoria / integral" });
+            items.Add(new ListBoxItem() { Content = ".*", FontWeight = FontWeights.Bold, ToolTip = "Multiplicación elemento a elemento" });
+            items.Add(new ListBoxItem() { Content = "./", FontWeight = FontWeights.Bold, ToolTip = "División elemento a elemento" });
+            items.Add(new ListBoxItem() { Content = ".^", FontWeight = FontWeights.Bold, ToolTip = "Potencia elemento a elemento" });
+            items.Add(new ListBoxItem() { Content = ".\\", FontWeight = FontWeights.Bold, ToolTip = "División izquierda elemento a elemento" });
+            items.Add(new ListBoxItem() { Content = ".'", FontWeight = FontWeights.Bold, ToolTip = "Transpuesta (no conjugada)" });
             // ───────── MATLAB built-in functions ─────────
             // Aparecen bold (mismo estilo que Calcpad functions). El parser
             // las auto-mapea a las equivalentes Calcpad vía MatlabPreprocessor.
@@ -1119,9 +1129,9 @@ namespace Calcpad.Wpf
             if (!isAutoCompleteTrigger)
             {
                 if (_listBox.Visibility == Visibility.Hidden)
-                    isAutoCompleteTrigger = c == '#' || c == '$';
+                    isAutoCompleteTrigger = c == '#' || c == '$' || c == '.';  // '.' → lista de operadores punto (.* ./ .^ .' .loop)
                 else
-                    isAutoCompleteTrigger = c == '/' || c == '*' || c == '^';
+                    isAutoCompleteTrigger = c == '/' || c == '*' || c == '^' || c == '\'' || c == '\\';
             }
 
             if (isAutoCompleteTrigger)
@@ -1271,8 +1281,9 @@ namespace Calcpad.Wpf
         {
             var selectedItem = (ListBoxItem)_listBox.SelectedItem;
             string s = (string)selectedItem.Content;
-            // ── Item especial "loop…": abre la ventana-loop ──
-            if (s != null && s.StartsWith("loop", StringComparison.OrdinalIgnoreCase) && LoopTrigger != null)
+            // ── Item especial "loop…" / ".loop…": abre la ventana-loop ──
+            if (s != null && (s.StartsWith("loop", StringComparison.OrdinalIgnoreCase)
+                              || s.StartsWith(".loop", StringComparison.OrdinalIgnoreCase)) && LoopTrigger != null)
             {
                 try { new TextRange(_autoCompleteStart, _richTextBox.Selection.End).Text = ""; } catch { }
                 _listBox.Visibility = Visibility.Hidden;

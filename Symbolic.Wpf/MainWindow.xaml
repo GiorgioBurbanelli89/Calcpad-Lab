@@ -820,6 +820,26 @@
                       Checked="AutoRunCheckBox_Checked" Unchecked="AutoRunCheckBox_Unchecked"
                       ToolTip="{x:Static wpf:MainWindowResources.RefreshResultsAfterEachEdit}" FontFamily="Roboto" />
         </Canvas>
+        <!-- ═══ Botones rápidos estilo MATLAB (en el hueco liberado de Calcpad) ═══ -->
+        <TextBlock Grid.Row="0" Text="Comment:" FontSize="11.5" Foreground="{DynamicResource ThemeTextMuted}"
+                   HorizontalAlignment="Left" VerticalAlignment="Top" Margin="330,8,0,0"/>
+        <Button Grid.Row="0" Click="CommentMenu_Click" HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="330,26,0,0" Height="22" Width="28" FontWeight="Bold" FontSize="13"
+                Foreground="{DynamicResource ThemeText}" Background="{DynamicResource ThemeButtonBg}"
+                BorderBrush="{DynamicResource ThemeButtonBorder}" Content="%"
+                ToolTip="Comentar líneas seleccionadas — oculto, como MATLAB (Ctrl+R)"/>
+        <Button Grid.Row="0" Click="UncommentMenu_Click" HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="360,26,0,0" Height="22" Width="28"
+                Foreground="{DynamicResource ThemeText}" Background="{DynamicResource ThemeButtonBg}"
+                BorderBrush="{DynamicResource ThemeButtonBorder}"
+                ToolTip="Descomentar líneas seleccionadas (Ctrl+T)">
+            <TextBlock Text="%" FontWeight="Bold" FontSize="13" TextDecorations="Strikethrough"/>
+        </Button>
+        <Button Grid.Row="0" Click="Button_Click" Tag="% '" HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="390,26,0,0" Height="22" Width="34" FontWeight="Bold" FontSize="12"
+                Foreground="{DynamicResource ThemeText}" Background="{DynamicResource ThemeButtonBg}"
+                BorderBrush="{DynamicResource ThemeButtonBorder}" Content="%'"
+                ToolTip="Insertar texto VISIBLE (%' texto) en el output"/>
         <Separator Grid.Row="0" HorizontalAlignment="Left" Height="2" Margin="85,35,0,0" 
                    VerticalAlignment="Top" Width="24" IsTabStop="False" 
                    ScrollViewer.VerticalScrollBarVisibility="Disabled" RenderTransformOrigin="0.5,0.5" Background="#AAA0A0A0">
@@ -1432,6 +1452,21 @@
                             Width="330" CornerRadius="6" Padding="10"
                             Background="{DynamicResource ThemePanelBg}"
                             BorderBrush="{DynamicResource ThemeAccentGold}" BorderThickness="1.5">
+                        <Border.Resources>
+                            <!-- Casillas oscuras (no blancas) dentro del panel -->
+                            <Style TargetType="TextBox">
+                                <Setter Property="Background" Value="{DynamicResource ThemeEditorBg}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+                                <Setter Property="BorderBrush" Value="{DynamicResource ThemeButtonBorder}"/>
+                                <Setter Property="CaretBrush" Value="{DynamicResource ThemeText}"/>
+                                <Setter Property="Padding" Value="2,1"/>
+                            </Style>
+                            <Style TargetType="ComboBox">
+                                <Setter Property="Background" Value="{DynamicResource ThemeButtonBg}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+                                <Setter Property="BorderBrush" Value="{DynamicResource ThemeButtonBorder}"/>
+                            </Style>
+                        </Border.Resources>
                         <StackPanel>
                             <!-- Operador -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
