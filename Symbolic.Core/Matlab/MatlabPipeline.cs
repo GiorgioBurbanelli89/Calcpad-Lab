@@ -520,7 +520,11 @@ namespace Calcpad.Core.Matlab
                     var ct = csHide.Text.TrimStart();
                     bool visible = csHide.IsHeading
                                    || ct.StartsWith("'")
-                                   || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ");
+                                   || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ")
+                                   // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
+                                   // renderiza en modo #equ). Antes quedaba oculto pese a que
+                                   // ParseDirective lo soporta; así funcionan con solo `% $Op{...}`.
+                                   || ct.StartsWith("$");
                     isHiddenComment = !visible;
                 }
                 if (!result.Suppressed && !IsVoidStatement(stmt) && !isHiddenComment && !hidden)
