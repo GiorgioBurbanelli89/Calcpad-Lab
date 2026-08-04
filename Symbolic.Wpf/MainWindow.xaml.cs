@@ -3014,6 +3014,12 @@ namespace Calcpad.Wpf
             else if (e.Key == Key.Escape) { HideLoopBuilder(); e.Handled = true; }
         }
 
+        private void LoopBuilderMenu_Click(object sender, RoutedEventArgs e)
+        {
+            RichTextBox.Focus();
+            ShowLoopBuilder();
+        }
+
         private void LoopBuilder_Cancel(object sender, RoutedEventArgs e) => HideLoopBuilder();
         private void HideLoopBuilder()
         {
