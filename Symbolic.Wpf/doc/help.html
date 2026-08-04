@@ -3,94 +3,255 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=Edge">
-    <title>Hekatan Lab — Referencia rápida</title>
+    <title>Hekatan Lab — Referencia completa</title>
     <style>
         :root {
-            --bg: #1a1712; --fg: #e8e2d4; --muted: #a89f8c;
-            --gold: #e6c463; --red: #e5382b; --code-bg: #241f16; --border: #3a3226;
+            --bg:#1a1712; --fg:#e8e2d4; --muted:#a89f8c; --gold:#e6c463; --red:#e5382b;
+            --blue:#6db3ff; --code-bg:#241f16; --border:#3a3226; --hover:#332a1a;
         }
         @media (prefers-color-scheme: light) {
-            :root { --bg: #ffffff; --fg: #2b2416; --muted: #6b5e45;
-                    --gold: #a9820c; --red: #c0392b; --code-bg: #f4efe4; --border: #d8cdb0; }
+            :root { --bg:#fff; --fg:#2b2416; --muted:#6b5e45; --gold:#a9820c; --red:#c0392b;
+                    --blue:#1565c0; --code-bg:#f4efe4; --border:#d8cdb0; --hover:#fff3d0; }
         }
-        html.light { --bg:#fff; --fg:#2b2416; --muted:#6b5e45; --gold:#a9820c; --red:#c0392b; --code-bg:#f4efe4; --border:#d8cdb0; }
-        body {
-            font-size: 11pt; font-family: Calibri, "Segoe UI", sans-serif;
-            margin: 0; padding: 14px 18px; background: var(--bg); color: var(--fg);
-        }
-        h1 { font-size: 20pt; margin: 0 0 2px 0; color: var(--fg); }
-        h1 .mono { font-family: "Cambria Math", Cambria, Georgia; }
-        h1 .gold { color: var(--gold); }
-        .sub { color: var(--muted); margin: 0 0 16px 0; font-size: 10.5pt; }
-        h2 { font-size: 14pt; margin: 18px 0 6px 0; color: var(--gold);
-             border-bottom: 1px solid var(--border); padding-bottom: 3px; }
-        p, li { line-height: 145%; }
-        ul, ol { margin: 4px 0 8px 0; padding-left: 22px; }
-        code, kbd {
-            font-family: Consolas, "Cascadia Code", monospace; font-size: 10.5pt;
-            background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
-        }
-        kbd { border: 1px solid var(--border); }
-        pre {
-            background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
-            padding: 10px 12px; overflow-x: auto; font-family: Consolas, monospace; font-size: 10.5pt;
-            line-height: 140%;
-        }
-        .tag { color: var(--gold); font-weight: bold; }
-        table { border-collapse: collapse; margin: 6px 0 10px 0; }
-        td, th { border: 1px solid var(--border); padding: 4px 10px; text-align: left; font-size: 10.5pt; }
-        th { color: var(--gold); }
-        .note { color: var(--muted); font-size: 10pt; }
+        html.light { --bg:#fff; --fg:#2b2416; --muted:#6b5e45; --gold:#a9820c; --red:#c0392b;
+                     --blue:#1565c0; --code-bg:#f4efe4; --border:#d8cdb0; --hover:#fff3d0; }
+        body { font-size:11pt; font-family:Calibri,"Segoe UI",sans-serif; margin:0;
+               padding:14px 20px 40px; background:var(--bg); color:var(--fg); }
+        h1 { font-size:21pt; margin:0 0 2px; } h1 .mono{font-family:"Cambria Math",Cambria;} h1 .gold{color:var(--gold);}
+        .sub { color:var(--muted); margin:0 0 6px; font-size:10.5pt; }
+        h2 { font-size:14.5pt; margin:20px 0 6px; color:var(--gold);
+             border-bottom:1px solid var(--border); padding-bottom:3px; }
+        p,li { line-height:150%; }
+        ul,ol { margin:4px 0 8px; padding-left:22px; }
+        code,kbd { font-family:Consolas,monospace; font-size:10.5pt; background:var(--code-bg); padding:1px 5px; border-radius:4px; }
+        kbd { border:1px solid var(--border); }
+        pre { background:var(--code-bg); border:1px solid var(--border); border-radius:6px;
+              padding:10px 12px; overflow-x:auto; font-family:Consolas,monospace; font-size:10.5pt; line-height:140%; }
+        a { color:unset; text-decoration:none; cursor:pointer; }
+        a.ins { font-family:Consolas,monospace; font-size:10.5pt; color:var(--blue);
+                background:var(--code-bg); padding:1px 6px; border-radius:4px; border:1px solid var(--border);
+                display:inline-block; margin:2px 3px 2px 0; }
+        a.ins:hover { background:var(--hover); border-color:var(--gold); }
+        .tag { color:var(--gold); font-weight:bold; }
+        .cat { color:var(--muted); font-size:10pt; margin:8px 0 2px; }
+        .toc { columns:3; column-gap:24px; font-size:10.5pt; margin:6px 0 10px; }
+        .toc a { color:var(--blue); } .toc a:hover { text-decoration:underline; }
+        table { border-collapse:collapse; margin:6px 0 10px; width:100%; }
+        td,th { border:1px solid var(--border); padding:4px 10px; text-align:left; font-size:10.5pt; vertical-align:top; }
+        th { color:var(--gold); }
+        .note { color:var(--muted); font-size:10pt; }
+        .hint { color:var(--gold); font-size:10pt; font-style:italic; margin-bottom:10px; }
     </style>
 </head>
 <body>
     <h1><span class="mono">M<span class="gold">∫</span>C</span> Hekatan Lab</h1>
-    <p class="sub">Hojas de cálculo científicas con sintaxis <b>MATLAB</b>. Basado en el motor de Calcpad (Ganchovski).</p>
+    <p class="sub">Hojas de cálculo científicas con sintaxis <b>MATLAB</b>. Motor basado en Calcpad (Ganchovski) · Hekatan Engineers, Portoviejo.</p>
+    <p class="hint">▸ Haz clic en cualquier función para <b>insertarla</b> en el editor.</p>
 
-    <h2>Cómo funciona</h2>
-    <ol>
-        <li>Escribe tus fórmulas y código <b>MATLAB</b> en el panel <b>Code</b> (izquierda).</li>
-        <li>Pulsa <kbd>F5</kbd> o el botón <span class="tag">▶</span> para calcular. El resultado sale en <b>Output</b> (derecha).</li>
-        <li>Exporta el reporte a <b>HTML</b>, <b>PDF</b> o <b>Word</b> con los iconos de la esquina superior derecha. <span class="note">(El PDF y Word siempre salen en hoja blanca.)</span></li>
-    </ol>
+    <div class="toc">
+        <a href="#datos">1. Números / vectores / matrices</a><br>
+        <a href="#oper">2. Operadores</a><br>
+        <a href="#flujo">3. Control de flujo</a><br>
+        <a href="#func">4. Funciones y handles</a><br>
+        <a href="#math">5. Matemática elemental</a><br>
+        <a href="#linalg">6. Álgebra lineal</a><br>
+        <a href="#arrays">7. Arrays</a><br>
+        <a href="#calculo">8. Cálculo e interpolación</a><br>
+        <a href="#stats">9. Estadística</a><br>
+        <a href="#graf">10. Gráficas</a><br>
+        <a href="#simb">11. Simbólico</a><br>
+        <a href="#cadenas">12. Cadenas e I/O</a><br>
+        <a href="#loop">13. Constructor de loop</a><br>
+        <a href="#coment">14. Comentarios y texto</a>
+    </div>
 
-    <h2>Sintaxis MATLAB</h2>
-    <ul>
-        <li>Asignación: <code>a = 42</code>, <code>v = [1 2 3]</code>, <code>M = [1 2; 3 4]</code></li>
-        <li>Rangos: <code>x = 0:0.1:10</code> &nbsp;·&nbsp; <code>linspace(a, b, n)</code></li>
-        <li>Elemento a elemento: <code>.*</code> <code>./</code> <code>.^</code> &nbsp;·&nbsp; transpuesta <code>A'</code></li>
-        <li>Control: <code>for</code>, <code>while</code>, <code>if / elseif / else</code>, <code>function</code></li>
-        <li>Handles: <code>@(x) x.^2</code> &nbsp;·&nbsp; <code>arrayfun</code>, <code>integral</code>, <code>fzero</code>, <code>ode45</code></li>
-        <li>Simbólico: <code>syms x</code>, <code>diff</code>, <code>int</code>, <code>solve</code>, <code>jacobian</code>, <code>simplify</code></li>
-    </ul>
-    <p class="note">Empieza a escribir y aparece una lista de autocompletado con las funciones. Escribe <code>.</code> para ver los operadores punto (<code>.*</code>, <code>./</code>, <code>.^</code>, <code>.'</code>).</p>
+    <h2 id="datos">1. Números, vectores, matrices</h2>
+    <p class="note">Reales <code>3.14</code>, <code>1e-6</code> · complejos <code>3-2i</code> · vector <code>[1 2 3]</code> · matriz <code>[1 2; 3 4]</code> · rango <code>0:0.1:10</code> · indexado <code>M(1,:)</code>, <code>v(end)</code>.</p>
+    <p class="cat">Constantes:</p>
+    <a class="ins" href="#0" data-text="pi">pi</a>
+    <a class="ins" href="#0" data-text="exp(1)">e</a>
+    <a class="ins" href="#0" data-text="eps">eps</a>
+    <a class="ins" href="#0" data-text="Inf">Inf</a>
+    <a class="ins" href="#0" data-text="NaN">NaN</a>
+    <a class="ins" href="#0" data-text="1i">i</a>
+    <a class="ins" href="#0" data-text="true">true</a>
+    <a class="ins" href="#0" data-text="false">false</a>
 
-    <h2>Constructor de loop <span style="font-family:'Cambria Math'">(∑ ∏ ∫)</span></h2>
-    <p>Para escribir sumatorias, productorias e integrales en notación matemática y convertirlas a MATLAB:</p>
-    <ul>
-        <li>Escribe la palabra <code>loop</code> en el editor, <b>o</b> menú <b>Insert → ∑ ∏ ∫ Constructor de loop</b>.</li>
-        <li>Elige el operador, escribe la expresión y los límites, y elige la <b>forma</b>: por bucle <code>for</code> (ves cada iteración) o por función compacta.</li>
-        <li>La integral ofrece varias formas: <code>integral()</code>, <code>trapz</code>, trapecio y Simpson por bucle; y <b>doble</b> (<code>integral2</code>) y <b>triple</b> (<code>integral3</code>).</li>
-    </ul>
-    <p>Ejemplo — sumatoria por bucle:</p>
-    <pre>s = 0;
-for k = 1:10
-    s = s + (k^2);
-end</pre>
-    <p class="note">También reconoce la notación compacta al escribirla: <code>a = $Area{x^2 @ x = 0 : 1}</code> se reescribe sola a <code>a = integral(@(x) (x^2), 0, 1, 'ArrayValued', true)</code> — MATLAB portable, seguro con matrices (FEM Bᵀ·D·B).</p>
-
-    <h2>Comentarios y texto</h2>
+    <h2 id="oper">2. Operadores</h2>
     <table>
-        <tr><th>Botón</th><th>Inserta</th><th>Efecto</th></tr>
-        <tr><td><b>%</b></td><td><code>%</code></td><td>Comenta líneas — <b>oculto</b> en el output (como MATLAB)</td></tr>
-        <tr><td><b>%&#822;</b></td><td>—</td><td>Descomenta las líneas seleccionadas</td></tr>
-        <tr><td><b>%'</b></td><td><code>%' texto</code></td><td>Texto <b>visible</b> en el output</td></tr>
+        <tr><th>Aritméticos</th><td><code>+ - * / \ ^</code> (matriciales)</td></tr>
+        <tr><th>Elemento a elemento</th><td><code>.* ./ .\ .^</code> · transpuesta <code>A'</code>, <code>A.'</code></td></tr>
+        <tr><th>Comparación</th><td><code>== ~= &lt; &gt; &lt;= &gt;=</code></td></tr>
+        <tr><th>Lógicos</th><td><code>&amp;&amp; || &amp; | ~</code></td></tr>
     </table>
-    <p class="note">Encabezados de sección visibles: <code>%% Título</code>. Bloque Markdown: <code>% #md … % #endmd</code>.</p>
 
-    <h2>Temas</h2>
-    <p>Menú <b>Output → Theme</b> alterna <b>Oscuro</b> y <b>Oro</b>. El reporte se ve en el tema activo en pantalla, pero el <b>PDF y Word siempre salen en hoja blanca</b>.</p>
+    <h2 id="flujo">3. Control de flujo</h2>
+    <a class="ins" href="#0" data-text="for i = 1:n&#10;    &#10;end">for … end</a>
+    <a class="ins" href="#0" data-text="while cond&#10;    &#10;end">while … end</a>
+    <a class="ins" href="#0" data-text="if cond&#10;    &#10;elseif cond2&#10;    &#10;else&#10;    &#10;end">if … end</a>
+    <a class="ins" href="#0" data-text="switch x&#10;    case 1&#10;        &#10;    otherwise&#10;        &#10;end">switch … end</a>
+    <a class="ins" href="#0" data-text="try&#10;    &#10;catch err&#10;    &#10;end">try … catch</a>
+    <a class="ins" href="#0" data-text="break">break</a>
+    <a class="ins" href="#0" data-text="continue">continue</a>
+    <a class="ins" href="#0" data-text="return">return</a>
 
-    <p class="sub" style="margin-top:20px">Hekatan Engineers · Portoviejo, Ecuador</p>
+    <h2 id="func">4. Funciones y handles</h2>
+    <a class="ins" href="#0" data-text="function y = f(x)&#10;    y = x.^2 + 1;&#10;end">function y = f(x) … end</a>
+    <a class="ins" href="#0" data-text="function [s, p] = g(a, b)&#10;    s = a + b;&#10;    p = a * b;&#10;end">function [s,p] = g(a,b)</a>
+    <a class="ins" href="#0" data-text="@(x) x.^2">@(x) …  (handle)</a>
+    <a class="ins" href="#0" data-text="arrayfun(@(x) x.^2, v)">arrayfun</a>
+    <a class="ins" href="#0" data-text="cellfun(@numel, c)">cellfun</a>
+    <a class="ins" href="#0" data-text="feval(@f, x)">feval</a>
+
+    <h2 id="math">5. Matemática elemental</h2>
+    <p class="cat">Trigonometría (rad):</p>
+    <a class="ins" href="#0" data-text="sin(x)">sin</a> <a class="ins" href="#0" data-text="cos(x)">cos</a>
+    <a class="ins" href="#0" data-text="tan(x)">tan</a> <a class="ins" href="#0" data-text="asin(x)">asin</a>
+    <a class="ins" href="#0" data-text="acos(x)">acos</a> <a class="ins" href="#0" data-text="atan(x)">atan</a>
+    <a class="ins" href="#0" data-text="atan2(y, x)">atan2</a> <a class="ins" href="#0" data-text="sinh(x)">sinh</a>
+    <a class="ins" href="#0" data-text="cosh(x)">cosh</a> <a class="ins" href="#0" data-text="tanh(x)">tanh</a>
+    <a class="ins" href="#0" data-text="sec(x)">sec</a> <a class="ins" href="#0" data-text="csc(x)">csc</a>
+    <a class="ins" href="#0" data-text="cot(x)">cot</a>
+    <p class="cat">Grados:</p>
+    <a class="ins" href="#0" data-text="sind(x)">sind</a> <a class="ins" href="#0" data-text="cosd(x)">cosd</a>
+    <a class="ins" href="#0" data-text="tand(x)">tand</a> <a class="ins" href="#0" data-text="deg2rad(x)">deg2rad</a>
+    <a class="ins" href="#0" data-text="rad2deg(x)">rad2deg</a>
+    <p class="cat">Exponencial / potencia / redondeo:</p>
+    <a class="ins" href="#0" data-text="exp(x)">exp</a> <a class="ins" href="#0" data-text="log(x)">log</a>
+    <a class="ins" href="#0" data-text="log2(x)">log2</a> <a class="ins" href="#0" data-text="log10(x)">log10</a>
+    <a class="ins" href="#0" data-text="sqrt(x)">sqrt</a> <a class="ins" href="#0" data-text="abs(x)">abs</a>
+    <a class="ins" href="#0" data-text="sign(x)">sign</a> <a class="ins" href="#0" data-text="floor(x)">floor</a>
+    <a class="ins" href="#0" data-text="ceil(x)">ceil</a> <a class="ins" href="#0" data-text="round(x)">round</a>
+    <a class="ins" href="#0" data-text="fix(x)">fix</a> <a class="ins" href="#0" data-text="mod(a, b)">mod</a>
+    <a class="ins" href="#0" data-text="rem(a, b)">rem</a> <a class="ins" href="#0" data-text="hypot(a, b)">hypot</a>
+    <a class="ins" href="#0" data-text="gcd(a, b)">gcd</a> <a class="ins" href="#0" data-text="lcm(a, b)">lcm</a>
+    <a class="ins" href="#0" data-text="factorial(n)">factorial</a> <a class="ins" href="#0" data-text="nchoosek(n, k)">nchoosek</a>
+    <p class="cat">Complejos:</p>
+    <a class="ins" href="#0" data-text="real(z)">real</a> <a class="ins" href="#0" data-text="imag(z)">imag</a>
+    <a class="ins" href="#0" data-text="conj(z)">conj</a> <a class="ins" href="#0" data-text="angle(z)">angle</a>
+
+    <h2 id="linalg">6. Álgebra lineal</h2>
+    <a class="ins" href="#0" data-text="inv(A)">inv</a> <a class="ins" href="#0" data-text="det(A)">det</a>
+    <a class="ins" href="#0" data-text="rank(A)">rank</a> <a class="ins" href="#0" data-text="trace(A)">trace</a>
+    <a class="ins" href="#0" data-text="eig(A)">eig</a> <a class="ins" href="#0" data-text="svd(A)">svd</a>
+    <a class="ins" href="#0" data-text="lu(A)">lu</a> <a class="ins" href="#0" data-text="qr(A)">qr</a>
+    <a class="ins" href="#0" data-text="chol(A)">chol</a> <a class="ins" href="#0" data-text="pinv(A)">pinv</a>
+    <a class="ins" href="#0" data-text="null(A)">null</a> <a class="ins" href="#0" data-text="expm(A)">expm</a>
+    <a class="ins" href="#0" data-text="kron(A, B)">kron</a> <a class="ins" href="#0" data-text="cross(a, b)">cross</a>
+    <a class="ins" href="#0" data-text="dot(a, b)">dot</a> <a class="ins" href="#0" data-text="norm(v)">norm</a>
+    <a class="ins" href="#0" data-text="cond(A)">cond</a> <a class="ins" href="#0" data-text="A\b">A\b (resolver)</a>
+    <a class="ins" href="#0" data-text="linsolve(A, b)">linsolve</a>
+
+    <h2 id="arrays">7. Creación y manejo de arrays</h2>
+    <a class="ins" href="#0" data-text="zeros(m, n)">zeros</a> <a class="ins" href="#0" data-text="ones(m, n)">ones</a>
+    <a class="ins" href="#0" data-text="eye(n)">eye</a> <a class="ins" href="#0" data-text="rand(m, n)">rand</a>
+    <a class="ins" href="#0" data-text="randn(m, n)">randn</a> <a class="ins" href="#0" data-text="linspace(a, b, n)">linspace</a>
+    <a class="ins" href="#0" data-text="repmat(A, m, n)">repmat</a> <a class="ins" href="#0" data-text="reshape(A, m, n)">reshape</a>
+    <a class="ins" href="#0" data-text="diag(v)">diag</a> <a class="ins" href="#0" data-text="cat(dim, A, B)">cat</a>
+    <a class="ins" href="#0" data-text="length(v)">length</a> <a class="ins" href="#0" data-text="numel(A)">numel</a>
+    <a class="ins" href="#0" data-text="size(A)">size</a> <a class="ins" href="#0" data-text="find(v)">find</a>
+    <a class="ins" href="#0" data-text="any(v)">any</a> <a class="ins" href="#0" data-text="all(v)">all</a>
+    <a class="ins" href="#0" data-text="sort(v)">sort</a> <a class="ins" href="#0" data-text="unique(v)">unique</a>
+    <a class="ins" href="#0" data-text="fliplr(A)">fliplr</a> <a class="ins" href="#0" data-text="flipud(A)">flipud</a>
+    <a class="ins" href="#0" data-text="sum(v)">sum</a> <a class="ins" href="#0" data-text="prod(v)">prod</a>
+    <a class="ins" href="#0" data-text="cumsum(v)">cumsum</a> <a class="ins" href="#0" data-text="diff(v)">diff</a>
+    <a class="ins" href="#0" data-text="min(v)">min</a> <a class="ins" href="#0" data-text="max(v)">max</a>
+
+    <h2 id="calculo">8. Cálculo e interpolación</h2>
+    <a class="ins" href="#0" data-text="integral(@(x) x.^2, 0, 1)">integral</a>
+    <a class="ins" href="#0" data-text="integral(@(x) f(x), a, b, 'ArrayValued', true)">integral (matriz)</a>
+    <a class="ins" href="#0" data-text="integral2(@(x,y) f(x,y), ax, bx, ay, by)">integral2</a>
+    <a class="ins" href="#0" data-text="integral3(@(x,y,z) f, ax,bx, ay,by, az,bz)">integral3</a>
+    <a class="ins" href="#0" data-text="trapz(x, y)">trapz</a>
+    <a class="ins" href="#0" data-text="fzero(@(x) f(x), x0)">fzero</a>
+    <a class="ins" href="#0" data-text="fsolve(@(x) F(x), x0)">fsolve</a>
+    <a class="ins" href="#0" data-text="fminbnd(@(x) f(x), a, b)">fminbnd</a>
+    <a class="ins" href="#0" data-text="fminsearch(@(x) f(x), x0)">fminsearch</a>
+    <a class="ins" href="#0" data-text="roots(p)">roots</a>
+    <a class="ins" href="#0" data-text="polyfit(x, y, n)">polyfit</a>
+    <a class="ins" href="#0" data-text="polyval(p, x)">polyval</a>
+    <a class="ins" href="#0" data-text="interp1(x, y, xq)">interp1</a>
+    <a class="ins" href="#0" data-text="spline(x, y, xq)">spline</a>
+    <a class="ins" href="#0" data-text="gradient(f)">gradient</a>
+    <a class="ins" href="#0" data-text="ode45(@(t,y) f(t,y), tspan, y0)">ode45</a>
+    <a class="ins" href="#0" data-text="fft(x)">fft</a>
+    <a class="ins" href="#0" data-text="conv(a, b)">conv</a>
+
+    <h2 id="stats">9. Estadística</h2>
+    <a class="ins" href="#0" data-text="mean(v)">mean</a> <a class="ins" href="#0" data-text="median(v)">median</a>
+    <a class="ins" href="#0" data-text="std(v)">std</a> <a class="ins" href="#0" data-text="var(v)">var</a>
+    <a class="ins" href="#0" data-text="histcounts(v)">histcounts</a> <a class="ins" href="#0" data-text="prctile(v, 95)">prctile</a>
+    <a class="ins" href="#0" data-text="normpdf(x, mu, sigma)">normpdf</a> <a class="ins" href="#0" data-text="normcdf(x, mu, sigma)">normcdf</a>
+    <a class="ins" href="#0" data-text="erf(x)">erf</a> <a class="ins" href="#0" data-text="gamma(x)">gamma</a>
+
+    <h2 id="graf">10. Gráficas</h2>
+    <a class="ins" href="#0" data-text="plot(x, y)">plot</a> <a class="ins" href="#0" data-text="scatter(x, y)">scatter</a>
+    <a class="ins" href="#0" data-text="bar(y)">bar</a> <a class="ins" href="#0" data-text="stem(x, y)">stem</a>
+    <a class="ins" href="#0" data-text="histogram(v)">histogram</a> <a class="ins" href="#0" data-text="plot3(x, y, z)">plot3</a>
+    <a class="ins" href="#0" data-text="surf(X, Y, Z)">surf</a> <a class="ins" href="#0" data-text="mesh(X, Y, Z)">mesh</a>
+    <a class="ins" href="#0" data-text="contourf(X, Y, Z)">contourf</a> <a class="ins" href="#0" data-text="quiver(x, y, u, v)">quiver</a>
+    <a class="ins" href="#0" data-text="trisurf(tri, x, y, z)">trisurf</a> <a class="ins" href="#0" data-text="patch('Faces', F, 'Vertices', V)">patch</a>
+    <p class="cat">Anotación:</p>
+    <a class="ins" href="#0" data-text="title('...')">title</a> <a class="ins" href="#0" data-text="xlabel('x')">xlabel</a>
+    <a class="ins" href="#0" data-text="ylabel('y')">ylabel</a> <a class="ins" href="#0" data-text="legend('a','b')">legend</a>
+    <a class="ins" href="#0" data-text="colorbar">colorbar</a> <a class="ins" href="#0" data-text="colormap(jet)">colormap</a>
+    <a class="ins" href="#0" data-text="grid on">grid</a> <a class="ins" href="#0" data-text="hold on">hold</a>
+    <a class="ins" href="#0" data-text="axis equal">axis</a> <a class="ins" href="#0" data-text="subplot(2,1,1)">subplot</a>
+
+    <h2 id="simb">11. Simbólico</h2>
+    <a class="ins" href="#0" data-text="syms x">syms</a> <a class="ins" href="#0" data-text="diff(f, x)">diff</a>
+    <a class="ins" href="#0" data-text="int(f, x)">int</a> <a class="ins" href="#0" data-text="jacobian(F, v)">jacobian</a>
+    <a class="ins" href="#0" data-text="solve(eq == 0, x)">solve</a> <a class="ins" href="#0" data-text="dsolve(ode)">dsolve</a>
+    <a class="ins" href="#0" data-text="simplify(f)">simplify</a> <a class="ins" href="#0" data-text="expand(f)">expand</a>
+    <a class="ins" href="#0" data-text="factor(f)">factor</a> <a class="ins" href="#0" data-text="subs(f, x, v)">subs</a>
+    <a class="ins" href="#0" data-text="taylor(f, x)">taylor</a> <a class="ins" href="#0" data-text="limit(f, x, a)">limit</a>
+    <a class="ins" href="#0" data-text="laplace(f)">laplace</a> <a class="ins" href="#0" data-text="latex(f)">latex</a>
+
+    <h2 id="cadenas">12. Cadenas e I/O</h2>
+    <a class="ins" href="#0" data-text="sprintf('%g', x)">sprintf</a> <a class="ins" href="#0" data-text="fprintf('%d\n', x)">fprintf</a>
+    <a class="ins" href="#0" data-text="disp(x)">disp</a> <a class="ins" href="#0" data-text="num2str(x)">num2str</a>
+    <a class="ins" href="#0" data-text="strcat(a, b)">strcat</a> <a class="ins" href="#0" data-text="strrep(s, a, b)">strrep</a>
+    <a class="ins" href="#0" data-text="strsplit(s)">strsplit</a> <a class="ins" href="#0" data-text="regexp(s, pat)">regexp</a>
+    <a class="ins" href="#0" data-text="readmatrix('file.csv')">readmatrix</a> <a class="ins" href="#0" data-text="writematrix(M, 'file.csv')">writematrix</a>
+    <a class="ins" href="#0" data-text="save('data.mat')">save</a> <a class="ins" href="#0" data-text="load('data.mat')">load</a>
+    <a class="ins" href="#0" data-text="tic">tic</a> <a class="ins" href="#0" data-text="toc">toc</a>
+
+    <h2 id="loop">13. Constructor de loop <span style="font-family:'Cambria Math'">(∑ ∏ ∫)</span></h2>
+    <p>Escribe <code>loop</code> en el editor (o menú <b>Insert → ∑ ∏ ∫</b>): eliges operador, expresión y límites, y la <b>forma</b> (bucle <code>for</code> o función). La integral ofrece <code>integral</code>, <code>trapz</code>, trapecio, Simpson, y <b>doble/triple</b> (<code>integral2</code>/<code>integral3</code>).</p>
+    <a class="ins" href="#0" data-text="s = 0;&#10;for k = 1:10&#10;    s = s + (k^2);&#10;end">∑ suma por bucle</a>
+    <a class="ins" href="#0" data-text="s = sum(arrayfun(@(k) (k^2), 1:10));">∑ suma por función</a>
+    <a class="ins" href="#0" data-text="I = integral(@(x) (x.^2), 0, 1);">∫ integral</a>
+
+    <h2 id="coment">14. Comentarios y texto</h2>
+    <table>
+        <tr><th>Elemento</th><th>Efecto</th></tr>
+        <tr><td><code>%</code></td><td>Comentario <b>oculto</b> (botón <b>%</b> comenta la selección)</td></tr>
+        <tr><td>botón <b>%&#822;</b></td><td>Descomenta la selección</td></tr>
+        <tr><td><code>%' texto</code></td><td>Texto <b>visible</b> en el output (botón <b>%'</b>)</td></tr>
+        <tr><td><code>%% Título</code></td><td>Encabezado de sección visible</td></tr>
+        <tr><td><code>% #md … % #endmd</code></td><td>Bloque Markdown</td></tr>
+    </table>
+    <p class="note"><b>Temas:</b> menú Output → Theme (Oscuro / Oro). PDF y Word siempre en hoja blanca.</p>
+
+    <p class="sub" style="margin-top:24px">Hekatan Engineers · Portoviejo, Ecuador · Hekatan Lab 1.0.0</p>
+
+    <script>
+        // Al hacer clic en un <a class="ins">, se enfoca y se avisa al host (C#),
+        // que lee data-text e inserta el script MATLAB en el editor.
+        (function () {
+            document.body.addEventListener('click', function (ev) {
+                var t = ev.target;
+                while (t && t !== document.body) {
+                    if (t.tagName === 'A') {
+                        ev.preventDefault();
+                        try { t.focus(); } catch (e) {}
+                        try { chrome.webview.postMessage('clicked'); } catch (e) {}
+                        return;
+                    }
+                    t = t.parentNode;
+                }
+            }, true);
+        })();
+    </script>
 </body>
 </html>
