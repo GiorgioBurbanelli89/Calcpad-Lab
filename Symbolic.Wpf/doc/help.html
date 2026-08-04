@@ -296,21 +296,17 @@ s2 = sum(arrayfun(@(k) (k^2), 1:10))</pre></a>
         <a class="ins" href="#0" data-text="% #render">% #render</a>
         <a class="ins" href="#0" data-text="%{&#10;&#10;%}">%{ … %} oculto</a>
 
-        <div class="cat">Notación Calcpad que renderiza como gráfica/matemática (dentro de <code>%</code>):</div>
-        <a class="ins" href="#0" data-text="% $Plot{sin(x) @ x = 0 : 6.283}">% $Plot gráfica</a>
-        <a class="ins" href="#0" data-text="% $Map{sin(x)*cos(y) @ x = 0 : 6.28 & y = 0 : 6.28}">% $Map mapa</a>
-        <a class="ins" href="#0" data-text="% $Chart{x; y @ type=line : title=Título}">% $Chart</a>
-        <a class="ins" href="#0" data-text="% $Sum{k @ k = 1 : 10}">% $Sum ∑</a>
-        <a class="ins" href="#0" data-text="% $Area{x^2 @ x = 0 : 1}">% $Area ∫</a>
-        <p class="note">Estas <code>$</code> escritas <b>sin</b> <code>%</code> (como código) se transpilan a MATLAB automáticamente; escritas <b>con</b> <code>%</code> se renderizan como figura/fórmula en el output.</p>
+        <p class="note">La notación Calcpad <code>$Plot</code>, <code>$Sum</code>, <code>$Area</code>… <b>no se usa</b> en Hekatan Lab: al escribirla se <b>transforma a MATLAB</b> (<code>plot</code>, <code>sum(arrayfun(…))</code>, <code>integral</code>). Grafica siempre con <code>plot</code>/<code>surf</code>.</p>
 
-        <div class="exwrap"><span class="exlabel">Ejemplo — reporte con texto, fórmula y gráfica:</span>
-            <a class="ex" href="#0" data-text="%% Viga simplemente apoyada&#10;%' Momento máximo:&#10;% #noc M_max = q*L^2/8&#10;q = 5; L = 6;&#10;M = q*L^2/8&#10;% $Plot{q*x*(L-x)/2 @ x = 0 : 6}"><pre>%% Viga simplemente apoyada
+        <div class="exwrap"><span class="exlabel">Ejemplo — reporte con texto, fórmula y gráfica (MATLAB):</span>
+            <a class="ex" href="#0" data-text="%% Viga simplemente apoyada&#10;%' Momento máximo:&#10;% #noc M_max = q*L^2/8&#10;q = 5; L = 6;&#10;M = q*L^2/8&#10;x = linspace(0, L, 100);&#10;plot(x, q*x.*(L-x)/2)&#10;xlabel('x [m]'); ylabel('M [kN·m]'); grid on"><pre>%% Viga simplemente apoyada
 %' Momento máximo:
 % #noc M_max = q*L^2/8
 q = 5; L = 6;
 M = q*L^2/8
-% $Plot{q*x*(L-x)/2 @ x = 0 : 6}</pre></a>
+x = linspace(0, L, 100);
+plot(x, q*x.*(L-x)/2)
+xlabel('x [m]'); ylabel('M [kN·m]'); grid on</pre></a>
         </div>
 
         <p class="note"><b>Temas:</b> menú Output → Theme (Oscuro / Oro). PDF y Word siempre en hoja blanca.</p>

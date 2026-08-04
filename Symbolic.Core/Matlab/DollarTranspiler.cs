@@ -27,7 +27,7 @@ namespace Calcpad.Core
         private static readonly HashSet<string> MathOps = new(StringComparer.OrdinalIgnoreCase)
         {
             "Sum", "Product", "Area", "Integral", "Root", "Find",
-            "Slope", "Derivative", "Sup", "Inf"
+            "Slope", "Derivative", "Sup", "Inf", "Plot"
         };
 
         /// <summary>¿La cadena contiene algún <c>$Op{</c> matemático balanceado?</summary>
@@ -139,6 +139,12 @@ namespace Calcpad.Core
                 case "derivative":
                     // Derivada numérica centrada en el punto at0
                     return $"((feval({lam},({at0})+1e-6))-(feval({lam},({at0})-1e-6)))/2e-6";
+                case "plot":
+                {
+                    // $Plot{f @ x=a:b} → plot(X, f(X)) MATLAB puro (no Calcpad $Plot).
+                    string rng = $"linspace({lo}, {hi}, 200)";
+                    return $"plot({rng}, arrayfun({lam}, {rng}))";
+                }
                 default:
                     return $"${op}{{{inner}}}"; // no debería ocurrir
             }
