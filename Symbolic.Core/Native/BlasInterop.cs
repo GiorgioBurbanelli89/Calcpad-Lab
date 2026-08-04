@@ -563,6 +563,24 @@ namespace Calcpad.Core
             return x;
         }
 
+        /// <summary>A⁻¹ (n×n row-major) resolviendo A·X = I con dgesv (LU + n solves). Es lo que
+        /// hace MATLAB (dgetrf+dgetri) — mucho más rápido que el Gauss-Jordan administrado.</summary>
+        public static double[] Inverse(int n, double[] A_row)
+        {
+            if (!Available) throw new InvalidOperationException("LAPACK no disponible");
+            var a = (double[])A_row.Clone();          // dgesv sobreescribe A con la LU
+            var x = new double[n * n];                // B = I (row-major); sale como A⁻¹
+            for (int i = 0; i < n; i++) x[i * n + i] = 1.0;
+            var ipiv = new int[n];
+            int info;
+            fixed (double* pA = a, pX = x)
+            fixed (int* pIpiv = ipiv)
+                info = NativeBlas.Dgesv(NativeBlas.LapackRowMajor, n, n, pA, n, pIpiv, pX, n);
+            if (info != 0)
+                throw new InvalidOperationException($"dgesv(inv) info={info} (singular or argument error)");
+            return x;
+        }
+
         /// <summary>Valores propios generalizados simétricos A·φ = λ·B·φ (itype=1), A simétrica
         /// y B simétrica positive definite. A,B row-major n×n. Retorna (eigenvalues ASC,
         /// eigenvectors row-major V[i*n+k]=componente i del modo k).</summary>
