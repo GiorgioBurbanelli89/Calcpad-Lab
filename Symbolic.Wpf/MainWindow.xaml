@@ -1161,6 +1161,32 @@
                             BorderBrush="{DynamicResource ThemeButtonBorder}" Background="{DynamicResource ThemePanelBg}"/>
                     <CheckBox  Style="{StaticResource MarkdownCheckBox}" x:Name="MarkdownCheckBox" Content=" M⭣"  VerticalAlignment="Top" Height="20"  ToolTip="Markdown"
                             FontFamily="Roboto" Margin="0,0,5,0" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right" Width="26" Focusable="False" IsTabStop="False" Checked="MarkdownCheckBox_Checked"/>
+                    <!-- Modo texto: cada Enter arranca una linea %' (texto visible). Pildora con acento oro. -->
+                    <ToggleButton x:Name="TextModeToggle" Grid.Row="0" Click="TextModeToggle_Click"
+                            Content="%'  Texto" HorizontalAlignment="Right" VerticalAlignment="Top" Height="20"
+                            Margin="0,0,36,0" Padding="8,0" FontFamily="Roboto" FontWeight="Bold" FontSize="11"
+                            Foreground="{DynamicResource ThemeText}" Focusable="False" IsTabStop="False" Cursor="Hand"
+                            ToolTip="Modo texto: mientras este activo, cada linea nueva arranca con %' (texto visible). Escribe prosa sin teclear el prefijo en cada linea.">
+                        <ToggleButton.Template>
+                            <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                <Border x:Name="tmBd" CornerRadius="10" Padding="{TemplateBinding Padding}"
+                                        Background="{DynamicResource ThemeButtonBg}"
+                                        BorderBrush="{DynamicResource ThemeButtonBorder}" BorderThickness="1">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="tmBd" Property="Background" Value="{DynamicResource ThemeAccentGold}"/>
+                                        <Setter TargetName="tmBd" Property="BorderBrush" Value="{DynamicResource ThemeAccentRed}"/>
+                                        <Setter Property="Foreground" Value="#141109"/>
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="tmBd" Property="BorderBrush" Value="{DynamicResource ThemeAccentRed}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                    </ToggleButton>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="50,0,0,0"
                         x:Name="H3Button" Click="Button_Click" Tag="&lt;h3&gt;‖&lt;/h3&gt;␣‖### " 
                         Content="H3" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12">

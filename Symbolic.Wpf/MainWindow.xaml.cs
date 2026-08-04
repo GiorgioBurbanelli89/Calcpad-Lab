@@ -2830,6 +2830,7 @@ namespace Calcpad.Wpf
         }
 
         private bool _isDarkTheme = true;   // tema activo (Dark por defecto; Gold = claro cálido)
+        private bool _textMode;             // Modo texto: cada línea nueva arranca con %' (texto visible)
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
         private string _pdfOut;    // ruta PDF headless (--pdf) para verificar que el export sale en BLANCO
@@ -2895,6 +2896,29 @@ namespace Calcpad.Wpf
         }
 
         private void ThemeToggle_Click(object sender, RoutedEventArgs e) => SetTheme(!_isDarkTheme);
+
+        // Modo texto: mientras está activo, cada Enter arranca una línea `%'` (texto visible).
+        private void TextModeToggle_Click(object sender, RoutedEventArgs e)
+        {
+            _textMode = (sender as System.Windows.Controls.Primitives.ToggleButton)?.IsChecked ?? !_textMode;
+            if (_textMode)
+            {
+                // Si la línea actual está vacía, prefijarla ya con %'.
+                try
+                {
+                    var p = RichTextBox.Selection?.End.Paragraph;
+                    if (p != null && p.ContentStart.GetOffsetToPosition(p.ContentEnd) == 0)
+                    {
+                        RichTextBox.BeginChange();
+                        try { _insertManager.InsertText("%'"); }
+                        finally { RichTextBox.EndChange(); }
+                    }
+                }
+                catch { }
+            }
+            RichTextBox.Focus();
+            Keyboard.Focus(RichTextBox);
+        }
 
         private void CaptureWindowToPng(string path)
         {
@@ -3452,6 +3476,18 @@ namespace Calcpad.Wpf
                       e.Key == Key.OemBackslash || e.Key == Key.OemTilde));
                 if (isMutating)
                     _userTypedSinceLoad = true;
+            }
+            // MODO TEXTO: cada Enter arranca una nueva línea de texto visible con `%'`,
+            // para escribir prosa sin teclear el prefijo a mano en cada línea.
+            if (_textMode && (e.Key == Key.Return || e.Key == Key.Enter)
+                && modifiers == ModifierKeys.None)
+            {
+                e.Handled = true;
+                RichTextBox.BeginChange();
+                try { _insertManager.InsertLine(); _insertManager.InsertText("%'"); }
+                finally { RichTextBox.EndChange(); }
+                RichTextBox.Focus();
+                return;
             }
             if (e.Key == Key.V && isCtrlShift)
             {
