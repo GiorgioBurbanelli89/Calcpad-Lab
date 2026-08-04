@@ -17,6 +17,9 @@
     <Setting Name="AutoRun" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">True</Value>
     </Setting>
+    <Setting Name="DarkTheme" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">True</Value>
+    </Setting>
     <Setting Name="Angles" Type="System.Char" Scope="User">
       <Value Profile="(Default)">D</Value>
     </Setting>

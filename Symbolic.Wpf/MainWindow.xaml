@@ -257,7 +257,10 @@
         </Grid.RowDefinitions>
         <Menu x:Name="MainMenu" VerticalAlignment="Top" Margin="2,2,2,0" Background="{x:Null}" Height="18"
               Foreground="{DynamicResource ThemeText}">
-            <MenuItem Header="{x:Static wpf:MainWindowResources.File}" Foreground="{DynamicResource ThemeText}">
+            <MenuItem Foreground="{DynamicResource ThemeText}">
+                <MenuItem.Header>
+                    <TextBlock Text="{x:Static wpf:MainWindowResources.File}" Foreground="{DynamicResource ThemeText}"/>
+                </MenuItem.Header>
                 <MenuItem Command="ApplicationCommands.New" 
                           Header="{x:Static wpf:MainWindowResources.New}"/>
                 <MenuItem Command="ApplicationCommands.Open" 
@@ -283,8 +286,10 @@
                 <MenuItem Command="ApplicationCommands.Close"
                           Header="{x:Static wpf:MainWindowResources.Exit}"/>
             </MenuItem>
-            <MenuItem x:Name="MenuEdit" Foreground="{DynamicResource ThemeText}"
-                      Header="{x:Static wpf:MainWindowResources.Edit}">
+            <MenuItem x:Name="MenuEdit" Foreground="{DynamicResource ThemeText}">
+                <MenuItem.Header>
+                    <TextBlock Text="{x:Static wpf:MainWindowResources.Edit}" Foreground="{DynamicResource ThemeText}"/>
+                </MenuItem.Header>
                 <MenuItem Command="ApplicationCommands.Find" 
                           Header="{x:Static wpf:MainWindowResources.Find}"/>
                 <MenuItem Command="ApplicationCommands.Replace"
@@ -312,8 +317,10 @@
                 <MenuItem Command="ApplicationCommands.SelectAll" 
                           Header="{x:Static wpf:MainWindowResources.Select_All}"/>
             </MenuItem>
-            <MenuItem x:Name="MenuInsert" Foreground="{DynamicResource ThemeText}"
-                      Header="{x:Static wpf:MainWindowResources.Insert}">
+            <MenuItem x:Name="MenuInsert" Foreground="{DynamicResource ThemeText}">
+                <MenuItem.Header>
+                    <TextBlock Text="{x:Static wpf:MainWindowResources.Insert}" Foreground="{DynamicResource ThemeText}"/>
+                </MenuItem.Header>
                 <!-- ================= Hekatan Lab: menu Insert con sintaxis MATLAB (no Calcpad) ================= -->
                 <MenuItem Header="Comment / sections">
                     <!-- VISIBLES en el output (llevan marcador) -->
@@ -576,8 +583,10 @@
                     <MenuItem Click="Button_Click" Tag="close all"     Header="close all"/>
                 </MenuItem>
             </MenuItem>
-            <MenuItem x:Name="MenuOutput" Foreground="{DynamicResource ThemeText}"
-                      Header="{x:Static wpf:MainWindowResources.Output}">
+            <MenuItem x:Name="MenuOutput" Foreground="{DynamicResource ThemeText}">
+                <MenuItem.Header>
+                    <TextBlock Text="{x:Static wpf:MainWindowResources.Output}" Foreground="{DynamicResource ThemeText}"/>
+                </MenuItem.Header>
                 <MenuItem x:Name="MenuWebForm" Command="{StaticResource WebFormCommand}" 
                           Header="{x:Static wpf:MainWindowResources.InputForm}" InputGestureText="F4"/>
                 <MenuItem x:Name="MenuCalculate" Command="{StaticResource CalculateCommand}" 
@@ -590,13 +599,20 @@
                 <MenuItem Command="ApplicationCommands.Print" 
                           Header="{x:Static wpf:MainWindowResources.Print}"/>
                 <Separator/>
-                <MenuItem Click="WordButton_Click" 
+                <MenuItem Click="WordButton_Click"
                           Header="{x:Static wpf:MainWindowResources.OpenWithWord}"/>
-                <MenuItem Click="PdfButton_Click" 
+                <MenuItem Click="PdfButton_Click"
                           Header="{x:Static wpf:MainWindowResources.SaveAsPDF}"/>
+                <Separator/>
+                <MenuItem x:Name="ThemeToggleMenuItem" Click="ThemeToggle_Click"
+                          Header="Theme: Dark  →  Gold"
+                          ToolTip="Cambiar entre tema Oscuro y Oro (Ctrl+Shift+T)"/>
             </MenuItem>
-            <MenuItem Command="ApplicationCommands.Help" Foreground="{DynamicResource ThemeText}"
-                      Header="{x:Static wpf:MainWindowResources.Help}"/>
+            <MenuItem Command="ApplicationCommands.Help" Foreground="{DynamicResource ThemeText}">
+                <MenuItem.Header>
+                    <TextBlock Text="{x:Static wpf:MainWindowResources.Help}" Foreground="{DynamicResource ThemeText}"/>
+                </MenuItem.Header>
+            </MenuItem>
         </Menu>
         <Button Grid.Row="0" x:Name="NewButton" HorizontalAlignment="Left" Height="24" VerticalAlignment="Top" Width="24"
                 Margin="6,24,0,0" Focusable="false" IsTabStop="false"

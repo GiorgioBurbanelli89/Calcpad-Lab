@@ -235,9 +235,14 @@ namespace Calcpad.Wpf
             _parser = new();
             Mark("ExpressionParser ctor");
             _highlighter = new();
-            // Tema oscuro por defecto: recolorea la paleta de sintaxis (claro sobre carbón).
-            HighLighter.ApplyTheme(true);
-            Mark("HighLighter ctor + dark theme");
+            // Tema persistido (Dark por defecto): recolorea la paleta de sintaxis.
+            _isDarkTheme = Properties.Settings.Default.DarkTheme;
+            // Override headless: --theme <dark|gold> (para revisar el tema con --wshot).
+            var _av = Environment.GetCommandLineArgs();
+            for (int _i = 1; _i < _av.Length; _i++)
+                if (_av[_i] == "--theme" && _i + 1 < _av.Length) _isDarkTheme = _av[_i + 1] != "gold";
+            HighLighter.ApplyTheme(_isDarkTheme);
+            Mark("HighLighter ctor + theme");
             ExpressionParser.PipProgressChanged += OnPipProgressChanged;
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(_currentCultureName);
             Mark("Culture set");
@@ -2824,6 +2829,7 @@ namespace Calcpad.Wpf
                 HtmlFileSave();
         }
 
+        private bool _isDarkTheme = true;   // tema activo (Dark por defecto; Gold = claro cálido)
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
         private string _pdfOut;    // ruta PDF headless (--pdf) para verificar que el export sale en BLANCO
@@ -2834,6 +2840,62 @@ namespace Calcpad.Wpf
         // Renderiza la VENTANA COMPLETA (chrome + menús + editor) a PNG. Para revisar el tema
         // sin abrir la app a mano. El WebView2 (airspace propio) puede salir vacío: da igual,
         // aquí interesa el cromado. Se dispara con --wshot <png>.
+        // ── Tema Dark/Gold: cada brush con su valor (dark, gold) ──
+        private static readonly (string key, string dark, string gold)[] _themeBrushes = new[]
+        {
+            ("ThemeWindowBg",     "#141109", "#E9DFC6"),
+            ("ThemePanelBg",      "#1C1810", "#F1E9D6"),
+            ("ThemeEditorBg",     "#1A1712", "#F8F2E4"),
+            ("ThemeText",         "#E8E2D4", "#2B2416"),
+            ("ThemeTextMuted",    "#A89F8C", "#6B5E45"),
+            ("ThemeAccentRed",    "#E5382B", "#C0392B"),
+            ("ThemeAccentGold",   "#E6C463", "#A9820C"),
+            ("ThemeButtonBg",     "#262016", "#EFE7D2"),
+            ("ThemeButtonBorder", "#3A3226", "#CBBD98"),
+            ("ThemeGutterBg",     "#211D16", "#E4DAC0"),
+            ("ThemeHoverBg",      "#33E5382B", "#33C0392B"),
+        };
+
+        /// <summary>Reasigna los brushes del tema (DynamicResource → se actualiza en vivo).</summary>
+        private void SwapThemeBrushes(bool dark)
+        {
+            var conv = new System.Windows.Media.BrushConverter();
+            foreach (var (key, d, g) in _themeBrushes)
+            {
+                var b = (SolidColorBrush)conv.ConvertFromString(dark ? d : g);
+                b.Freeze();
+                Resources[key] = b;
+            }
+        }
+
+        /// <summary>Pone/quita la clase 'dark' en el reporte del WebView2 (el CSS oscuro va
+        /// bajo html.dark y SOLO en @media screen → print/PDF siguen en blanco).</summary>
+        private void ApplyReportTheme(bool dark)
+        {
+            try
+            {
+                WebViewer?.CoreWebView2?.ExecuteScriptAsync(
+                    $"document.documentElement.classList.toggle('dark', {(dark ? "true" : "false")});");
+            }
+            catch { }
+        }
+
+        /// <summary>Cambia el tema completo (chrome + sintaxis + reporte) y lo persiste.</summary>
+        private void SetTheme(bool dark)
+        {
+            _isDarkTheme = dark;
+            SwapThemeBrushes(dark);
+            HighLighter.ApplyTheme(dark);
+            try { ForceHighlight(); } catch { }
+            ApplyReportTheme(dark);
+            Properties.Settings.Default.DarkTheme = dark;
+            try { Properties.Settings.Default.Save(); } catch { }
+            if (ThemeToggleMenuItem != null)
+                ThemeToggleMenuItem.Header = dark ? "Theme: Dark  →  Gold" : "Theme: Gold  →  Dark";
+        }
+
+        private void ThemeToggle_Click(object sender, RoutedEventArgs e) => SetTheme(!_isDarkTheme);
+
         private void CaptureWindowToPng(string path)
         {
             try
@@ -2869,6 +2931,7 @@ namespace Calcpad.Wpf
             for (int i = 1; i < argv.Length; i++)
             {
                 if (argv[i] == "--shot" && i + 1 < argv.Length) _shotPng = argv[++i];
+                else if (argv[i] == "--theme" && i + 1 < argv.Length) i++;   // ya consumido en el ctor
                 else if (argv[i] == "--pdf" && i + 1 < argv.Length) _pdfOut = argv[++i];
                 else if (argv[i] == "--wshot" && i + 1 < argv.Length)
                 {
@@ -3888,6 +3951,10 @@ namespace Calcpad.Wpf
         {
             _screenScaleFactor = ScreenMetrics.GetWindowsScreenScalingFactor();
             ReadSettings();
+            // Aplicar el tema persistido a los brushes del chrome (XAML default = Dark).
+            SwapThemeBrushes(_isDarkTheme);
+            if (ThemeToggleMenuItem != null)
+                ThemeToggleMenuItem.Header = _isDarkTheme ? "Theme: Dark  →  Gold" : "Theme: Gold  →  Dark";
             if (Top < 0)
                 Top = 0;
 
@@ -4349,6 +4416,8 @@ namespace Calcpad.Wpf
            if (!await _wv2Warper.CheckIsReportAsync())
                 return;
 
+            // Aplicar el tema del reporte (clase 'dark' → CSS oscuro solo-pantalla; print/PDF blanco).
+            ApplyReportTheme(_isDarkTheme);
             _isParsing = false;
             if (_isSaving)
             {

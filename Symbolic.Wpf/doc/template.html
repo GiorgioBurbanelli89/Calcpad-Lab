@@ -866,21 +866,23 @@
             .no-screen {
                 display: none;
             }
-            /* ===== TEMA OSCURO — SOLO PANTALLA. print/PDF y Word se quedan en HOJA BLANCA. ===== */
-            html { background-color: #14110b; }
-            body { background-color: #1a1712 !important; color: #E8E2D4 !important; }
-            h1, h2, h3, h4, h5, h6, .errorHeader, .roundBox { color: #E8E2D4 !important; }
-            .eq var { color: #6DB3FF !important; }              /* variables → azul claro */
-            .eq i, i.unit { color: #4EC9B0 !important; }        /* unidades → teal */
-            .eq sub.idx { color: #D67AD2 !important; }          /* índices A(i,j) → magenta claro */
-            .cond { color: #FF8AE0 !important; }
-            .value { background-color: #232019 !important; }
-            a { color: #6DB3FF; }
-            a:hover { background-color: #2A2616 !important; }
-            table, th, td { border-color: #3A3226 !important; }
-            table.bordered th { background-color: #262016 !important; }
+            /* ===== TEMA OSCURO — SOLO PANTALLA y SOLO con html.dark (lo pone la app segun el
+               toggle Dark/Gold). print/PDF y Word se quedan SIEMPRE en HOJA BLANCA. ===== */
+            html.dark { background-color: #14110b; }
+            html.dark body { background-color: #1a1712 !important; color: #E8E2D4 !important; }
+            html.dark h1, html.dark h2, html.dark h3, html.dark h4, html.dark h5, html.dark h6,
+            html.dark .errorHeader, html.dark .roundBox { color: #E8E2D4 !important; }
+            html.dark .eq var { color: #6DB3FF !important; }              /* variables → azul claro */
+            html.dark .eq i, html.dark i.unit { color: #4EC9B0 !important; }  /* unidades → teal */
+            html.dark .eq sub.idx { color: #D67AD2 !important; }          /* índices A(i,j) → magenta claro */
+            html.dark .cond { color: #FF8AE0 !important; }
+            html.dark .value { background-color: #232019 !important; }
+            html.dark a { color: #6DB3FF; }
+            html.dark a:hover { background-color: #2A2616 !important; }
+            html.dark table, html.dark th, html.dark td { border-color: #3A3226 !important; }
+            html.dark table.bordered th { background-color: #262016 !important; }
             /* Glifos ∫ y √ (trazo negro embebido) → claros en pantalla; en print quedan negros */
-            .r0, .r1, .r2, .r3 { filter: invert(1) brightness(1.35); }
+            html.dark .r0, html.dark .r1, html.dark .r2, html.dark .r3 { filter: invert(1) brightness(1.35); }
         }
 
         @media print {
