@@ -112,6 +112,12 @@ namespace Calcpad.Core.Matlab
         }
         private static SymNode ParseFactor(string s, ref int pos)
         {
+            // Menos/más unario: DEBE ligar MÁS FLOJO que '^' → -x^2 == -(x^2), no (-x)^2.
+            // (Antes el menos vivía en ParseBase y el '^' lo aplicaba sobre la base negada, lo
+            //  que corrompía p.ej. el resultado de giac 2*x*cos(x)-(-x^2+2)*sin(x).)
+            SkipWs(s, ref pos);
+            if (pos < s.Length && s[pos] == '-') { pos++; return new SymSub(new SymConst(0), ParseFactor(s, ref pos)); }
+            if (pos < s.Length && s[pos] == '+') { pos++; return ParseFactor(s, ref pos); }
             var b = ParseBase(s, ref pos);
             SkipWs(s, ref pos);
             if (pos < s.Length && s[pos] == '^') { pos++; return new SymPow(b, ParseFactor(s, ref pos)); }
@@ -120,8 +126,6 @@ namespace Calcpad.Core.Matlab
         private static SymNode ParseBase(string s, ref int pos)
         {
             SkipWs(s, ref pos);
-            if (pos < s.Length && s[pos] == '-') { pos++; return new SymSub(new SymConst(0), ParseBase(s, ref pos)); }
-            if (pos < s.Length && s[pos] == '+') { pos++; return ParseBase(s, ref pos); }
             if (pos < s.Length && s[pos] == '(') { pos++; var e = ParseExpr(s, ref pos); SkipWs(s, ref pos); if (pos < s.Length && s[pos] == ')') pos++; return e; }
             if (pos < s.Length && (char.IsDigit(s[pos]) || s[pos] == '.'))
             {

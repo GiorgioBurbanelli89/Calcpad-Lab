@@ -4892,6 +4892,31 @@ namespace Calcpad.Core.Matlab
                     for (int k = 0; k < order; k++) result = result.Diff(varName).Simplify();
                     return MValue.NewSymbolic(result);
                 }
+                // VECTOR/MATRIZ simbólica: deriva CADA elemento (MATLAB diff(symMatrix, var)).
+                // Sin esto caía al camino numérico (diferencias consecutivas) sobre Data nulo → [0 0].
+                if (a[0].IsSymMatrix)
+                {
+                    string varName = "x";
+                    int order = 1;
+                    if (a.Length >= 2)
+                    {
+                        if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
+                        else if (a[1].IsString) varName = a[1].StringValue;
+                        else if (a[1].IsScalar) order = (int)a[1].Scalar;
+                    }
+                    if (a.Length >= 3) order = (int)a[2].Scalar;
+                    var cells = a[0].SymCells;
+                    int rr = cells.GetLength(0), cc = cells.GetLength(1);
+                    var outc = new SymNode[rr, cc];
+                    for (int i = 0; i < rr; i++)
+                        for (int j = 0; j < cc; j++)
+                        {
+                            var e = cells[i, j];
+                            for (int k = 0; k < order; k++) e = e.Diff(varName).Simplify();
+                            outc[i, j] = e;
+                        }
+                    return MValue.NewSymMatrix(outc);
+                }
                 // Numérico
                 var vc = a[0];
                 int orderN = a.Length >= 2 && a[1].IsScalar ? (int)a[1].Scalar : 1;
@@ -4907,6 +4932,41 @@ namespace Calcpad.Core.Matlab
                     else throw new MatlabRuntimeException("diff: 2D matrices not supported yet");
                 }
                 return vc;
+            };
+            _builtins["jacobian"] = a => {
+                // jacobian(f, vars): J[i,j] = ∂f_i/∂v_j. f vector de expresiones (o escalar →
+                // gradiente fila), vars vector de variables simbólicas.
+                if (a.Length < 1) throw new MatlabRuntimeException("jacobian(f, vars)");
+                // Expresiones de f
+                SymNode[] fs;
+                if (a[0].IsSymMatrix)
+                {
+                    var c = a[0].SymCells; int rr = c.GetLength(0), cc = c.GetLength(1);
+                    fs = new SymNode[rr * cc]; int t = 0;
+                    for (int i = 0; i < rr; i++) for (int j = 0; j < cc; j++) fs[t++] = c[i, j];
+                }
+                else if (a[0].IsSymbolic) fs = new[] { a[0].Symbolic };
+                else throw new MatlabRuntimeException("jacobian: f debe ser simbólico");
+                // Nombres de variables
+                System.Collections.Generic.List<string> vars = new();
+                if (a.Length >= 2)
+                {
+                    if (a[1].IsSymMatrix)
+                    {
+                        var c = a[1].SymCells;
+                        for (int i = 0; i < c.GetLength(0); i++) for (int j = 0; j < c.GetLength(1); j++)
+                            if (c[i, j] is SymVar sv) vars.Add(sv.Name);
+                    }
+                    else if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv1) vars.Add(sv1.Name);
+                    else if (a[1].IsString) vars.Add(a[1].StringValue);
+                }
+                if (vars.Count == 0) throw new MatlabRuntimeException("jacobian(f, vars): faltan variables");
+                int m = fs.Length, n = vars.Count;
+                var J = new SymNode[m, n];
+                for (int i = 0; i < m; i++)
+                    for (int j = 0; j < n; j++)
+                        J[i, j] = fs[i].Diff(vars[j]).Simplify();
+                return MValue.NewSymMatrix(J);
             };
             _builtins["coeffs"] = a => {
                 // coeffs(poly, var) → vector de coeficientes [c0, c1, c2, ...]
