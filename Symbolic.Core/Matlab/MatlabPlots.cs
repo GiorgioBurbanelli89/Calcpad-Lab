@@ -692,7 +692,7 @@ return {make:make};
                 sb.Append("\n");
             }
             sb.Append("  ];\n  var layout = { ");
-            sb.Append($"title: '{EscapeJs(_figTitle)}', margin:{{l:50,r:30,t:40,b:50}}");
+            sb.Append($"title:{{text:'{EscapeJs(_figTitle)}'}}, margin:{{l:70,r:30,t:45,b:65}}");
             // Tema oscuro: fondo/texto/ejes claros (en dark no puede haber blanco).
             sb.Append($", paper_bgcolor:'{PlotBg}', plot_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}");
             if (_figShowLegend) sb.Append($", showlegend:true, legend:{LegendPosJson(_figLegendLoc)}");
@@ -708,15 +708,15 @@ return {make:make};
             {
                 // xaxis: unir partes presentes con coma (evita '{,' inicial inválido)
                 var xparts = new System.Collections.Generic.List<string>();
-                if (_figXLabel != null) xparts.Add($"title:'{EscapeJs(_figXLabel)}'");
+                if (_figXLabel != null) xparts.Add($"title:{{text:'{EscapeJs(_figXLabel)}'}}");
                 if (_figXMin.HasValue) xparts.Add($"range:[{_figXMin.Value.ToString(Inv)}, {_figXMax.Value.ToString(Inv)}]");
-                xparts.Add($"color:'{PlotFg}'"); xparts.Add($"gridcolor:'{PlotGrid}'"); xparts.Add($"zerolinecolor:'{PlotGrid}'");
+                xparts.Add($"color:'{PlotFg}'"); xparts.Add($"gridcolor:'{PlotGrid}'"); xparts.Add($"zerolinecolor:'{PlotGrid}'"); xparts.Add("automargin:true");
                 sb.Append(", xaxis:{").Append(string.Join(", ", xparts)).Append("}");
                 // yaxis: igual + aspecto cuadrado (scaleanchor)
                 var yparts = new System.Collections.Generic.List<string>();
-                if (_figYLabel != null) yparts.Add($"title:'{EscapeJs(_figYLabel)}'");
+                if (_figYLabel != null) yparts.Add($"title:{{text:'{EscapeJs(_figYLabel)}'}}");
                 if (_figYMin.HasValue) yparts.Add($"range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
-                yparts.Add($"color:'{PlotFg}'"); yparts.Add($"gridcolor:'{PlotGrid}'"); yparts.Add($"zerolinecolor:'{PlotGrid}'");
+                yparts.Add($"color:'{PlotFg}'"); yparts.Add($"gridcolor:'{PlotGrid}'"); yparts.Add($"zerolinecolor:'{PlotGrid}'"); yparts.Add("automargin:true");
                 if (_figAxisEqual) { yparts.Add("scaleanchor:'x'"); yparts.Add("scaleratio:1"); }  // solo si axis('equal')
                 sb.Append(", yaxis:{").Append(string.Join(", ", yparts)).Append("}");
             }

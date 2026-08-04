@@ -902,14 +902,26 @@
                 Height="24" CornerRadius="12" Padding="2,0" BorderThickness="1"
                 Background="{DynamicResource ThemeButtonBg}" BorderBrush="{DynamicResource ThemeAccentGold}">
             <StackPanel Orientation="Horizontal">
+                <StackPanel.Resources>
+                    <!-- Botón-segmento limpio: el fondo (oro cuando activo) llena todo el pill -->
+                    <Style TargetType="Button">
+                        <Setter Property="FontSize" Value="11.5"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="11" Padding="10,2">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </StackPanel.Resources>
                 <Button x:Name="ThemeDarkBtn" Click="ThemeSetDark_Click" Content="🌙 Oscuro"
-                        FontSize="11.5" Padding="9,0" BorderThickness="0" Cursor="Hand"
-                        Foreground="{DynamicResource ThemeText}" Background="Transparent"
-                        ToolTip="Tema oscuro"/>
+                        Foreground="{DynamicResource ThemeText}" Background="Transparent" ToolTip="Tema oscuro"/>
                 <Button x:Name="ThemeGoldBtn" Click="ThemeSetGold_Click" Content="Oro"
-                        FontSize="11.5" Padding="9,0" BorderThickness="0" Cursor="Hand"
-                        Foreground="{DynamicResource ThemeTextMuted}" Background="Transparent"
-                        ToolTip="Tema oro (parchment)"/>
+                        Foreground="{DynamicResource ThemeTextMuted}" Background="Transparent" ToolTip="Tema oro (parchment)"/>
             </StackPanel>
         </Border>
         <Separator Grid.Row="0" HorizontalAlignment="Left" Height="2" Margin="85,35,0,0" 
