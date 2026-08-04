@@ -298,6 +298,7 @@ namespace Calcpad.Wpf
             _insertManager = new(RichTextBox);
             _autoCompleteManager = new(RichTextBox, AutoCompleteListBox, Dispatcher, _insertManager);
             Mark("AutoCompleteManager (AutoList)");
+            try { PopulateLoopForms(); UpdateLoopPreview(); } catch { }  // ventana-loop siempre inicializada
             _cfn = string.Empty;
             _isTextChangedEnabled = false;
             IsSaved = true;
@@ -2931,6 +2932,136 @@ namespace Calcpad.Wpf
             Keyboard.Focus(RichTextBox);
         }
 
+        // ══ Ventana-loop (Fase 1): notación matemática Σ/∏/∫ → MATLAB ══════
+        // Se dispara escribiendo ".loop" en el editor. Muestra un panel en el
+        // slot del autocomplete: eliges operador, escribes la notación, eliges
+        // la forma (por bucle for / por función), y al Enter inserta MATLAB
+        // portable (generado por Calcpad.Core.LoopBuilder).
+        private Calcpad.Core.LoopBuilder.Op CurrentLoopOp()
+            => LbInt.IsChecked == true ? Calcpad.Core.LoopBuilder.Op.Integral
+             : LbProd.IsChecked == true ? Calcpad.Core.LoopBuilder.Op.Product
+             : Calcpad.Core.LoopBuilder.Op.Sum;
+
+        private void ShowLoopBuilder()
+        {
+            try
+            {
+                var tp = RichTextBox.Selection.Start;
+                var rect = tp.GetCharacterRect(LogicalDirection.Forward);
+                double x = RichTextBox.Margin.Left + rect.Left - 2;
+                double y = RichTextBox.Margin.Top + rect.Bottom;
+                if (double.IsInfinity(x) || double.IsInfinity(y)) { x = 160; y = 120; }
+                LoopBuilderPanel.Margin = new Thickness(x, y, 0, 0);
+            }
+            catch { LoopBuilderPanel.Margin = new Thickness(160, 120, 0, 0); }
+            AutoCompleteListBox.Visibility = Visibility.Hidden;
+            PopulateLoopForms();
+            LoopBuilder_OpChanged(null, null);
+            LoopBuilderPanel.Visibility = Visibility.Visible;
+            LbExpr.Focus();
+            LbExpr.SelectAll();
+        }
+
+        private void PopulateLoopForms()
+        {
+            if (LbForm == null) return;
+            LbForm.Items.Clear();
+            void Add(string label, Calcpad.Core.LoopBuilder.Form f)
+                => LbForm.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = label, Tag = f });
+            if (CurrentLoopOp() == Calcpad.Core.LoopBuilder.Op.Integral)
+            {
+                Add("Por función: integral()", Calcpad.Core.LoopBuilder.Form.Function);
+                Add("Por función: trapz", Calcpad.Core.LoopBuilder.Form.FunctionTrapz);
+                Add("Por bucle: trapecio", Calcpad.Core.LoopBuilder.Form.LoopTrapezoid);
+                Add("Por bucle: Simpson", Calcpad.Core.LoopBuilder.Form.LoopSimpson);
+            }
+            else
+            {
+                Add("Por bucle for (ves cada iteración)", Calcpad.Core.LoopBuilder.Form.Loop);
+                Add("Por función (compacto)", Calcpad.Core.LoopBuilder.Form.Function);
+            }
+            LbForm.SelectedIndex = 0;
+        }
+
+        private void LoopBuilder_OpChanged(object sender, RoutedEventArgs e)
+        {
+            if (LbSymbol == null) return;
+            var op = CurrentLoopOp();
+            LbSymbol.Text = Calcpad.Core.LoopBuilder.Symbol(op);
+            bool isInt = op == Calcpad.Core.LoopBuilder.Op.Integral;
+            if (isInt) { if (LbVar.Text == "k") LbVar.Text = "x"; if (LbFrom.Text == "1") LbFrom.Text = "0"; }
+            else       { if (LbVar.Text == "x") LbVar.Text = "k"; if (LbFrom.Text == "0") LbFrom.Text = "1"; }
+            if (sender != null) PopulateLoopForms();  // en init lo llama ShowLoopBuilder
+            UpdateLoopPreview();
+        }
+
+        private void LoopBuilder_InputChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdateLoopPreview();
+        private void LoopBuilder_FormChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) => UpdateLoopPreview();
+
+        private void UpdateLoopPreview()
+        {
+            if (LbPreview == null || LbForm?.SelectedItem == null) return;
+            var op = CurrentLoopOp();
+            var form = (Calcpad.Core.LoopBuilder.Form)((System.Windows.Controls.ComboBoxItem)LbForm.SelectedItem).Tag;
+            LbDx.Text = op == Calcpad.Core.LoopBuilder.Op.Integral ? (" d" + LbVar.Text) : "";
+            LbPreview.Text = Calcpad.Core.LoopBuilder.Build(op, LbExpr.Text, LbVar.Text, LbFrom.Text, LbTo.Text, form, null);
+        }
+
+        private void LoopBuilder_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter) { LoopBuilder_Insert(null, null); e.Handled = true; }
+            else if (e.Key == Key.Escape) { HideLoopBuilder(); e.Handled = true; }
+        }
+
+        private void LoopBuilder_Cancel(object sender, RoutedEventArgs e) => HideLoopBuilder();
+        private void HideLoopBuilder()
+        {
+            LoopBuilderPanel.Visibility = Visibility.Collapsed;
+            RichTextBox.Focus();
+            Keyboard.Focus(RichTextBox);
+        }
+
+        private void LoopBuilder_Insert(object sender, RoutedEventArgs e)
+        {
+            string code = LbPreview?.Text ?? "";
+            HideLoopBuilder();
+            if (string.IsNullOrWhiteSpace(code)) return;
+            RichTextBox.Focus();
+            RichTextBox.BeginChange();
+            try
+            {
+                var lines = code.Replace("\r\n", "\n").Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    _insertManager.InsertText(lines[i]);
+                    if (i < lines.Length - 1) _insertManager.InsertLine();
+                }
+            }
+            finally { RichTextBox.EndChange(); }
+        }
+
+        /// <summary>Detecta ".loop" recién escrito, lo borra y abre la ventana-loop.</summary>
+        private void CheckLoopTrigger()
+        {
+            try
+            {
+                var tp = RichTextBox.Selection.Start;
+                var p = tp.Paragraph;
+                if (p is null) return;
+                var before = new TextRange(p.ContentStart, tp).Text;
+                if (!before.EndsWith(".loop", StringComparison.OrdinalIgnoreCase)) return;
+                var start = tp.GetPositionAtOffset(-5);
+                if (start != null)
+                {
+                    RichTextBox.BeginChange();
+                    try { new TextRange(start, tp).Text = ""; }
+                    finally { RichTextBox.EndChange(); }
+                }
+                ShowLoopBuilder();
+            }
+            catch { }
+        }
+
         // ── Transpilador $Op{} → MATLAB ────────────────────────────────────
         // Al terminar una línea con notación Calcpad ($Area, $Sum, …) la
         // reescribe EN EL SCRIPT a MATLAB puro (gaussint/arrayfun/fzero…).
@@ -4717,6 +4848,9 @@ namespace Calcpad.Wpf
             {
                 Task.Run(() => Dispatcher.InvokeAsync(() => _autoCompleteManager.InitAutoComplete(e.Text, _currentParagraph), DispatcherPriority.Send));
             }
+            // Disparo de la ventana-loop: ".loop" termina en 'p'.
+            if (e.Text == "p")
+                Dispatcher.InvokeAsync(CheckLoopTrigger, DispatcherPriority.Send);
         }
 
         private void Window_Activated(object sender, EventArgs e)

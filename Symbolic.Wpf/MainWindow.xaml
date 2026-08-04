@@ -1421,6 +1421,81 @@
                              FontWeight="Normal"
                              Focusable="False"
                              BorderBrush="{DynamicResource {x:Static SystemColors.ControlLightBrushKey}}"/>
+                    <!-- ═══ Ventana-loop (Fase 1): notación matemática → MATLAB ═══
+                         Aparece en el mismo slot del autocomplete al escribir .loop -->
+                    <Border Grid.Row="0" x:Name="LoopBuilderPanel" Visibility="Collapsed"
+                            PreviewKeyDown="LoopBuilder_KeyDown"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="156,106,0,0"
+                            Width="330" CornerRadius="6" Padding="10"
+                            Background="{DynamicResource ThemePanelBg}"
+                            BorderBrush="{DynamicResource ThemeAccentGold}" BorderThickness="1.5">
+                        <StackPanel>
+                            <!-- Operador -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <RadioButton x:Name="LbSum" GroupName="LbOp" Content="∑ Suma" IsChecked="True"
+                                             Foreground="{DynamicResource ThemeText}" FontSize="13" Margin="0,0,10,0"
+                                             Checked="LoopBuilder_OpChanged"/>
+                                <RadioButton x:Name="LbProd" GroupName="LbOp" Content="∏ Producto"
+                                             Foreground="{DynamicResource ThemeText}" FontSize="13" Margin="0,0,10,0"
+                                             Checked="LoopBuilder_OpChanged"/>
+                                <RadioButton x:Name="LbInt" GroupName="LbOp" Content="∫ Integral"
+                                             Foreground="{DynamicResource ThemeText}" FontSize="13"
+                                             Checked="LoopBuilder_OpChanged"/>
+                            </StackPanel>
+                            <!-- Notación matemática: símbolo grande + casillas -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
+                                <Grid VerticalAlignment="Center" Margin="0,0,6,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBox x:Name="LbTo" Grid.Row="0" Text="10" Width="46" FontSize="12"
+                                             HorizontalContentAlignment="Center" HorizontalAlignment="Center"
+                                             TextChanged="LoopBuilder_InputChanged"
+                                             ToolTip="Límite superior"/>
+                                    <TextBlock x:Name="LbSymbol" Grid.Row="1" Text="∑" FontSize="40" FontFamily="Cambria Math, Cambria"
+                                               HorizontalAlignment="Center" Foreground="{DynamicResource ThemeAccentGold}"/>
+                                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <TextBox x:Name="LbVar" Text="k" Width="26" FontSize="12"
+                                                 HorizontalContentAlignment="Center" TextChanged="LoopBuilder_InputChanged"
+                                                 ToolTip="Variable / índice"/>
+                                        <TextBlock x:Name="LbEq" Text=" = " FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource ThemeText}"/>
+                                        <TextBox x:Name="LbFrom" Text="1" Width="30" FontSize="12"
+                                                 HorizontalContentAlignment="Center" TextChanged="LoopBuilder_InputChanged"
+                                                 ToolTip="Límite inferior"/>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBox x:Name="LbExpr" Text="k" MinWidth="150" FontSize="14" VerticalAlignment="Center"
+                                         VerticalContentAlignment="Center" Height="30"
+                                         TextChanged="LoopBuilder_InputChanged"
+                                         ToolTip="Expresión (sumando / integrando)"/>
+                                <TextBlock x:Name="LbDx" Text="" FontSize="14" VerticalAlignment="Center" Margin="4,0,0,0"
+                                           Foreground="{DynamicResource ThemeText}"/>
+                            </StackPanel>
+                            <!-- Forma: por loop o por función -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="Forma:" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"
+                                           Foreground="{DynamicResource ThemeText}"/>
+                                <ComboBox x:Name="LbForm" Width="230" FontSize="12"
+                                          SelectionChanged="LoopBuilder_FormChanged"/>
+                            </StackPanel>
+                            <!-- Preview MATLAB -->
+                            <TextBox x:Name="LbPreview" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                                     Background="{DynamicResource ThemeEditorBg}" Foreground="{DynamicResource ThemeText}"
+                                     BorderBrush="{DynamicResource ThemeButtonBorder}"
+                                     TextWrapping="NoWrap" AcceptsReturn="True" MaxHeight="120"
+                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                     Margin="0,0,0,8" Padding="4"/>
+                            <!-- Botones -->
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="LbCancel" Content="Cancelar (Esc)" FontSize="12" Padding="8,3" Margin="0,0,6,0"
+                                        Click="LoopBuilder_Cancel"/>
+                                <Button x:Name="LbInsert" Content="Insertar (Enter)" FontSize="12" Padding="8,3"
+                                        Background="{DynamicResource ThemeAccentGold}" Foreground="#141109"
+                                        Click="LoopBuilder_Insert"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <WrapPanel Grid.Row="0" x:Name="GreekLettersWarpPanel" ToolTip="{x:Static wpf:MainWindowResources.GreekLetters}" Margin="0,0,0,1" HorizontalAlignment="Center" Width="575" Height="20" VerticalAlignment="Bottom">
                         <TextBlock MouseUp="GreekLetter_MouseUp" Text="‰" Style="{StaticResource GreekLetter}" Width="24" />
                         <TextBlock MouseUp="GreekLetter_MouseUp" Text="°" Style="{StaticResource GreekLetter}" FontSize="16"
