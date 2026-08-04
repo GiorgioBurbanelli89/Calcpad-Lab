@@ -3590,31 +3590,6 @@ namespace Calcpad.Core.Matlab
             _builtins["quad"] = _builtins["integral"];
             _builtins["quadl"] = _builtins["integral"];
             _builtins["quadgk"] = _builtins["integral"];
-            // ─── Cuadratura de Gauss-Legendre — SEGURA CON MATRICES ───
-            // gaussint(@f, a, b, N)  →  ∫_a^b f(x) dx  con N puntos de Gauss.
-            // A diferencia de integral()/AdaptiveSimpson (que hacen .Scalar y
-            // fallan con un integrando matricial), esta acumula element-wise, así
-            // que sirve para K_e = ∫ Bᵀ*D*B en FEM. Es el destino del transpilador
-            // de $Area{} (ver project_hekatan_lab_dollar_transpiler).
-            _builtins["gaussint"] = a => {
-                if (a.Length < 3 || !a[0].IsCallable) throw new MatlabRuntimeException("gaussint(@f, a, b [, N])");
-                var f = a[0].Callable;
-                double aL = a[1].Scalar, bL = a[2].Scalar;
-                int N = a.Length >= 4 ? (int)a[3].Scalar : 5;
-                if (N < 1) N = 1;
-                GaussLegendre(N, out var xg, out var wg);
-                double half = (bL - aL) / 2.0, mid = (aL + bL) / 2.0;
-                MValue acc = null;
-                for (int i = 0; i < N; i++)
-                {
-                    var fi = f(new[] { new MValue(half * xg[i] + mid) });
-                    double w = half * wg[i];
-                    acc ??= new MValue(fi.Rows, fi.Cols);
-                    var d = fi.Data;
-                    for (int k = 0; k < d.Length; k++) acc.Data[k] += w * d[k];
-                }
-                return acc ?? new MValue(0.0);
-            };
             _builtins["dblquad"] = a => {
                 // dblquad(@f, xMin, xMax, yMin, yMax)
                 if (a.Length < 5 || !a[0].IsCallable) throw new MatlabRuntimeException("dblquad(@f, xmin, xmax, ymin, ymax)");
@@ -9347,39 +9322,6 @@ namespace Calcpad.Core.Matlab
             var R = AdaptiveSimpsonVecRec(f, c, b, tol / 2, Sr, fc, fb, fe, depth - 1, n);
             for (int k = 0; k < n; k++) L[k] += R[k];
             return L;
-        }
-
-        // ─── Nodos y pesos de Gauss-Legendre en [-1, 1] ────────────────────
-        /// <summary>Calcula los N nodos y pesos de Gauss-Legendre en [-1,1] por
-        /// Newton-Raphson sobre el polinomio de Legendre P_N (recurrencia de
-        /// Bonnet). Exacto para polinomios de grado ≤ 2N-1. N=2 y N=3 dan la
-        /// cuadratura 2×2 / 3×3 estándar de FEM.</summary>
-        private static void GaussLegendre(int n, out double[] nodes, out double[] weights)
-        {
-            nodes = new double[n];
-            weights = new double[n];
-            for (int i = 0; i < n; i++)
-            {
-                // Aproximación inicial de la i-ésima raíz (Abramowitz & Stegun)
-                double x = Math.Cos(Math.PI * (i + 0.75) / (n + 0.5));
-                double dp = 0;
-                for (int it = 0; it < 100; it++)
-                {
-                    // P_n(x) y su derivada vía recurrencia de Bonnet
-                    double p0 = 1.0, p1 = x;
-                    for (int k = 2; k <= n; k++)
-                    {
-                        double p2 = ((2 * k - 1) * x * p1 - (k - 1) * p0) / k;
-                        p0 = p1; p1 = p2;
-                    }
-                    dp = n * (x * p1 - p0) / (x * x - 1.0);
-                    double dx = p1 / dp;
-                    x -= dx;
-                    if (Math.Abs(dx) < 1e-15) break;
-                }
-                nodes[i] = x;
-                weights[i] = 2.0 / ((1.0 - x * x) * dp * dp);
-            }
         }
 
         // ─── Spline cúbica natural ──────────────────────────────────────────

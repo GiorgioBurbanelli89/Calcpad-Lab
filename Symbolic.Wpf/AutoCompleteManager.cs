@@ -116,7 +116,7 @@ namespace Calcpad.Wpf
                 "lu(A)", "qr(A)", "chol(A)", "pinv(A)", "null(A)", "expm(A)", "cond(A)",
                 "linsolve(A, b)", "mldivide(A, b)", "kron(A, B)",
                 // cálculo / interpolación
-                "integral(@f, a, b)", "gaussint(@f, a, b, N)", "trapz(x, y)", "cumtrapz(x, y)",
+                "integral(@f, a, b)", "integral(@f, a, b, 'ArrayValued', true)", "trapz(x, y)", "cumtrapz(x, y)",
                 "gradient(f)", "diff(v)", "interp1(x, y, xq)", "interp2(X, Y, Z, Xq, Yq)",
                 "polyfit(x, y, n)", "polyval(p, x)", "roots(p)", "conv(a, b)", "spline(x, y, xq)",
                 // resolución no lineal / ODE
