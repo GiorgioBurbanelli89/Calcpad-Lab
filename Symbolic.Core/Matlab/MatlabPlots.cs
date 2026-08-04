@@ -299,6 +299,23 @@ namespace Calcpad.Core.Matlab
         {
             if (string.Equals(colormap, "custom", StringComparison.OrdinalIgnoreCase) && _customColorscaleJson != null)
                 return _customColorscaleJson;
+            // parula/jet no existen en Plotly (mapean a Viridis) → emitir el colorscale
+            // REAL muestreando CmapF, para que el surf salga como MATLAB (parula de verdad).
+            var nm = (colormap ?? "parula").ToLowerInvariant();
+            if (nm == "parula" || nm == "jet" || nm == "jet_r" || nm == "hot" || nm == "cool")
+            {
+                var sb = new StringBuilder("[");
+                for (int q = 0; q <= 10; q++)
+                {
+                    double t = q / 10.0;
+                    var f = CmapF(nm, t);
+                    int r = (int)(f[0] * 255), g = (int)(f[1] * 255), b = (int)(f[2] * 255);
+                    if (q > 0) sb.Append(',');
+                    sb.Append($"[{t.ToString(Inv)},'rgb({r},{g},{b})']");
+                }
+                sb.Append(']');
+                return sb.ToString();
+            }
             return "'" + ColormapToPlotly(colormap) + "'";
         }
 
@@ -2583,7 +2600,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         }
 
         /// <summary>Genera el <div> Plotly para una superficie 3D.</summary>
-        public static string Surf(MValue X, MValue Y, MValue Z, string colormap = "viridis", string title = "surf")
+        public static string Surf(MValue X, MValue Y, MValue Z, string colormap = "parula", string title = "surf")
         {
             ValidateGrid(X, Y, Z);
             int id = ++_plotCounter;
@@ -2591,7 +2608,8 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'surface', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")},\n");
+            sb.Append($"    type: 'surface', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, showscale: true,\n");
+            sb.Append($"    contours: {{ x:{{show:true,color:'rgba(120,120,120,0.35)',width:1}}, y:{{show:true,color:'rgba(120,120,120,0.35)',width:1}} }},\n");
             sb.Append($"    x: {EmitMatrixJs(X)},\n");
             sb.Append($"    y: {EmitMatrixJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
