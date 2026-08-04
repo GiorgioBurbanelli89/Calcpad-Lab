@@ -61,6 +61,10 @@ namespace Calcpad.Wpf
             items.Add(new ListBoxItem() { Content = "if cond", Foreground = Brushes.DarkMagenta });
             items.Add(new ListBoxItem() { Content = "while cond", Foreground = Brushes.DarkMagenta });
             items.Add(new ListBoxItem() { Content = "function out = name(args)", Foreground = Brushes.DarkMagenta });
+            // Item especial: abre la ventana-loop (Σ/∏/∫ → MATLAB). Se intercepta
+            // en EndAutoComplete (empieza con "loop").
+            items.Add(new ListBoxItem() { Content = "loop  ∑ ∏ ∫  (constructor)", Foreground = Brushes.DarkMagenta,
+                                          ToolTip = "Abre la ventana de sumatoria / productoria / integral" });
             // ───────── MATLAB built-in functions ─────────
             // Aparecen bold (mismo estilo que Calcpad functions). El parser
             // las auto-mapea a las equivalentes Calcpad vía MatlabPreprocessor.
@@ -1259,10 +1263,23 @@ namespace Calcpad.Wpf
             _listBox.ScrollIntoView(_listBox.SelectedItem);
         }
 
+        // Callback: al elegir el item "loop…" de la lista, en vez de insertar
+        // texto, abre la ventana-loop (Σ/∏/∫ → MATLAB). Lo setea MainWindow.
+        internal Action LoopTrigger;
+
         private void EndAutoComplete()
         {
             var selectedItem = (ListBoxItem)_listBox.SelectedItem;
             string s = (string)selectedItem.Content;
+            // ── Item especial "loop…": abre la ventana-loop ──
+            if (s != null && s.StartsWith("loop", StringComparison.OrdinalIgnoreCase) && LoopTrigger != null)
+            {
+                try { new TextRange(_autoCompleteStart, _richTextBox.Selection.End).Text = ""; } catch { }
+                _listBox.Visibility = Visibility.Hidden;
+                _richTextBox.Focus();
+                LoopTrigger();
+                return;
+            }
             var items = _listBox.Items;
             var index = items.IndexOf(selectedItem);
             if (index < items.Count - 1)

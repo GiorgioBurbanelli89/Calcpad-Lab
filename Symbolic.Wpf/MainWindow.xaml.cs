@@ -299,6 +299,7 @@ namespace Calcpad.Wpf
             _autoCompleteManager = new(RichTextBox, AutoCompleteListBox, Dispatcher, _insertManager);
             Mark("AutoCompleteManager (AutoList)");
             try { PopulateLoopForms(); UpdateLoopPreview(); } catch { }  // ventana-loop siempre inicializada
+            _autoCompleteManager.LoopTrigger = ShowLoopBuilder;          // item "loop" de la lista abre el panel
             _cfn = string.Empty;
             _isTextChangedEnabled = false;
             IsSaved = true;
