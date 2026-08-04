@@ -2923,9 +2923,26 @@ namespace Calcpad.Wpf
             try { Properties.Settings.Default.Save(); } catch { }
             if (ThemeToggleMenuItem != null)
                 ThemeToggleMenuItem.Header = dark ? "Theme: Dark  →  Gold" : "Theme: Gold  →  Dark";
+            UpdateThemeToggleVisual();
         }
 
         private void ThemeToggle_Click(object sender, RoutedEventArgs e) => SetTheme(!_isDarkTheme);
+
+        // Toggle visible Oscuro | Oro (maqueta)
+        private void ThemeSetDark_Click(object sender, RoutedEventArgs e) => SetTheme(true);
+        private void ThemeSetGold_Click(object sender, RoutedEventArgs e) => SetTheme(false);
+
+        private static readonly Brush _pillActiveBg = FrzBrush(0xE6, 0xC4, 0x63);   // oro
+        private static readonly Brush _pillActiveFg = FrzBrush(0x14, 0x11, 0x09);   // texto oscuro sobre oro
+        /// <summary>Resalta el segmento activo del toggle Oscuro|Oro.</summary>
+        private void UpdateThemeToggleVisual()
+        {
+            if (ThemeDarkBtn == null || ThemeGoldBtn == null) return;
+            ThemeDarkBtn.Background = _isDarkTheme ? _pillActiveBg : System.Windows.Media.Brushes.Transparent;
+            ThemeDarkBtn.Foreground = _isDarkTheme ? _pillActiveFg : (Brush)FindResource("ThemeTextMuted");
+            ThemeGoldBtn.Background = !_isDarkTheme ? _pillActiveBg : System.Windows.Media.Brushes.Transparent;
+            ThemeGoldBtn.Foreground = !_isDarkTheme ? _pillActiveFg : (Brush)FindResource("ThemeTextMuted");
+        }
 
         // Modo texto: mientras está activo, cada Enter arranca una línea `%'` (texto visible).
         private void TextModeToggle_Click(object sender, RoutedEventArgs e)
@@ -4218,6 +4235,7 @@ namespace Calcpad.Wpf
             SwapThemeBrushes(_isDarkTheme);
             if (ThemeToggleMenuItem != null)
                 ThemeToggleMenuItem.Header = _isDarkTheme ? "Theme: Dark  →  Gold" : "Theme: Gold  →  Dark";
+            UpdateThemeToggleVisual();
             if (Top < 0)
                 Top = 0;
 

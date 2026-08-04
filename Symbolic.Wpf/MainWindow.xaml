@@ -840,6 +840,21 @@
                 Foreground="{DynamicResource ThemeText}" Background="{DynamicResource ThemeButtonBg}"
                 BorderBrush="{DynamicResource ThemeButtonBorder}" Content="%'"
                 ToolTip="Insertar texto VISIBLE (%' texto) en el output"/>
+        <!-- ═══ Toggle de tema visible: Oscuro | Oro (maqueta) ═══ -->
+        <Border Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="470,25,0,0"
+                Height="24" CornerRadius="12" Padding="2,0" BorderThickness="1"
+                Background="{DynamicResource ThemeButtonBg}" BorderBrush="{DynamicResource ThemeAccentGold}">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="ThemeDarkBtn" Click="ThemeSetDark_Click" Content="🌙 Oscuro"
+                        FontSize="11.5" Padding="9,0" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource ThemeText}" Background="Transparent"
+                        ToolTip="Tema oscuro"/>
+                <Button x:Name="ThemeGoldBtn" Click="ThemeSetGold_Click" Content="Oro"
+                        FontSize="11.5" Padding="9,0" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource ThemeTextMuted}" Background="Transparent"
+                        ToolTip="Tema oro (parchment)"/>
+            </StackPanel>
+        </Border>
         <Separator Grid.Row="0" HorizontalAlignment="Left" Height="2" Margin="85,35,0,0" 
                    VerticalAlignment="Top" Width="24" IsTabStop="False" 
                    ScrollViewer.VerticalScrollBarVisibility="Disabled" RenderTransformOrigin="0.5,0.5" Background="#AAA0A0A0">
