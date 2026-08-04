@@ -698,11 +698,11 @@
                 ToolTip="{x:Static wpf:MainWindowResources.ShowHelp}">
             <Image Source="Resources/help.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
         </Button>
-        <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,146,0" Height="16" 
+        <TextBlock Grid.Row="0" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,146,0" Height="16"
             VerticalAlignment="Top"  HorizontalAlignment="Right" Width="110" Foreground="{DynamicResource ThemeText}"
             Text="{x:Static wpf:MainWindowResources.MaxOutputCount}" />
-        <TextBox x:Name="MaxOutputCountTextBox" 
-            Text="20" 
+        <TextBox x:Name="MaxOutputCountTextBox" Visibility="Collapsed"
+            Text="20"
             TextAlignment="Right"
             UndoLimit="0" 
             Height="20" Width="46" 
@@ -831,31 +831,31 @@
                 <RotateTransform Angle="90"/>
             </Separator.RenderTransform>
         </Separator>
-        <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="11.5" Margin="473,6,0,0" TextAlignment="Left" 
+        <TextBlock Grid.Row="0" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11.5" Margin="473,6,0,0" TextAlignment="Left"
                    Height="16" VerticalAlignment="Top" HorizontalAlignment="Left" Width="42" Foreground="{DynamicResource ThemeText}"
                    Text="{x:Static wpf:MainWindowResources.Angles}"/>
-        <RadioButton Grid.Row="0" Checked="AngleRadioButton_Checked" x:Name="Deg" Content="D" GroupName="Angle" TabIndex="3"
+        <RadioButton Grid.Row="0" Visibility="Collapsed" Checked="AngleRadioButton_Checked" x:Name="Deg" Content="D" GroupName="Angle" TabIndex="3"
                      IsChecked="True" Margin="472,27,0,0"
                      Height="20" Width="24" HorizontalAlignment="Left" VerticalAlignment="Top" 
                      FontSize="14"
                      Style="{StaticResource Toggle}"
                      ToolTip="{x:Static wpf:MainWindowResources.Degrees}"/>
-        <RadioButton Grid.Row="0" Checked="AngleRadioButton_Checked" x:Name="Rad" Content="R" GroupName="Angle" TabIndex="4"
+        <RadioButton Grid.Row="0" Visibility="Collapsed" Checked="AngleRadioButton_Checked" x:Name="Rad" Content="R" GroupName="Angle" TabIndex="4"
                      Height="20" Width="24" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="500,27,0,0"
                      FontSize="14"
                      Style="{StaticResource Toggle}"
                      ToolTip="{x:Static wpf:MainWindowResources.Radians}"/>
-        <RadioButton Grid.Row="0" Checked="AngleRadioButton_Checked" x:Name="Gra" Content="G" GroupName="Angle" TabIndex="5"
+        <RadioButton Grid.Row="0" Visibility="Collapsed" Checked="AngleRadioButton_Checked" x:Name="Gra" Content="G" GroupName="Angle" TabIndex="5"
                      Height="20" Width="24" HorizontalAlignment="Left" VerticalAlignment="Top"  Margin="528,27,0,0" 
                      FontSize="14"
                      Style="{StaticResource Toggle}"
                      ToolTip="{x:Static wpf:MainWindowResources.Grades}"/>
-        <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,403,0" Height="16" 
+        <TextBlock Grid.Row="0" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,403,0" Height="16"
                    VerticalAlignment="Top"  HorizontalAlignment="Right"
                    TextAlignment="Center" Width="105" Foreground="{DynamicResource ThemeText}"
                    Text="{x:Static wpf:MainWindowResources.NonMetricUnits}" />
-        <RadioButton Grid.Row="0" Checked="UnitsRadioButton_Checked" x:Name="UK" Content="UK" 
-                     GroupName="Units" TabIndex="7" IsChecked="True" Margin="0,27,458,0" 
+        <RadioButton Grid.Row="0" Visibility="Collapsed" Checked="UnitsRadioButton_Checked" x:Name="UK" Content="UK"
+                     GroupName="Units" TabIndex="7" IsChecked="True" Margin="0,27,458,0"
                      Width="30" Height="20" HorizontalAlignment="Right" VerticalAlignment="Top" 
                      FontSize="14"
                      Style="{StaticResource Toggle}">
@@ -866,15 +866,15 @@
                 <SolidColorBrush Color="#FFDDDDDD" Opacity="0.5"/>
             </RadioButton.Background>
         </RadioButton>
-        <RadioButton Grid.Row="0" Checked="UnitsRadioButton_Checked" x:Name="US" Content="US" 
-                     GroupName="Units" TabIndex="8" Margin="0,27,423,0" 
+        <RadioButton Grid.Row="0" Visibility="Collapsed" Checked="UnitsRadioButton_Checked" x:Name="US" Content="US"
+                     GroupName="Units" TabIndex="8" Margin="0,27,423,0"
                      Width="30" Height="20" HorizontalAlignment="Right" VerticalAlignment="Top" 
                      FontSize="14"
                      Style="{StaticResource Toggle}"/>
-        <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,288,0" Height="16" Width="110"
-                   VerticalAlignment="Top" Text="{x:Static wpf:MainWindowResources.EquationFormat}" 
+        <TextBlock Grid.Row="0" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,288,0" Height="16" Width="110"
+                   VerticalAlignment="Top" Text="{x:Static wpf:MainWindowResources.EquationFormat}"
                    HorizontalAlignment="Right" Foreground="{DynamicResource ThemeText}" TextAlignment="Right" />
-        <WrapPanel Grid.Row="0" Margin="0,27,277,0" HorizontalAlignment="Right" VerticalAlignment="Top" Height="20">
+        <WrapPanel Grid.Row="0" Visibility="Collapsed" Margin="0,27,277,0" HorizontalAlignment="Right" VerticalAlignment="Top" Height="20">
             <RadioButton Checked="EquationRadioButton_Checked" x:Name="Professional" 
                          GroupName="EquationFormatting" TabIndex="9" IsChecked="True" 
                          HorizontalAlignment="Right" Margin="0,0,2,0"
@@ -885,12 +885,12 @@
                          Style="{StaticResource Toggle}"
                          Content="{x:Static wpf:MainWindowResources.Inline}"/>
         </WrapPanel>
-        <TextBlock Grid.Row="0" Height="16" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Top" 
+        <TextBlock Grid.Row="0" Visibility="Collapsed" Height="16" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Top"
                    Margin="330,7,0,0"
-                   RenderTransformOrigin="0.291,0.394" HorizontalAlignment="Left" Width="50" 
+                   RenderTransformOrigin="0.291,0.394" HorizontalAlignment="Left" Width="50"
                    TextDecorations="{x:Null}" Foreground="{DynamicResource ThemeText}"
                    Text="{x:Static wpf:MainWindowResources.Numbers}" />
-        <WrapPanel Grid.Row="0" Margin="329,27,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Height="20">
+        <WrapPanel Grid.Row="0" Visibility="Collapsed" Margin="329,27,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Height="20">
             <RadioButton Checked="ModeRadioButton_Checked" x:Name="Real" GroupName="Mode"
                          TabIndex="1" IsChecked="True"  Height="20" Margin="0,0,2,0" 
                          Style="{StaticResource Toggle}"
@@ -1730,7 +1730,7 @@
                 </CheckBox>
             </Border>
         </Grid>
-        <TextBlock Grid.Row="0" TextWrapping="Wrap" FontSize="12.5" Margin="0,28,155,0" Height="16" 
+        <TextBlock Grid.Row="0" Visibility="Collapsed" TextWrapping="Wrap" FontSize="12.5" Margin="0,28,155,0" Height="16"
             VerticalAlignment="Top"  HorizontalAlignment="Right" Width="50"
             Text="(5-100)" />
     </Grid>
