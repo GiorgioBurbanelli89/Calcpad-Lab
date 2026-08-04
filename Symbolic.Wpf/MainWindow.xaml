@@ -34,6 +34,63 @@
         <!-- Brushes de SISTEMA del menú (WPF/Aero los usa hardcodeados): barra + desplegables oscuros -->
         <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#E8E2D4"/>
         <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#1C1810"/>
+        <!-- ═══ Plantilla OSCURA del MenuItem: los desplegables ya no salen blancos ═══
+             (Aero hardcodea el fondo del popup; hay que retemplar el MenuItem.) -->
+        <Style TargetType="{x:Type MenuItem}">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="MenuIcon"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter x:Name="Icon" Grid.Column="0" ContentSource="Icon"
+                                                  VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center" Margin="8,4,8,4"/>
+                                <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}"
+                                           Foreground="{DynamicResource ThemeTextMuted}" Margin="20,4,8,4" VerticalAlignment="Center"/>
+                                <Path x:Name="Arrow" Grid.Column="3" Data="M0,0 L4,4 L0,8 Z"
+                                      Fill="{DynamicResource ThemeText}" VerticalAlignment="Center"
+                                      Margin="4,0,8,0" Visibility="Collapsed"/>
+                                <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
+                                       IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                                       Placement="Bottom" PopupAnimation="None">
+                                    <Border Background="{DynamicResource ThemePanelBg}"
+                                            BorderBrush="{DynamicResource ThemeButtonBorder}" BorderThickness="1" Padding="2">
+                                        <Grid IsSharedSizeScope="True">
+                                            <StackPanel IsItemsHost="True"
+                                                        KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                        </Grid>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Role" Value="SubmenuHeader">
+                                <Setter TargetName="Arrow" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="TopLevelHeader">
+                                <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom"/>
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHoverBg}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeTextMuted}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- Chrome text claro sobre oscuro (el editor usa Runs con color propio, no le afecta) -->
         <Style TargetType="{x:Type Label}">
             <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
@@ -840,8 +897,8 @@
                 Foreground="{DynamicResource ThemeText}" Background="{DynamicResource ThemeButtonBg}"
                 BorderBrush="{DynamicResource ThemeButtonBorder}" Content="%'"
                 ToolTip="Insertar texto VISIBLE (%' texto) en el output"/>
-        <!-- ═══ Toggle de tema visible: Oscuro | Oro (maqueta) ═══ -->
-        <Border Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="470,25,0,0"
+        <!-- ═══ Toggle de tema visible: Oscuro | Oro (maqueta) — a la derecha, sin chocar ═══ -->
+        <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,25,180,0"
                 Height="24" CornerRadius="12" Padding="2,0" BorderThickness="1"
                 Background="{DynamicResource ThemeButtonBg}" BorderBrush="{DynamicResource ThemeAccentGold}">
             <StackPanel Orientation="Horizontal">
