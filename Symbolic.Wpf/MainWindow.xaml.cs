@@ -2830,6 +2830,17 @@ namespace Calcpad.Wpf
         }
 
         private bool _isDarkTheme = true;   // tema activo (Dark por defecto; Gold = claro cálido)
+        // Color de texto por defecto del editor SEGÚN el tema. Reemplaza a
+        // Brushes.Black hardcodeado (que en dark dejaba la letra negra/invisible).
+        private static readonly Brush _editorTextDark  = FrzBrush(0xE8, 0xE2, 0xD4);  // off-white (ThemeText dark)
+        private static readonly Brush _editorTextLight = FrzBrush(0x2B, 0x24, 0x16);  // marrón oscuro (ThemeText gold)
+        private Brush EditorDefaultBrush => _isDarkTheme ? _editorTextDark : _editorTextLight;
+        private static Brush FrzBrush(byte r, byte g, byte b)
+        {
+            var br = new SolidColorBrush(Color.FromRgb(r, g, b));
+            br.Freeze();
+            return br;
+        }
         private bool _textMode;             // Modo texto: cada línea nueva arranca con %' (texto visible)
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
@@ -2936,7 +2947,7 @@ namespace Calcpad.Wpf
             try
             {
                 p.Inlines.Clear();
-                p.Inlines.Add(new Run(outText));
+                p.Inlines.Add(new Run(outText) { Foreground = EditorDefaultBrush });
                 HighLighter.Clear(p);
                 _highlighter.Parse(p, IsComplex, GetLineNumber(p), false);
             }
@@ -3327,7 +3338,7 @@ namespace Calcpad.Wpf
                 RichTextBox.BeginChange();
                 var tr = new TextRange(p.ContentStart, p.ContentEnd);
                 tr.ApplyPropertyValue(TextElement.FontWeightProperty, FontWeights.Normal);
-                tr.ApplyPropertyValue(TextElement.ForegroundProperty, Brushes.Black);
+                tr.ApplyPropertyValue(TextElement.ForegroundProperty, EditorDefaultBrush);
                 tr = new TextRange(p.ContentStart, tpe);
                 var len = tr.Text.Length;
                 HighLighter.HighlightBrackets(p, len);
@@ -3598,7 +3609,7 @@ namespace Calcpad.Wpf
                 {
                     // Reescribe la notación $Op{} de la línea que dejamos → MATLAB.
                     ScheduleTranspileOnEnter(RichTextBox.Selection.Start.Paragraph);
-                    RichTextBox.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, Brushes.Black);
+                    RichTextBox.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, EditorDefaultBrush);
                 }
             }
             else if (e.Key == Key.Back)
