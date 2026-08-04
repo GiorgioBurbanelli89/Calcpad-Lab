@@ -3047,7 +3047,9 @@ namespace Calcpad.Wpf
             finally { RichTextBox.EndChange(); }
         }
 
-        /// <summary>Detecta ".loop" recién escrito, lo borra y abre la ventana-loop.</summary>
+        /// <summary>Detecta la palabra "loop" (o ".loop") recién escrita, la borra
+        /// y abre la ventana-loop. Exige frontera de palabra antes de "loop" para no
+        /// dispararse dentro de identificadores (p.ej. "myloop").</summary>
         private void CheckLoopTrigger()
         {
             try
@@ -3056,8 +3058,17 @@ namespace Calcpad.Wpf
                 var p = tp.Paragraph;
                 if (p is null) return;
                 var before = new TextRange(p.ContentStart, tp).Text;
-                if (!before.EndsWith(".loop", StringComparison.OrdinalIgnoreCase)) return;
-                var start = tp.GetPositionAtOffset(-5);
+                string tok = null;
+                if (before.EndsWith(".loop", StringComparison.OrdinalIgnoreCase))
+                    tok = ".loop";
+                else if (before.EndsWith("loop", StringComparison.OrdinalIgnoreCase))
+                {
+                    int idx = before.Length - 4;          // inicio de "loop"
+                    char prev = idx > 0 ? before[idx - 1] : '\0';
+                    if (!char.IsLetterOrDigit(prev) && prev != '_') tok = "loop";
+                }
+                if (tok == null) return;
+                var start = tp.GetPositionAtOffset(-tok.Length);
                 if (start != null)
                 {
                     RichTextBox.BeginChange();
