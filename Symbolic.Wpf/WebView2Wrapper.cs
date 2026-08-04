@@ -311,9 +311,9 @@ EndFragment:0000000004";
             settings.ColorMode = CoreWebView2PrintColorMode.Color;
             settings.Duplex = CoreWebView2PrintDuplex.OneSided;
             settings.MediaSize = CoreWebView2PrintMediaSize.Default;
-            settings.HeaderTitle = "Created with Calcpad Lab";
+            settings.HeaderTitle = "Created with Hekatan Lab";
             settings.FooterUri = "";
-            settings.PrinterName = "Calcpad Lab";
+            settings.PrinterName = "Hekatan Lab";
             return settings;
         }
     }
