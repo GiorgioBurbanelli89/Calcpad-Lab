@@ -105,6 +105,13 @@ namespace Calcpad.Core.Matlab
         internal static string PlotBg   => DarkTheme ? "#1a1712" : "#ffffff";
         internal static string PlotFg   => DarkTheme ? "#e8e2d4" : "#222222";
         internal static string PlotGrid => DarkTheme ? "#3a3226" : "#e0e0e0";
+        // Fragmentos de layout Plotly tematizados (reutilizados por todos los emisores).
+        private static string Ax3(string t) => $"{{title:{{text:'{t}'}}, color:'{PlotFg}', gridcolor:'{PlotGrid}', backgroundcolor:'{PlotBg}', showbackground:true}}";
+        /// <summary>Bloque paper+font+scene 3D tematizado (dark: oscuro; gold/claro: blanco).</summary>
+        internal static string Scene3DJs(string xt = "X", string yt = "Y", string zt = "Z") =>
+            $"paper_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}, scene:{{bgcolor:'{PlotBg}', xaxis:{Ax3(xt)}, yaxis:{Ax3(yt)}, zaxis:{Ax3(zt)}}}";
+        /// <summary>Bloque paper+plot bg+font 2D tematizado.</summary>
+        internal static string Paper2DJs() => $"paper_bgcolor:'{PlotBg}', plot_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}";
         private static bool _figShowLegend = false;
         private static string _figLegendLoc = null;
         /// <summary>Nombres de legend('a','b','c') — se aplican a las trazas en orden al cerrar la
@@ -432,7 +439,13 @@ namespace Calcpad.Core.Matlab
             if (y1 - y0 < 1e-9) { y0 -= 0.5; y1 += 0.5; }
             if (z1 - z0 < 1e-9) { z0 -= 0.5; z1 += 0.5; }
             var sb = new StringBuilder();
-            sb.Append(Lab3dRenderer);
+            // Tema oscuro: WebGL limpia en oscuro y los ticks (HTML) van claros.
+            if (DarkTheme)
+                sb.Append(Lab3dRenderer
+                    .Replace("gl.clearColor(1.0,1.0,1.0,1.0)", "gl.clearColor(0.102,0.090,0.071,1.0)")
+                    .Replace("color:#333;pointer-events:none", "color:#e8e2d4;pointer-events:none"));
+            else
+                sb.Append(Lab3dRenderer);
             // Ejes rotulados y colorbar como capa HTML junto al canvas: dentro de un
             // canvas WebGL no se puede dibujar texto 2D, y MATLAB si los muestra.
             // si el script puso xlabel/ylabel/zlabel se usa esa etiqueta; si no, la letra
@@ -467,9 +480,9 @@ namespace Calcpad.Core.Matlab
             sb.Append($"<div class=\"matlab-plot\" style=\"width:{contW}px;display:inline-block;vertical-align:top\">");
             if (!string.IsNullOrEmpty(_figTitle))   // MATLAB muestra el title() sobre la figura
                 sb.Append($"<div style=\"font:bold 13px sans-serif;text-align:center;width:{cw}px;margin-bottom:4px\">{EscapeXml(_figTitle)}</div>");
-            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:{cw}px;height:{ch}px;border:1px solid #333;background:#ffffff;cursor:grab;display:inline-block\"></canvas>");
+            sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:{cw}px;height:{ch}px;border:1px solid {PlotGrid};background:{PlotBg};cursor:grab;display:inline-block\"></canvas>");
             sb.Append(cbar);
-            sb.Append($"<div style=\"font:11px sans-serif;color:#333;margin-top:4px\">{ejes}</div>");
+            sb.Append($"<div style=\"font:11px sans-serif;color:{PlotFg};margin-top:4px\">{ejes}</div>");
             sb.Append("</div>\n");
             sb.Append("<script>(function(){LAB3D.make(document.getElementById('lab3d_").Append(id).Append("'),[");
             sb.Append(FloatCsv(_cvOpaque)).Append("],[").Append(FloatCsv(_cvAlpha)).Append("],[").Append(FloatCsv(_cvLines)).Append("],[");
@@ -698,10 +711,12 @@ return {make:make};
             if (_figShowLegend) sb.Append($", showlegend:true, legend:{LegendPosJson(_figLegendLoc)}");
             if (_figIs3D)
             {
-                sb.Append(", scene: { ");
-                sb.Append($"xaxis:{{title:'{EscapeJs(_figXLabel ?? "x")}'}},");
-                sb.Append($"yaxis:{{title:'{EscapeJs(_figYLabel ?? "y")}'}},");
-                sb.Append($"zaxis:{{title:'{EscapeJs(_figZLabel ?? "z")}'}}");
+                // Escena 3D tematizada: en dark el cubo/ejes/fondo van oscuros (no blanco).
+                string axExtra = $"color:'{PlotFg}', gridcolor:'{PlotGrid}', backgroundcolor:'{PlotBg}', showbackground:true";
+                sb.Append($", scene: {{ bgcolor:'{PlotBg}', ");
+                sb.Append($"xaxis:{{title:{{text:'{EscapeJs(_figXLabel ?? "x")}'}}, {axExtra}}},");
+                sb.Append($"yaxis:{{title:{{text:'{EscapeJs(_figYLabel ?? "y")}'}}, {axExtra}}},");
+                sb.Append($"zaxis:{{title:{{text:'{EscapeJs(_figZLabel ?? "z")}'}}, {axExtra}}}");
                 sb.Append(" }");
             }
             else
@@ -2581,7 +2596,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             sb.Append($"    y: {EmitMatrixJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
             sb.Append($"  }}];\n");
-            sb.Append($"  var layout = {{ title: '{title}', margin: {{l:40,r:40,t:40,b:40}}, scene: {{xaxis:{{title:'X'}}, yaxis:{{title:'Y'}}, zaxis:{{title:'Z'}}}} }};\n");
+            sb.Append($"  var layout = {{ title:{{text:'{title}'}}, margin: {{l:40,r:40,t:40,b:40}}, {Scene3DJs()} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
             return sb.ToString();
@@ -2794,7 +2809,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{ type: 'scatter3d', mode: 'lines',\n");
             sb.Append($"    x: {EmitVecJs(X)}, y: {EmitVecJs(Y)}, z: {EmitVecJs(Z)} }}];\n");
-            sb.Append($"  var layout = {{ title: 'plot3', margin:{{l:0,r:0,t:40,b:0}} }};\n");
+            sb.Append($"  var layout = {{ title:{{text:'plot3'}}, margin:{{l:0,r:0,t:40,b:0}}, {Scene3DJs()} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
             return sb.ToString();
