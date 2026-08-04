@@ -283,8 +283,36 @@ s2 = sum(arrayfun(@(k) (k^2), 1:10))</pre></a>
             <tr><td>botón <b>%&#822;</b></td><td>Descomenta la selección</td></tr>
             <tr><td><code>%' texto</code></td><td>Texto <b>visible</b> en el output (botón <b>%'</b>)</td></tr>
             <tr><td><code>%% Título</code></td><td>Encabezado de sección visible</td></tr>
-            <tr><td><code>% #md … % #endmd</code></td><td>Bloque Markdown</td></tr>
+            <tr><td><code>%{ … %}</code></td><td>Bloque de comentario oculto</td></tr>
+            <tr><td><code>...</code></td><td>Continuación de línea</td></tr>
         </table>
+
+        <div class="cat">Extras de Hekatan Lab (dentro de <code>%</code> — renderizan en el output):</div>
+        <a class="ins" href="#0" data-text="%' texto visible">%' texto</a>
+        <a class="ins" href="#0" data-text="%% Encabezado">%% título</a>
+        <a class="ins" href="#0" data-text="% #noc a = b^2 + c^2">% #noc fórmula</a>
+        <a class="ins" href="#0" data-text="% #md&#10;% ## Título&#10;% - viñeta **negrita**&#10;% | a | b |&#10;% |---|---|&#10;% | 1 | 2 |&#10;% #endmd">% #md … #endmd</a>
+        <a class="ins" href="#0" data-text="% #plain">% #plain</a>
+        <a class="ins" href="#0" data-text="% #render">% #render</a>
+        <a class="ins" href="#0" data-text="%{&#10;&#10;%}">%{ … %} oculto</a>
+
+        <div class="cat">Notación Calcpad que renderiza como gráfica/matemática (dentro de <code>%</code>):</div>
+        <a class="ins" href="#0" data-text="% $Plot{sin(x) @ x = 0 : 6.283}">% $Plot gráfica</a>
+        <a class="ins" href="#0" data-text="% $Map{sin(x)*cos(y) @ x = 0 : 6.28 & y = 0 : 6.28}">% $Map mapa</a>
+        <a class="ins" href="#0" data-text="% $Chart{x; y @ type=line : title=Título}">% $Chart</a>
+        <a class="ins" href="#0" data-text="% $Sum{k @ k = 1 : 10}">% $Sum ∑</a>
+        <a class="ins" href="#0" data-text="% $Area{x^2 @ x = 0 : 1}">% $Area ∫</a>
+        <p class="note">Estas <code>$</code> escritas <b>sin</b> <code>%</code> (como código) se transpilan a MATLAB automáticamente; escritas <b>con</b> <code>%</code> se renderizan como figura/fórmula en el output.</p>
+
+        <div class="exwrap"><span class="exlabel">Ejemplo — reporte con texto, fórmula y gráfica:</span>
+            <a class="ex" href="#0" data-text="%% Viga simplemente apoyada&#10;%' Momento máximo:&#10;% #noc M_max = q*L^2/8&#10;q = 5; L = 6;&#10;M = q*L^2/8&#10;% $Plot{q*x*(L-x)/2 @ x = 0 : 6}"><pre>%% Viga simplemente apoyada
+%' Momento máximo:
+% #noc M_max = q*L^2/8
+q = 5; L = 6;
+M = q*L^2/8
+% $Plot{q*x*(L-x)/2 @ x = 0 : 6}</pre></a>
+        </div>
+
         <p class="note"><b>Temas:</b> menú Output → Theme (Oscuro / Oro). PDF y Word siempre en hoja blanca.</p>
     </div>
 
