@@ -2990,8 +2990,19 @@ namespace Calcpad.Wpf
             var op = CurrentLoopOp();
             LbSymbol.Text = Calcpad.Core.LoopBuilder.Symbol(op);
             bool isInt = op == Calcpad.Core.LoopBuilder.Op.Integral;
-            if (isInt) { if (LbVar.Text == "k") LbVar.Text = "x"; if (LbFrom.Text == "1") LbFrom.Text = "0"; }
-            else       { if (LbVar.Text == "x") LbVar.Text = "k"; if (LbFrom.Text == "0") LbFrom.Text = "1"; }
+            if (isInt)
+            {
+                if (LbVar.Text == "k") LbVar.Text = "x";
+                if (LbFrom.Text == "1") LbFrom.Text = "0";
+                // La expresión por defecto de suma ("k") no existe en ∫ sobre x → usar x^2.
+                if (LbExpr.Text == "k" || LbExpr.Text.Trim().Length == 0) LbExpr.Text = "x^2";
+            }
+            else
+            {
+                if (LbVar.Text == "x") LbVar.Text = "k";
+                if (LbFrom.Text == "0") LbFrom.Text = "1";
+                if (LbExpr.Text == "x^2" || LbExpr.Text.Trim().Length == 0) LbExpr.Text = "k";
+            }
             if (sender != null) PopulateLoopForms();  // en init lo llama ShowLoopBuilder
             UpdateLoopPreview();
         }

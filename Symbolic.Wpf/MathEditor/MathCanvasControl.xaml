@@ -28,6 +28,30 @@
                            Foreground="#666" Margin="2,0,2,0"/>
                 <Button Content="+" Width="22" Height="22" FontSize="12" Click="ZoomIn_Click"
                         ToolTip="Zoom In" Focusable="False"/>
+                <!-- ═══ Paleta de botones: inserta notación matemática ═══ -->
+                <Border Width="1" Background="#CCC" Margin="8,2,8,2"/>
+                <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <WrapPanel.Resources>
+                        <Style TargetType="Button">
+                            <Setter Property="MinWidth" Value="30"/>
+                            <Setter Property="Height" Value="26"/>
+                            <Setter Property="Margin" Value="1,0"/>
+                            <Setter Property="FontSize" Value="15"/>
+                            <Setter Property="FontFamily" Value="Cambria Math, Cambria"/>
+                            <Setter Property="Focusable" Value="False"/>
+                        </Style>
+                    </WrapPanel.Resources>
+                    <Button Content="∫"  Click="PaletteButton_Click" Tag="$Integral{■ @ x = 0 : 1}" ToolTip="Integral simple"/>
+                    <Button Content="∬"  Click="PaletteButton_Click" Tag="$Integral{$Integral{■ @ x = -1 : 1} @ y = -1 : 1}" ToolTip="Integral doble"/>
+                    <Button Content="∭"  Click="PaletteButton_Click" Tag="$Integral{$Integral{$Integral{■ @ x = -1 : 1} @ y = -1 : 1} @ z = -1 : 1}" ToolTip="Integral triple"/>
+                    <Button Content="∑"  Click="PaletteButton_Click" Tag="$Sum{■ @ k = 1 : n}" ToolTip="Sumatoria"/>
+                    <Button Content="∏"  Click="PaletteButton_Click" Tag="$Product{■ @ k = 1 : n}" ToolTip="Productoria"/>
+                    <Button Content="a/b" Click="PaletteButton_Click" FontSize="12" Tag="(■)/(b)" ToolTip="Fracción"/>
+                    <Button Content="√"  Click="PaletteButton_Click" Tag="sqrt(■)" ToolTip="Raíz cuadrada"/>
+                    <Button Content="xⁿ" Click="PaletteButton_Click" FontSize="12" Tag="■^n" ToolTip="Potencia"/>
+                    <Button Content="d/dx" Click="PaletteButton_Click" FontSize="11" Tag="$Slope{■ @ x = 0}" ToolTip="Derivada"/>
+                    <Button Content="[ ]" Click="PaletteButton_Click" FontSize="12" Tag="[■]" ToolTip="Vector / matriz"/>
+                </WrapPanel>
             </StackPanel>
         </Border>
 

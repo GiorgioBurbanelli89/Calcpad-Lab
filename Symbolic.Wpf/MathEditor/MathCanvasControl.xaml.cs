@@ -157,6 +157,41 @@ namespace Calcpad.Wpf.MathEditor
 
         public string GetText() => string.Join("\r\n", _rawLines);
 
+        /// <summary>Inserta texto en el cursor y re-renderiza como matemática.
+        /// Lo usan los botones de la paleta (∫ ∑ ∏ fracción √ …). El texto es
+        /// notación Calcpad ($Integral, $Sum, /, ^, sqrt) que el parser dibuja
+        /// como matemática — y que el transpilador convierte a MATLAB al insertar
+        /// en el script.</summary>
+        public void InsertAtCursor(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            try
+            {
+                DeleteSelectionIfAny();
+                var line = _rawLines[_currentLineIndex];
+                if (_cursorPosition > line.Length) _cursorPosition = line.Length;
+                _rawLines[_currentLineIndex] = line.Insert(_cursorPosition, text);
+                // Coloca el cursor en el primer marcador '■' si lo hay (placeholder), si no al final.
+                int mark = text.IndexOf('■');
+                _cursorPosition += mark >= 0 ? mark : text.Length;
+                _rawLines[_currentLineIndex] = _rawLines[_currentLineIndex].Replace("■", "");
+                _cursorVisible = true;
+                _htmlDirty = true;
+                _cachedHtmlResult = null;
+                RenderAll();
+                NotifyTextChanged();
+                Focus();
+            }
+            catch (Exception ex) { StatusText.Text = $"Insert error: {ex.Message}"; }
+        }
+
+        // Paleta: cada botón trae en Tag la notación a insertar.
+        private void PaletteButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button b && b.Tag is string t)
+                InsertAtCursor(t);
+        }
+
         // ─── Keyboard Input ───
 
         private void OnTextInput(object sender, TextCompositionEventArgs e)
