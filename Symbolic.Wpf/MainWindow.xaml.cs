@@ -235,7 +235,9 @@ namespace Calcpad.Wpf
             _parser = new();
             Mark("ExpressionParser ctor");
             _highlighter = new();
-            Mark("HighLighter ctor");
+            // Tema oscuro por defecto: recolorea la paleta de sintaxis (claro sobre carbón).
+            HighLighter.ApplyTheme(true);
+            Mark("HighLighter ctor + dark theme");
             ExpressionParser.PipProgressChanged += OnPipProgressChanged;
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(_currentCultureName);
             Mark("Culture set");
@@ -2817,9 +2819,32 @@ namespace Calcpad.Wpf
         }
 
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
+        private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
         private string _gifDir;    // carpeta donde volcar frames PNG si se lanzó con --gif (animaciones headless)
         private int _gifFrames = 48;
         private int _gifIntervalMs = 100;
+
+        // Renderiza la VENTANA COMPLETA (chrome + menús + editor) a PNG. Para revisar el tema
+        // sin abrir la app a mano. El WebView2 (airspace propio) puede salir vacío: da igual,
+        // aquí interesa el cromado. Se dispara con --wshot <png>.
+        private void CaptureWindowToPng(string path)
+        {
+            try
+            {
+                UpdateLayout();
+                int w = (int)System.Math.Ceiling(ActualWidth > 0 ? ActualWidth : Width);
+                int h = (int)System.Math.Ceiling(ActualHeight > 0 ? ActualHeight : Height);
+                if (w <= 0 || h <= 0) return;
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                rtb.Render(this);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                using var fs = System.IO.File.Create(path);
+                enc.Save(fs);
+            }
+            catch { }
+        }
 
         private void TryOpenOnStartup()
         {
@@ -2831,11 +2856,23 @@ namespace Calcpad.Wpf
             // (tras terminar el cálculo) para ensamblar un GIF de animaciones que corren
             // en vivo en el WebView2 (requestAnimationFrame/setInterval).
             _shotPng = null;
+            _wshotPng = null;
             _gifDir = null;
             var fileParts = new System.Collections.Generic.List<string>();
             for (int i = 1; i < argv.Length; i++)
             {
                 if (argv[i] == "--shot" && i + 1 < argv.Length) _shotPng = argv[++i];
+                else if (argv[i] == "--wshot" && i + 1 < argv.Length)
+                {
+                    _wshotPng = argv[++i];
+                    // Capturar la ventana completa (chrome + editor) tras pintar y salir.
+                    Dispatcher.InvokeAsync(async () =>
+                    {
+                        await Task.Delay(1600);
+                        CaptureWindowToPng(_wshotPng);
+                        try { Application.Current.Shutdown(); } catch { }
+                    }, DispatcherPriority.Background);
+                }
                 else if (argv[i] == "--gif" && i + 1 < argv.Length)
                 {
                     _gifDir = argv[++i];

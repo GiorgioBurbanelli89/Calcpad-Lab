@@ -72,12 +72,14 @@ namespace Calcpad.Wpf
         // =====================================================================
         // Colores por token
         // =====================================================================
-        internal static readonly SolidColorBrush KeywordBrush = new(Color.FromRgb(166, 38, 164));
+        internal static SolidColorBrush KeywordBrush = new(Color.FromRgb(166, 38, 164));
         private static readonly SolidColorBrush BracketHilite = new(Color.FromRgb(255, 200, 0));
-        private static readonly SolidColorBrush BackgroundBrush = new(Color.FromArgb(160, 240, 248, 255));
+        internal static SolidColorBrush BackgroundBrush = new(Color.FromArgb(160, 240, 248, 255));
         private static readonly SolidColorBrush HtmlCommentBrush = new(Color.FromRgb(160, 160, 160));
 
-        internal static readonly Brush[] Colors =
+        // Los token-colores NO son readonly de contenido: ApplyTheme() los reescribe para el
+        // tema oscuro (claro-sobre-oscuro) o claro. Se re-resalta el editor tras cambiar.
+        internal static Brush[] Colors =
         [
             Brushes.Gray,              // None
             Brushes.Black,             // Const
@@ -97,6 +99,49 @@ namespace Calcpad.Wpf
             Brushes.DarkGray,          // Format (legacy)
             Brushes.Crimson,           // Error
         ];
+
+        /// <summary>true = tema oscuro activo (colores claros de sintaxis).</summary>
+        internal static bool IsDark { get; private set; }
+
+        private static SolidColorBrush Frz(byte r, byte g, byte b)
+        { var s = new SolidColorBrush(Color.FromRgb(r, g, b)); s.Freeze(); return s; }
+
+        /// <summary>Reescribe la paleta de sintaxis para tema oscuro (claro-sobre-carbón) o claro.
+        /// Tras llamarlo hay que RE-RESALTAR el editor para que los Runs tomen los nuevos brushes.</summary>
+        internal static void ApplyTheme(bool dark)
+        {
+            IsDark = dark;
+            if (dark)
+            {
+                Colors[(int)Types.None]     = Frz(0x8a, 0x83, 0x74);   // muted warm gray
+                Colors[(int)Types.Const]    = Frz(0xe8, 0xe2, 0xd4);   // números → off-white
+                Colors[(int)Types.Units]    = Frz(0x4e, 0xc9, 0xb0);   // teal
+                Colors[(int)Types.Operator] = Frz(0xe6, 0xc4, 0x63);   // oro
+                Colors[(int)Types.Variable] = Frz(0x6d, 0xb3, 0xff);   // azul claro
+                Colors[(int)Types.Function] = Frz(0xdc, 0xdc, 0xaa);   // amarillo suave
+                Colors[(int)Types.Keyword]  = Frz(0xd6, 0x7a, 0xd2);   // magenta claro
+                Colors[(int)Types.Command]  = Frz(0xe0, 0x8a, 0xd0);
+                Colors[(int)Types.Bracket]  = Frz(0xff, 0x9f, 0x6b);   // naranja
+                Colors[(int)Types.Comment]  = Frz(0x6f, 0xb5, 0x6f);   // verde suave
+                Colors[(int)Types.Error]    = Frz(0xff, 0x5c, 0x57);   // rojo brillante
+                BackgroundBrush = new SolidColorBrush(Color.FromArgb(30, 230, 196, 99)); // realce oro tenue
+            }
+            else
+            {
+                Colors[(int)Types.None]     = Brushes.Gray;
+                Colors[(int)Types.Const]    = Brushes.Black;
+                Colors[(int)Types.Units]    = Brushes.DarkCyan;
+                Colors[(int)Types.Operator] = Brushes.Goldenrod;
+                Colors[(int)Types.Variable] = Brushes.Blue;
+                Colors[(int)Types.Function] = Brushes.Black;
+                Colors[(int)Types.Keyword]  = KeywordBrush;
+                Colors[(int)Types.Command]  = Brushes.Magenta;
+                Colors[(int)Types.Bracket]  = Brushes.DeepPink;
+                Colors[(int)Types.Comment]  = Brushes.ForestGreen;
+                Colors[(int)Types.Error]    = Brushes.Crimson;
+                BackgroundBrush = new SolidColorBrush(Color.FromArgb(160, 240, 248, 255));
+            }
+        }
 
         // =====================================================================
         // MATLAB bare keywords (sin '#'). Case-sensitive. Sincronizado con

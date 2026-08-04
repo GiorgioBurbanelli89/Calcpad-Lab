@@ -8,7 +8,7 @@
     Height="800"
     Width="1200"
     WindowStartupLocation="CenterScreen"
-    Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
+    Background="{DynamicResource ThemeWindowBg}"
     Icon="Resources/calcpad.ico"
     HorizontalContentAlignment="Center"
     WindowStyle="ThreeDBorderWindow" 
@@ -19,6 +19,47 @@
     Activated="Window_Activated" 
     ContentRendered="Window_ContentRendered">
     <Window.Resources>
+        <!-- ============ TEMA (Dark por defecto; el toggle reasigna estos brushes) ============ -->
+        <SolidColorBrush x:Key="ThemeWindowBg"    Color="#141109"/>
+        <SolidColorBrush x:Key="ThemePanelBg"     Color="#1c1810"/>
+        <SolidColorBrush x:Key="ThemeEditorBg"    Color="#1a1712"/>
+        <SolidColorBrush x:Key="ThemeText"        Color="#E8E2D4"/>
+        <SolidColorBrush x:Key="ThemeTextMuted"   Color="#A89F8C"/>
+        <SolidColorBrush x:Key="ThemeAccentRed"   Color="#E5382B"/>
+        <SolidColorBrush x:Key="ThemeAccentGold"  Color="#E6C463"/>
+        <SolidColorBrush x:Key="ThemeButtonBg"    Color="#262016"/>
+        <SolidColorBrush x:Key="ThemeButtonBorder" Color="#3A3226"/>
+        <SolidColorBrush x:Key="ThemeGutterBg"    Color="#211D16"/>
+        <SolidColorBrush x:Key="ThemeHoverBg"     Color="#33E5382B"/>
+        <!-- Brushes de SISTEMA del menú (WPF/Aero los usa hardcodeados): barra + desplegables oscuros -->
+        <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#E8E2D4"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#1C1810"/>
+        <!-- Chrome text claro sobre oscuro (el editor usa Runs con color propio, no le afecta) -->
+        <Style TargetType="{x:Type Label}">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+        </Style>
+        <Style TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+        </Style>
+        <!-- Tooltips oscuros para que sigan legibles -->
+        <Style TargetType="{x:Type ToolTip}">
+            <Setter Property="Background" Value="{DynamicResource ThemePanelBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeButtonBorder}"/>
+        </Style>
+        <!-- Etiquetas de sección (Numbers:, Angles:, ...) y demás TextBlocks de chrome.
+             El editor usa Runs con Foreground explícito, así que no le afecta. -->
+        <Style TargetType="{x:Type TextBlock}">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+        </Style>
+        <!-- ComboBox: chrome claro por defecto → forzamos texto OSCURO (el TextBlock global
+             claro lo volvería invisible). Legibles dentro de la UI oscura. -->
+        <Style TargetType="{x:Type ComboBox}">
+            <Setter Property="Foreground" Value="#141109"/>
+        </Style>
+        <Style TargetType="{x:Type ComboBoxItem}">
+            <Setter Property="Foreground" Value="#141109"/>
+        </Style>
         <Style TargetType="{x:Type Button}">
             <Style.Triggers>
                 <Trigger Property="IsEnabled" Value="False">
@@ -63,6 +104,7 @@
             <Setter Property="Height" Value="26"/>
             <Setter Property="FontFamily" Value="Roboto"/>
             <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -74,18 +116,18 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Button}">
                         <Grid x:Name="grid">
-                            <Border x:Name="ButtonBorder" 
-                                    CornerRadius="6" 
-                                    Background="#FFF" 
-                                    BorderBrush="#DDD"
+                            <Border x:Name="ButtonBorder"
+                                    CornerRadius="6"
+                                    Background="{DynamicResource ThemeButtonBg}"
+                                    BorderBrush="{DynamicResource ThemeButtonBorder}"
                                     BorderThickness="1">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="true">
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#C0E5382B"/>
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#26E5382B"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource ThemeAccentRed}"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ThemeHoverBg}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -98,6 +140,7 @@
             <Setter Property="Height" Value="20"/>
             <Setter Property="FontFamily" Value="Roboto"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
             <Setter Property="HorizontalAlignment" Value="Left"/>
             <Setter Property="VerticalAlignment" Value="Top"/>
             <Setter Property="Focusable" Value="false"/>
@@ -106,17 +149,17 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Button}">
                         <Grid x:Name="grid">
-                            <Border x:Name="ButtonBorder" CornerRadius="3" 
-                                    Background="White" 
-                                    BorderBrush="#DDD" 
+                            <Border x:Name="ButtonBorder" CornerRadius="3"
+                                    Background="{DynamicResource ThemeButtonBg}"
+                                    BorderBrush="{DynamicResource ThemeButtonBorder}"
                                     BorderThickness="1">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="true">
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#C0E5382B"/>
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#26E5382B"/>
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource ThemeAccentRed}"/>
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ThemeHoverBg}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -133,6 +176,7 @@
                  letters in GreekLettersWarpPanel showed as boxes / blank. -->
             <Setter Property="FontFamily" Value="Times New Roman"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
             <Setter Property="TextAlignment" Value="Center"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -211,8 +255,9 @@
             <RowDefinition Height="50"/>
             <RowDefinition/>
         </Grid.RowDefinitions>
-        <Menu x:Name="MainMenu" VerticalAlignment="Top" Margin="2,2,2,0" Background="{x:Null}" Height="18">
-            <MenuItem Header="{x:Static wpf:MainWindowResources.File}">
+        <Menu x:Name="MainMenu" VerticalAlignment="Top" Margin="2,2,2,0" Background="{x:Null}" Height="18"
+              Foreground="{DynamicResource ThemeText}">
+            <MenuItem Header="{x:Static wpf:MainWindowResources.File}" Foreground="{DynamicResource ThemeText}">
                 <MenuItem Command="ApplicationCommands.New" 
                           Header="{x:Static wpf:MainWindowResources.New}"/>
                 <MenuItem Command="ApplicationCommands.Open" 
@@ -238,7 +283,7 @@
                 <MenuItem Command="ApplicationCommands.Close"
                           Header="{x:Static wpf:MainWindowResources.Exit}"/>
             </MenuItem>
-            <MenuItem x:Name="MenuEdit" 
+            <MenuItem x:Name="MenuEdit" Foreground="{DynamicResource ThemeText}"
                       Header="{x:Static wpf:MainWindowResources.Edit}">
                 <MenuItem Command="ApplicationCommands.Find" 
                           Header="{x:Static wpf:MainWindowResources.Find}"/>
@@ -267,7 +312,7 @@
                 <MenuItem Command="ApplicationCommands.SelectAll" 
                           Header="{x:Static wpf:MainWindowResources.Select_All}"/>
             </MenuItem>
-            <MenuItem x:Name="MenuInsert"
+            <MenuItem x:Name="MenuInsert" Foreground="{DynamicResource ThemeText}"
                       Header="{x:Static wpf:MainWindowResources.Insert}">
                 <!-- ================= Hekatan Lab: menu Insert con sintaxis MATLAB (no Calcpad) ================= -->
                 <MenuItem Header="Comment / sections">
@@ -531,7 +576,7 @@
                     <MenuItem Click="Button_Click" Tag="close all"     Header="close all"/>
                 </MenuItem>
             </MenuItem>
-            <MenuItem x:Name="MenuOutput" 
+            <MenuItem x:Name="MenuOutput" Foreground="{DynamicResource ThemeText}"
                       Header="{x:Static wpf:MainWindowResources.Output}">
                 <MenuItem x:Name="MenuWebForm" Command="{StaticResource WebFormCommand}" 
                           Header="{x:Static wpf:MainWindowResources.InputForm}" InputGestureText="F4"/>
@@ -550,7 +595,7 @@
                 <MenuItem Click="PdfButton_Click" 
                           Header="{x:Static wpf:MainWindowResources.SaveAsPDF}"/>
             </MenuItem>
-            <MenuItem Command="ApplicationCommands.Help" 
+            <MenuItem Command="ApplicationCommands.Help" Foreground="{DynamicResource ThemeText}"
                       Header="{x:Static wpf:MainWindowResources.Help}"/>
         </Menu>
         <Button Grid.Row="0" x:Name="NewButton" HorizontalAlignment="Left" Height="24" VerticalAlignment="Top" Width="24"
@@ -816,14 +861,10 @@
                          Style="{StaticResource Toggle}"
                          Content="{x:Static wpf:MainWindowResources.Complex}"/>
         </WrapPanel>
-        <StatusBar x:Name="Status" Grid.Row="1" Height="32" BorderThickness="0,1,0,0" Margin="0,0,0,0" 
-                    VerticalAlignment="Bottom" HorizontalContentAlignment="Right" Padding="0,0,0,2">
-            <StatusBar.Background>
-                <LinearGradientBrush EndPoint="0.5,1" MappingMode="RelativeToBoundingBox" StartPoint="0.5,0">
-                    <GradientStop Color="White"/>
-                    <GradientStop Color="#FFE0E0E0" Offset="1"/>
-                </LinearGradientBrush>
-            </StatusBar.Background>
+        <StatusBar x:Name="Status" Grid.Row="1" Height="32" BorderThickness="0,1,0,0" Margin="0,0,0,0"
+                    VerticalAlignment="Bottom" HorizontalContentAlignment="Right" Padding="0,0,0,2"
+                    Background="{DynamicResource ThemePanelBg}" Foreground="{DynamicResource ThemeText}"
+                    BorderBrush="{DynamicResource ThemeButtonBorder}">
             <TextBlock Text="{x:Static wpf:MainWindowResources.Round}"
                        Height="18" 
                        TextWrapping="Wrap" 
@@ -1067,28 +1108,18 @@
                 <ColumnDefinition />
                 <ColumnDefinition Width="120*" />
             </Grid.ColumnDefinitions>
-            <GroupBox x:Name="InputFrame" Header="{x:Static wpf:MainWindowResources.Code}" 
+            <GroupBox x:Name="InputFrame" Header="{x:Static wpf:MainWindowResources.Code}"
                       FontSize="13" FontFamily="Segoe UI Semibold"
-                      Margin="6,1,4,1" MinWidth="580" BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}">
-                <GroupBox.Background>
-                    <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                        <GradientStop Color="White" Offset="0.543"/>
-                        <GradientStop Color="#FFF0F0F0" Offset="1"/>
-                    </LinearGradientBrush>
-                </GroupBox.Background>
+                      Foreground="{DynamicResource ThemeAccentGold}"
+                      Margin="6,1,4,1" MinWidth="580" BorderBrush="{DynamicResource ThemeButtonBorder}"
+                      Background="{DynamicResource ThemePanelBg}">
                 <Grid x:Name="InputGrid" Margin="0,0,0,1">
                     <Grid.RowDefinitions>
                         <RowDefinition/>
                         <RowDefinition Height="142"/>
                     </Grid.RowDefinitions>
-                    <Border BorderThickness="0,0,0,1" Height="36" Margin="-4,-8,-4,0" VerticalAlignment="Top" BorderBrush="#FFE3E3E3">
-                        <Border.Background>
-                            <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                                <GradientStop Color="Transparent"/>
-                                <GradientStop Color="#FFF8F8F8" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Border.Background>
-                    </Border>
+                    <Border BorderThickness="0,0,0,1" Height="36" Margin="-4,-8,-4,0" VerticalAlignment="Top"
+                            BorderBrush="{DynamicResource ThemeButtonBorder}" Background="{DynamicResource ThemePanelBg}"/>
                     <CheckBox  Style="{StaticResource MarkdownCheckBox}" x:Name="MarkdownCheckBox" Content=" M⭣"  VerticalAlignment="Top" Height="20"  ToolTip="Markdown"
                             FontFamily="Roboto" Margin="0,0,5,0" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right" Width="26" Focusable="False" IsTabStop="False" Checked="MarkdownCheckBox_Checked"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="50,0,0,0"
@@ -1272,8 +1303,11 @@
                         Click="Button_Click" Tag="&lt;hr/&gt;‖␣---‖"
                         Content="—" ToolTip="{x:Static wpf:MainWindowResources.DividingLine}" FontSize="14"/>
                     <RichTextBox x:Name="RichTextBox" Margin="55,33,5,24"
-                                 FontFamily="Consolas" FontSize="14" 
-                                 IsDocumentEnabled="true" 
+                                 Background="{DynamicResource ThemeEditorBg}"
+                                 Foreground="{DynamicResource ThemeText}"
+                                 CaretBrush="{DynamicResource ThemeAccentGold}"
+                                 FontFamily="Consolas" FontSize="14"
+                                 IsDocumentEnabled="true"
                                  AcceptsTab="true"
                                  Block.LineHeight="3" 
                                  BorderThickness="0" 
@@ -1306,7 +1340,7 @@
                         </FlowDocument>
                     </RichTextBox>
                     <Canvas Grid.Row="0" x:Name="LineNumbers" HorizontalAlignment="Left" Margin="6,33,0,24" Width="40"/>
-                    <Border Grid.Row="0" BorderThickness="0,0,1,0" HorizontalAlignment="Left" Margin="48,28,0,24" Width="2" BorderBrush="#FFE3E3E3"/>
+                    <Border Grid.Row="0" BorderThickness="0,0,1,0" HorizontalAlignment="Left" Margin="48,28,0,24" Width="2" BorderBrush="{DynamicResource ThemeButtonBorder}"/>
                     <ListBox Grid.Row="0" x:Name="AutoCompleteListBox" 
                              HorizontalAlignment="Left" 
                              VerticalAlignment="Top" 
@@ -1607,10 +1641,11 @@
             </GroupBox>
             <GroupBox x:Name="OutputFrame" Grid.Column="2"
                       FontFamily="Segoe UI Semibold" FontWeight="Bold"  FontSize="13"
-                      VerticalContentAlignment="Stretch" Margin="4,1,6,1" 
-                      BorderBrush="#AACCCCCC" Background="White" 
+                      VerticalContentAlignment="Stretch" Margin="4,1,6,1"
+                      BorderBrush="{DynamicResource ThemeButtonBorder}" Background="{DynamicResource ThemePanelBg}"
+                      Foreground="{DynamicResource ThemeAccentGold}"
                       Header="{x:Static wpf:MainWindowResources.Output}" >
-                <Grid Background="White">
+                <Grid Background="{DynamicResource ThemePanelBg}">
                     <Wpf:WebView2 x:Name="WebViewer" Margin="5,5,5,5" KeyUp="WebViewer_KeyUp" PreviewKeyDown="WebViewer_PreviewKeyDown" NavigationCompleted="WebViewer_NavigationCompleted" WebMessageReceived="WebViewer_WebMessageReceived" />
                     <me:MathCanvasControl x:Name="MathCanvasView" Visibility="Collapsed" Margin="5,5,5,5"/>
                 </Grid>
