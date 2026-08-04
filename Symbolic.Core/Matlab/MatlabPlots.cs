@@ -13,7 +13,7 @@ using SkiaSharp;
 
 namespace Calcpad.Core.Matlab
 {
-    internal static class MatlabPlots
+    public static class MatlabPlots
     {
         private static int _plotCounter = 0;
         /// <summary>ID del último plot emitido (para title/xlabel/etc. post-hoc).</summary>
@@ -97,6 +97,14 @@ namespace Calcpad.Core.Matlab
         private static bool _figIs3D = false;
         private static string _figTitle = "";
         private static string _figXLabel = null, _figYLabel = null, _figZLabel = null;
+
+        /// <summary>Tema oscuro para las gráficas (lo fija la app según Dark/Gold). En dark
+        /// el fondo de la figura, texto y ejes van claros; en print/PDF se ignora (hoja blanca).</summary>
+        public static bool DarkTheme = false;
+        // Colores de tema para las figuras.
+        internal static string PlotBg   => DarkTheme ? "#1a1712" : "#ffffff";
+        internal static string PlotFg   => DarkTheme ? "#e8e2d4" : "#222222";
+        internal static string PlotGrid => DarkTheme ? "#3a3226" : "#e0e0e0";
         private static bool _figShowLegend = false;
         private static string _figLegendLoc = null;
         /// <summary>Nombres de legend('a','b','c') — se aplican a las trazas en orden al cerrar la
@@ -685,6 +693,8 @@ return {make:make};
             }
             sb.Append("  ];\n  var layout = { ");
             sb.Append($"title: '{EscapeJs(_figTitle)}', margin:{{l:50,r:30,t:40,b:50}}");
+            // Tema oscuro: fondo/texto/ejes claros (en dark no puede haber blanco).
+            sb.Append($", paper_bgcolor:'{PlotBg}', plot_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}");
             if (_figShowLegend) sb.Append($", showlegend:true, legend:{LegendPosJson(_figLegendLoc)}");
             if (_figIs3D)
             {
@@ -700,11 +710,13 @@ return {make:make};
                 var xparts = new System.Collections.Generic.List<string>();
                 if (_figXLabel != null) xparts.Add($"title:'{EscapeJs(_figXLabel)}'");
                 if (_figXMin.HasValue) xparts.Add($"range:[{_figXMin.Value.ToString(Inv)}, {_figXMax.Value.ToString(Inv)}]");
+                xparts.Add($"color:'{PlotFg}'"); xparts.Add($"gridcolor:'{PlotGrid}'"); xparts.Add($"zerolinecolor:'{PlotGrid}'");
                 sb.Append(", xaxis:{").Append(string.Join(", ", xparts)).Append("}");
                 // yaxis: igual + aspecto cuadrado (scaleanchor)
                 var yparts = new System.Collections.Generic.List<string>();
                 if (_figYLabel != null) yparts.Add($"title:'{EscapeJs(_figYLabel)}'");
                 if (_figYMin.HasValue) yparts.Add($"range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
+                yparts.Add($"color:'{PlotFg}'"); yparts.Add($"gridcolor:'{PlotGrid}'"); yparts.Add($"zerolinecolor:'{PlotGrid}'");
                 if (_figAxisEqual) { yparts.Add("scaleanchor:'x'"); yparts.Add("scaleratio:1"); }  // solo si axis('equal')
                 sb.Append(", yaxis:{").Append(string.Join(", ", yparts)).Append("}");
             }

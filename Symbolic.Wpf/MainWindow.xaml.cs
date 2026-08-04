@@ -242,6 +242,7 @@ namespace Calcpad.Wpf
             for (int _i = 1; _i < _av.Length; _i++)
                 if (_av[_i] == "--theme" && _i + 1 < _av.Length) _isDarkTheme = _av[_i + 1] != "gold";
             HighLighter.ApplyTheme(_isDarkTheme);
+            Calcpad.Core.Matlab.MatlabPlots.DarkTheme = _isDarkTheme;   // gráficas oscuras en dark desde el arranque
             Mark("HighLighter ctor + theme");
             ExpressionParser.PipProgressChanged += OnPipProgressChanged;
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(_currentCultureName);
@@ -2913,6 +2914,7 @@ namespace Calcpad.Wpf
         private void SetTheme(bool dark)
         {
             _isDarkTheme = dark;
+            Calcpad.Core.Matlab.MatlabPlots.DarkTheme = dark;   // gráficas oscuras en dark
             SwapThemeBrushes(dark);
             HighLighter.ApplyTheme(dark);
             try { ForceHighlight(); } catch { }
