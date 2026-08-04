@@ -109,7 +109,10 @@ namespace Calcpad.Core.Matlab
         private static string Ax3(string t) => $"{{title:{{text:'{t}'}}, color:'{PlotFg}', gridcolor:'{PlotGrid}', backgroundcolor:'{PlotBg}', showbackground:true}}";
         /// <summary>Bloque paper+font+scene 3D tematizado (dark: oscuro; gold/claro: blanco).</summary>
         internal static string Scene3DJs(string xt = "X", string yt = "Y", string zt = "Z") =>
-            $"paper_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}, scene:{{bgcolor:'{PlotBg}', xaxis:{Ax3(xt)}, yaxis:{Ax3(yt)}, zaxis:{Ax3(zt)}}}";
+            // aspectmode:'cube' = estira cada eje para llenar la caja (como MATLAB "stretch-to-fill",
+            // así el surf se ve peaked, no aplanado). camera = vista 3D clásica de MATLAB (az≈-37.5, el≈30).
+            $"paper_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}, scene:{{bgcolor:'{PlotBg}', aspectmode:'cube', " +
+            $"camera:{{eye:{{x:1.5, y:-1.5, z:0.9}}}}, xaxis:{Ax3(xt)}, yaxis:{Ax3(yt)}, zaxis:{Ax3(zt)}}}";
         /// <summary>Bloque paper+plot bg+font 2D tematizado.</summary>
         internal static string Paper2DJs() => $"paper_bgcolor:'{PlotBg}', plot_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}";
         private static bool _figShowLegend = false;
