@@ -866,6 +866,21 @@
             .no-screen {
                 display: none;
             }
+            /* ===== TEMA OSCURO — SOLO PANTALLA. print/PDF y Word se quedan en HOJA BLANCA. ===== */
+            html { background-color: #14110b; }
+            body { background-color: #1a1712 !important; color: #E8E2D4 !important; }
+            h1, h2, h3, h4, h5, h6, .errorHeader, .roundBox { color: #E8E2D4 !important; }
+            .eq var { color: #6DB3FF !important; }              /* variables → azul claro */
+            .eq i, i.unit { color: #4EC9B0 !important; }        /* unidades → teal */
+            .eq sub.idx { color: #D67AD2 !important; }          /* índices A(i,j) → magenta claro */
+            .cond { color: #FF8AE0 !important; }
+            .value { background-color: #232019 !important; }
+            a { color: #6DB3FF; }
+            a:hover { background-color: #2A2616 !important; }
+            table, th, td { border-color: #3A3226 !important; }
+            table.bordered th { background-color: #262016 !important; }
+            /* Glifos ∫ y √ (trazo negro embebido) → claros en pantalla; en print quedan negros */
+            .r0, .r1, .r2, .r3 { filter: invert(1) brightness(1.35); }
         }
 
         @media print {
@@ -874,11 +889,18 @@
                 -moz-transform: scale(0.8);
             }
 
+            /* GUARDRAIL: PDF/impresión SIEMPRE en hoja BLANCA con texto negro, aunque la pantalla
+               esté en oscuro. Fuerza el papel y neutraliza cualquier fuga del tema de pantalla. */
             body {
                 margin: 0;
+                background-color: #ffffff !important;
+                color: #000000 !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
+            h1, h2, h3, h4, h5, h6, .errorHeader, .roundBox { color: #000 !important; }
+            .value { background-color: #f4fbff !important; }
+            .r0, .r1, .r2, .r3 { filter: none !important; }   /* glifos ∫√ negros en papel */
 
             .no-print {
                 display: none;

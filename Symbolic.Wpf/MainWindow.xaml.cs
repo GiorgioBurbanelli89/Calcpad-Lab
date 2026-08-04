@@ -1634,6 +1634,12 @@ namespace Calcpad.Wpf
                 // los 7s fijos, que para FEM pesado capturaba en blanco). +settle para que
                 // el último frame de animación (drawnow) acabe de pintarse en el WebView2.
                 if (_shotPng != null) { await Task.Delay(1200); await CaptureWebViewerAndExit(_shotPng); }
+                else if (_pdfOut != null)
+                {
+                    await Task.Delay(1000);
+                    try { await WebViewer.CoreWebView2.PrintToPdfAsync(_pdfOut, _wv2Warper.CreatePrintSettings()); } catch { }
+                    try { Application.Current.Shutdown(); } catch { }
+                }
                 else if (_gifDir != null) { await Task.Delay(600); await CaptureFramesAndExit(_gifDir); }
                 else TryOpenRequestedFile();   // cd 'ruta\archivo' -> abrir ese archivo
                 return; // skip RENDER_OUTPUT — el WebView2 ya tiene todo
@@ -2820,6 +2826,7 @@ namespace Calcpad.Wpf
 
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
+        private string _pdfOut;    // ruta PDF headless (--pdf) para verificar que el export sale en BLANCO
         private string _gifDir;    // carpeta donde volcar frames PNG si se lanzó con --gif (animaciones headless)
         private int _gifFrames = 48;
         private int _gifIntervalMs = 100;
@@ -2862,6 +2869,7 @@ namespace Calcpad.Wpf
             for (int i = 1; i < argv.Length; i++)
             {
                 if (argv[i] == "--shot" && i + 1 < argv.Length) _shotPng = argv[++i];
+                else if (argv[i] == "--pdf" && i + 1 < argv.Length) _pdfOut = argv[++i];
                 else if (argv[i] == "--wshot" && i + 1 < argv.Length)
                 {
                     _wshotPng = argv[++i];
