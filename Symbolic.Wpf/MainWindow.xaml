@@ -52,9 +52,9 @@
                                 </Grid.ColumnDefinitions>
                                 <ContentPresenter x:Name="Icon" Grid.Column="0" ContentSource="Icon"
                                                   VerticalAlignment="Center" Margin="6,0,0,0"/>
-                                <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
+                                <ContentPresenter x:Name="HeaderHost" Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
                                                   VerticalAlignment="Center" Margin="8,4,8,4"/>
-                                <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}"
+                                <TextBlock x:Name="GestureText" Grid.Column="2" Text="{TemplateBinding InputGestureText}"
                                            Foreground="{DynamicResource ThemeTextMuted}" Margin="20,4,8,4" VerticalAlignment="Center"/>
                                 <Path x:Name="Arrow" Grid.Column="3" Data="M0,0 L4,4 L0,8 Z"
                                       Fill="{DynamicResource ThemeText}" VerticalAlignment="Center"
@@ -77,8 +77,16 @@
                                 <Setter TargetName="Arrow" Property="Visibility" Value="Visible"/>
                                 <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/>
                             </Trigger>
+                            <!-- Items de la BARRA (nivel superior): compactos, sin gesto/flecha,
+                                 para no crecer de alto ni chocar con la toolbar. -->
                             <Trigger Property="Role" Value="TopLevelHeader">
                                 <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom"/>
+                                <Setter TargetName="GestureText" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="HeaderHost" Property="Margin" Value="7,1,7,1"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="TopLevelItem">
+                                <Setter TargetName="GestureText" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="HeaderHost" Property="Margin" Value="7,1,7,1"/>
                             </Trigger>
                             <Trigger Property="IsHighlighted" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHoverBg}"/>
