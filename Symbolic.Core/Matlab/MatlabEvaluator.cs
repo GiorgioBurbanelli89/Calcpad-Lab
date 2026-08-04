@@ -3552,14 +3552,40 @@ namespace Calcpad.Core.Matlab
                 for (int i = 0; i <= n; i++) result.Data[i] = p.At(i, 0);
                 return result;
             };
-            // Integración numérica adaptive
+            // Integración numérica adaptive. Soporta la opción MATLAB
+            // 'ArrayValued', true (integrando vectorial/matricial — R2012a+), que
+            // es a lo que transpila $Area{}. Así el .m corre igual en MATLAB 2017a
+            // (no usa gaussint, que es interno de Hekatan). También auto-detecta:
+            // si el integrando devuelve algo no-escalar, integra element-wise.
             _builtins["integral"] = a => {
                 if (a.Length < 3 || !a[0].IsCallable) throw new MatlabRuntimeException("integral(@f, a, b)");
                 var f = a[0].Callable;
                 double aL = a[1].Scalar, bL = a[2].Scalar;
-                double tol = a.Length >= 4 ? a[3].Scalar : 1e-10;
-                double F(double x) => f(new[] { new MValue(x) }).Scalar;
-                return new MValue(AdaptiveSimpson(F, aL, bL, tol, 20));
+                double tol = 1e-10;
+                bool arrayValued = false;
+                int i = 3;
+                while (i < a.Length)
+                {
+                    if (a[i].IsString)
+                    {
+                        var name = a[i].StringValue.ToLowerInvariant();
+                        double val = (i + 1 < a.Length) ? a[i + 1].Scalar : 0;
+                        if (name == "arrayvalued") arrayValued = val != 0;
+                        else if (name == "reltol" || name == "abstol") tol = Math.Min(tol, val);
+                        i += 2;
+                    }
+                    else { tol = a[i].Scalar; i += 1; } // forma vieja integral(@f,a,b,tol)
+                }
+                var probe = f(new[] { new MValue(aL) });
+                if (!probe.IsScalar) arrayValued = true;
+                if (arrayValued)
+                {
+                    double[] F(double x) => f(new[] { new MValue(x) }).Data;
+                    var data = AdaptiveSimpsonVec(F, aL, bL, tol, 20, probe.Data.Length);
+                    return new MValue(probe.Rows, probe.Cols, data);
+                }
+                double Fs(double x) => f(new[] { new MValue(x) }).Scalar;
+                return new MValue(AdaptiveSimpson(Fs, aL, bL, tol, 20));
             };
             _builtins["quad"] = _builtins["integral"];
             _builtins["quadl"] = _builtins["integral"];
@@ -9287,6 +9313,40 @@ namespace Calcpad.Core.Matlab
                 return Sl + Sr + diff / 15;
             return AdaptiveSimpsonRec(f, a, c, tol / 2, Sl, fa, fc, fd, depth - 1)
                  + AdaptiveSimpsonRec(f, c, b, tol / 2, Sr, fc, fb, fe, depth - 1);
+        }
+
+        // ─── Simpson adaptivo ELEMENT-WISE (integrando vector/matriz) ──────
+        // Igual que AdaptiveSimpson pero acumula un double[] por elemento; el
+        // criterio de parada usa la mayor diferencia entre elementos. Es lo que
+        // usa integral(...,'ArrayValued',true) → sirve para K_e = ∫ Bᵀ*D*B (FEM).
+        private static double[] AdaptiveSimpsonVec(Func<double, double[]> f, double a, double b, double tol, int depth, int n)
+        {
+            var fa = f(a); var fb = f(b); var fc = f((a + b) / 2);
+            var S = new double[n];
+            for (int k = 0; k < n; k++) S[k] = (b - a) / 6 * (fa[k] + 4 * fc[k] + fb[k]);
+            return AdaptiveSimpsonVecRec(f, a, b, tol, S, fa, fb, fc, depth, n);
+        }
+        private static double[] AdaptiveSimpsonVecRec(Func<double, double[]> f, double a, double b, double tol,
+                                                      double[] S, double[] fa, double[] fb, double[] fc, int depth, int n)
+        {
+            double c = (a + b) / 2, d = (a + c) / 2, e = (c + b) / 2;
+            var fd = f(d); var fe = f(e);
+            var Sl = new double[n]; var Sr = new double[n]; var res = new double[n];
+            double maxDiff = 0;
+            for (int k = 0; k < n; k++)
+            {
+                Sl[k] = (c - a) / 6 * (fa[k] + 4 * fd[k] + fc[k]);
+                Sr[k] = (b - c) / 6 * (fc[k] + 4 * fe[k] + fb[k]);
+                double diff = Sl[k] + Sr[k] - S[k];
+                res[k] = Sl[k] + Sr[k] + diff / 15;
+                double ad = Math.Abs(diff);
+                if (ad > maxDiff) maxDiff = ad;
+            }
+            if (depth <= 0 || maxDiff < 15 * tol) return res;
+            var L = AdaptiveSimpsonVecRec(f, a, c, tol / 2, Sl, fa, fc, fd, depth - 1, n);
+            var R = AdaptiveSimpsonVecRec(f, c, b, tol / 2, Sr, fc, fb, fe, depth - 1, n);
+            for (int k = 0; k < n; k++) L[k] += R[k];
+            return L;
         }
 
         // ─── Nodos y pesos de Gauss-Legendre en [-1, 1] ────────────────────

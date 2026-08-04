@@ -13,10 +13,11 @@ namespace Calcpad.Core
     ///
     /// Ejemplo clave (rigidez FEM, integral doble de una MATRIZ):
     ///   K_e = $Area{$Area{Bᵀ*D*B*t @ ξ = -1 : 1} @ η = -1 : 1}
-    /// →  K_e = gaussint(@(η) (gaussint(@(ξ) (Bᵀ*D*B*t), -1, 1)), -1, 1)
+    /// →  K_e = integral(@(η) (integral(@(ξ) (Bᵀ*D*B*t), -1, 1, 'ArrayValued', true)), -1, 1, 'ArrayValued', true)
     ///
-    /// $Area/$Integral usan <c>gaussint</c> (cuadratura de Gauss-Legendre), que a
-    /// diferencia de integral() es SEGURA CON MATRICES.
+    /// $Area/$Integral emiten <c>integral(...,'ArrayValued',true)</c>, que es
+    /// MATLAB PORTABLE (corre igual en MATLAB 2017a, soporta integrandos
+    /// matriciales) — NO gaussint, que es un builtin solo de Hekatan.
     /// </summary>
     public static class DollarTranspiler
     {
@@ -116,7 +117,11 @@ namespace Calcpad.Core
                 case "sup":       return $"max(arrayfun({lam}, {range}))";
                 case "inf":       return $"min(arrayfun({lam}, {range}))";
                 case "area":
-                case "integral":  return $"gaussint({lam}, {lo}, {hi})";
+                case "integral":
+                    // Forma PORTABLE: integral(...,'ArrayValued',true) corre igual
+                    // en MATLAB 2017a (soporta integrandos matriciales) y en
+                    // Hekatan Lab. NO usamos gaussint (builtin solo de Hekatan).
+                    return $"integral({lam}, {lo}, {hi}, 'ArrayValued', true)";
                 case "root":
                 case "find":
                 {
