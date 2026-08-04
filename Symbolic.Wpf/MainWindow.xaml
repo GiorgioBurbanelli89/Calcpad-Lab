@@ -1666,41 +1666,37 @@
                         <Button Click="InvHypButton_Click" Content="hyp" x:Name="HypButton" 
                                 Style="{StaticResource RoundButton}" Margin="441,1,0,0"   FontSize="13" Height="26"
                                 ToolTip="{x:Static wpf:MainWindowResources.HyperbolicFunctions}"/>
-                        <Button Click="Button_Click" Content="Plot"  Tag="$Plot{f(x) @ x = a : b}" 
-                                Style="{StaticResource RoundButton}" Margin="475,1,0,0"   FontSize="14" Width="46"
-                                ToolTip="{x:Static wpf:MainWindowResources.FunctionPlot}" />
-                        <Button Click="Button_Click" Content="Map"   Tag="$Map{f(x;y) @ x = a : b &amp; y = c : d}" 
-                                Style="{StaticResource RoundButton}" Margin="523,1,0,0"   FontSize="14" Width="48"
-                                ToolTip="{x:Static wpf:MainWindowResources.SurfaceMap}" />
-                        <Button Click="Button_Click" Content="Root"  Tag="$Root{f(x) @ x = a : b}"
-                                Style="{StaticResource RoundButton}" Margin="475,29,0,0" FontSize="14" Width="46"
-                                ToolTip="{x:Static wpf:MainWindowResources.FindRootOfEquation}"/>
-                        <Button Click="Button_Click" Content="Repeat" Tag="$Repeat{f(k) @ k = a : b}" 
-                                Style="{StaticResource RoundButton}" Margin="523,29,0,0" Width="48"
-                                FontStretch="Condensed" FontSize="14" 
-                                ToolTip="{x:Static wpf:MainWindowResources.CalculateByIterations}" FontFamily="Arial Nova Cond"/>
-                        <Button Click="Button_Click" Content="Area"  Tag="$Area{f(x) @ x = a : b}"
-                                Style="{StaticResource RoundButton}" Margin="475,85,0,0" Width="46"
-                                FontSize="14"
-                                ToolTip="{x:Static wpf:MainWindowResources.AdaptiveGaussLobattoIntegration}"/>
-                        <Button Click="Button_Click" Content="Slope" Tag="$Slope{f(x) @ x = a}"
-                                Style="{StaticResource RoundButton}" Margin="523,85,0,0" Width="48"
-                                FontSize="14" 
-                                ToolTip="{x:Static wpf:MainWindowResources.NumericalDifferentiation}"/>
-                        <Button Click="Button_Click" Content="Sum"   Tag="$Sum{f(k) @ k = 1 : n}"
-                                Style="{StaticResource RoundButton}" Margin="475,113,0,0"  Width="46"
-                                FontSize="14"
-                                ToolTip="{x:Static wpf:MainWindowResources.FiniteSum}" />
-                        <Button Click="Button_Click" Content="Product" Tag="$Product{f(k) @ k = 1 : n}" 
-                                Style="{StaticResource RoundButton}" Margin="523,113,0,0" Width="48" 
-                                FontStretch="Condensed" FontSize="13.5"
-                                ToolTip="{x:Static wpf:MainWindowResources.FiniteProduct}" FontFamily="Arial Nova Cond"/>
-                        <Button Click="Button_Click" Content="Sup"   Tag="$Sup{f(x) @ x = a : b}"
-                                Style="{StaticResource RoundButton}" Margin="475,57,0,0" FontSize="14" Width="46" 
-                                ToolTip="{x:Static wpf:MainWindowResources.LocalMaximum}" VerticalAlignment="Top"/>
-                        <Button Click="Button_Click" Content="Inf"   Tag="$Inf{f(x) @ x = a : b}" 
-                                Style="{StaticResource RoundButton}" Margin="523,57,0,0" FontSize="14" Width="48"
-                                ToolTip="{x:Static wpf:MainWindowResources.LocalMinimum}" VerticalAlignment="Top"/>
+                        <!-- Botones re-mapeados a MATLAB (antes eran $Plot/$Sum/... de Calcpad, no funcionales aqui). -->
+                        <Button Click="Button_Click" Content="plot"  Tag="plot(x, y)"
+                                Style="{StaticResource RoundButton}" Margin="475,1,0,0"   FontSize="12" Width="46"
+                                ToolTip="plot(x, y) - grafica 2D de linea" />
+                        <Button Click="Button_Click" Content="surf"  Tag="surf(X, Y, Z)"
+                                Style="{StaticResource RoundButton}" Margin="523,1,0,0"   FontSize="12" Width="48"
+                                ToolTip="surf(X, Y, Z) - superficie 3D" />
+                        <Button Click="Button_Click" Content="fzero" Tag="fzero(@(x) x, x0)"
+                                Style="{StaticResource RoundButton}" Margin="475,29,0,0" FontSize="10.5" Width="46"
+                                ToolTip="fzero(@(x) f, x0) - raiz de una ecuacion"/>
+                        <Button Click="Button_Click" Content="for"   Tag="for k = 1:n&#10;    &#10;end"
+                                Style="{StaticResource RoundButton}" Margin="523,29,0,0" Width="48" FontSize="12"
+                                ToolTip="for k = 1:n ... end - bucle"/>
+                        <Button Click="Button_Click" Content="trapz" Tag="trapz(x, y)"
+                                Style="{StaticResource RoundButton}" Margin="475,85,0,0" Width="46" FontSize="10.5"
+                                ToolTip="trapz(x, y) - integracion numerica (area)"/>
+                        <Button Click="Button_Click" Content="grad"  Tag="gradient(y, x)"
+                                Style="{StaticResource RoundButton}" Margin="523,85,0,0" Width="48" FontSize="12"
+                                ToolTip="gradient(y, x) - derivada numerica (pendiente)"/>
+                        <Button Click="Button_Click" Content="sum"   Tag="sum(v)"
+                                Style="{StaticResource RoundButton}" Margin="475,113,0,0"  Width="46" FontSize="13"
+                                ToolTip="sum(v) - suma de elementos" />
+                        <Button Click="Button_Click" Content="prod"  Tag="prod(v)"
+                                Style="{StaticResource RoundButton}" Margin="523,113,0,0" Width="48" FontSize="12"
+                                ToolTip="prod(v) - producto de elementos"/>
+                        <Button Click="Button_Click" Content="integ" Tag="integral(@(x) x, a, b)"
+                                Style="{StaticResource RoundButton}" Margin="475,57,0,0" FontSize="10.5" Width="46"
+                                ToolTip="integral(@(x) f, a, b) - integral definida" VerticalAlignment="Top"/>
+                        <Button Click="Button_Click" Content="linsp" Tag="linspace(a, b, n)"
+                                Style="{StaticResource RoundButton}" Margin="523,57,0,0" FontSize="10.5" Width="48"
+                                ToolTip="linspace(a, b, n) - vector de n puntos" VerticalAlignment="Top"/>
                     </Grid>
                 </Grid>
             </GroupBox>
