@@ -862,6 +862,8 @@
             float: right;
         }
 
+        /* Cada gráfica en su propia fila (evita que se solapen al renderizar). */
+        .matlab-plot { display: block; clear: both; margin: 10px auto; overflow: hidden; }
         @media screen {
             .no-screen {
                 display: none;

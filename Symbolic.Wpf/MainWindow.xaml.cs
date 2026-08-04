@@ -2905,14 +2905,13 @@ window.__lazyPlot = function(id, data, layout, config){
   window.__plotDefs[id] = {data:data, layout:layout, config:config, rendered:false, ops:[]};
   var el = document.getElementById(id); if(!el) return;
   var io = new IntersectionObserver(function(es){ es.forEach(function(e){
-    var d = window.__plotDefs[id]; if(!d) return;
-    if(e.isIntersecting && !d.rendered){
+    var d = window.__plotDefs[id]; if(!d || d.rendered) return;
+    if(e.isIntersecting){
       d.rendered = true;
+      io.unobserve(el);   // ya renderizada; no volver a tocar el div (evita colapsos)
       Plotly.newPlot(id, d.data, d.layout, d.config).then(function(){
         d.ops.forEach(function(op){ try{ Plotly[op.fn](id, op.a, op.b); }catch(_){} });
       });
-    } else if(!e.isIntersecting && d.rendered){
-      try{ Plotly.purge(id); }catch(_){} d.rendered = false;
     }
   }); }, {rootMargin:'400px'});
   io.observe(el);
