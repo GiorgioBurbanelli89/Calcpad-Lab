@@ -148,8 +148,11 @@ namespace Calcpad.Core.Matlab
         // Se captura la MISMA geometría 3D que las trazas Plotly y, en FinishFigure, se emite un
         // <canvas> con un mini-motor WebGL embebido (órbita con mouse). Instantáneo (no carga CDN).
         // Plotly sigue disponible con CALCPAD_LAB_PLOTLY=1.
+        // Por defecto FALSE: todo 3D (surf/plot3) usa Plotly → rasteriza consistente y
+        // convive con muchas gráficas en grid. El canvas WebGL (rápido pero inestable en
+        // multi-plot/headless) queda como opt-in con CALCPAD_LAB_CANVAS3D=1.
         public static bool Use3DCanvas =
-            System.Environment.GetEnvironmentVariable("CALCPAD_LAB_PLOTLY") != "1";
+            System.Environment.GetEnvironmentVariable("CALCPAD_LAB_CANVAS3D") == "1";
         private static System.Collections.Generic.List<float> _cvOpaque, _cvAlpha, _cvLines;
         private static double _cvXmin, _cvXmax, _cvYmin, _cvYmax, _cvZmin, _cvZmax;
         private static bool _cvAny;
@@ -1436,7 +1439,9 @@ return {make:make};
 
             var svg = new StringBuilder();
             svg.AppendLine($"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>");
-            svg.AppendLine($"  <rect x='0' y='0' width='{width}' height='{height}' fill='white'/>");
+            // Tema: en dark el fondo del SVG va oscuro y los textos claros (no más blanco).
+            svg.AppendLine($"  <style>text{{fill:{PlotFg};}}</style>");
+            svg.AppendLine($"  <rect x='0' y='0' width='{width}' height='{height}' fill='{PlotBg}'/>");
             // Plot area
             svg.AppendLine($"  <rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}' fill='none' stroke='#ccc'/>");
             // Title

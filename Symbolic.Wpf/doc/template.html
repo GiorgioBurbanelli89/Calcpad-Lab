@@ -862,8 +862,16 @@
             float: right;
         }
 
-        /* Cada gráfica en su propia fila (evita que se solapen al renderizar). */
-        .matlab-plot { display: block; clear: both; margin: 10px auto; overflow: hidden; }
+        /* Gráficas en GRID: hasta 3 por fila (estilo subplot de MATLAB). Cada una es
+           su propia unidad; las siguientes bajan a la fila de abajo. */
+        .matlab-plot, .matlab-svg {
+            display: inline-block !important; vertical-align: top; width: 32% !important;
+            height: auto !important; min-width: 280px; margin: 4px 0.4%;
+            box-sizing: border-box; overflow: hidden;
+        }
+        .matlab-plot > div, .matlab-plot img, .matlab-svg svg {
+            width: 100% !important; max-width: 100% !important; height: auto !important;
+        }
         @media screen {
             .no-screen {
                 display: none;

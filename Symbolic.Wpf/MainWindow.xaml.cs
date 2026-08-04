@@ -1641,7 +1641,7 @@ namespace Calcpad.Wpf
                 // Modo headless --shot: capturar CUANDO el cálculo terminó de verdad (no a
                 // los 7s fijos, que para FEM pesado capturaba en blanco). +settle para que
                 // el último frame de animación (drawnow) acabe de pintarse en el WebView2.
-                if (_shotPng != null) { await Task.Delay(1200); await CaptureWebViewerAndExit(_shotPng); }
+                if (_shotPng != null) { await Task.Delay(1200); await WaitForPlotsAsync(); await CaptureWebViewerAndExit(_shotPng); }
                 else if (_pdfOut != null)
                 {
                     await Task.Delay(1000);
@@ -2845,6 +2845,23 @@ namespace Calcpad.Wpf
             return br;
         }
         private bool _textMode;             // Modo texto: cada línea nueva arranca con %' (texto visible)
+        /// <summary>Espera a que la cola de rasterización de gráficas termine (window.__plotQueue
+        /// vacía) antes de capturar con --shot. Máx ~40s.</summary>
+        private async Task WaitForPlotsAsync()
+        {
+            try
+            {
+                for (int i = 0; i < 200; i++)   // 200 × 200ms = 40s máx
+                {
+                    var r = await WebViewer.CoreWebView2.ExecuteScriptAsync(
+                        "(window.__plotQueue ? window.__plotQueue.length : 0)");
+                    if (r == "0" || r == "null" || string.IsNullOrEmpty(r)) { await Task.Delay(300); return; }
+                    await Task.Delay(200);
+                }
+            }
+            catch { }
+        }
+
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
         private string _pdfOut;    // ruta PDF headless (--pdf) para verificar que el export sale en BLANCO
