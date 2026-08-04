@@ -1,0 +1,8 @@
+"Probe inline math
+'Caso 1 literal deq: las funciones '#deq N_a(x)' son las
+'Caso 2 sin deq expr indefinida: las funciones 'N_a(x)' son las
+'Caso 3 sin deq igualdad: interfaz en 'x = c' fin
+'Caso 4 var simple: el campo 'φ' continuo
+'Caso 5 html var: el campo <var>N_a(x)</var> continuo
+N_A1(x) = 1 - x
+'Caso 6 funcion definida inline: grafica de 'N_A1(x)' fin

@@ -1,0 +1,81 @@
+"Concrete Damage - Uniaxial Scalar Damaged Elasticity (CDP-type)
+'<hr />
+'<h3>Model</h3>
+'Uniaxial <b>damaged elasticity</b>: the stress is the elastic stress
+'scaled by a scalar damage variable <var>d</var> that grows during softening:
+#math 360 44
+\sigma(\varepsilon) = \bigl(1 - d(\varepsilon)\bigr)\,E\,\varepsilon,\qquad d \in [0,1]
+#end math
+'Sign convention: tension <var>ε</var> &gt; 0 (positive), compression <var>ε</var> &lt; 0.
+
+'<h3>Material properties</h3>
+'<table><tr><td>
+'Elastic modulus -'E = 30000
+'Compressive strength -'f_c = 30
+'Peak compressive strain -'ε_c0 = 0.002
+'Ultimate compressive strain -'ε_cu = 0.0035
+'Tensile strength -'f_t = 3
+'Tensile cracking strain -'ε_t0 = f_t/E
+'Tension softening strain -'ε_tf = 0.0005
+'</td></tr></table>
+'Compression softening slope (residual 0.2·f_c reached at ε_cu):
+Z = (1 - 0.2)/(ε_cu - ε_c0)
+
+#hide
+'--- Constitutive law σ(ε) [MPa] as a function of strain ε ---
+'Tension branch: elastic up to ε_t0, then exponential softening
+σ_t(ε) = if(ε ≤ ε_t0; E*ε; f_t*exp(-(ε - ε_t0)/ε_tf))
+'Compression branch (x = -ε is the magnitude): Hognestad/Kent-Park parabola
+'up to the peak, then a linear descending branch with residual 0.2·f_c
+σ_c(ε) = if(-ε ≤ ε_c0; -f_c*(2*(-ε/ε_c0) - (-ε/ε_c0)^2); -f_c*max(0.2; 1 - Z*(-ε - ε_c0)))
+'Full law by sign of ε
+σ(ε) = if(ε ≥ 0; σ_t(ε); σ_c(ε))
+'Scalar damage: d = clamp(1 - σ/(E·ε), 0, 1), with d = 0 at ε = 0
+d(ε) = if(ε ≡ 0; 0; min(1; max(0; 1 - σ(ε)/(E*ε))))
+#show
+
+'<h3>Peak values</h3>
+'Compression peak (at ε = -ε_c0): -'σ_peak_c = σ(-ε_c0)' MPa, damage -'d(-ε_c0)
+'Tension peak (at ε = +ε_t0): -'σ_peak_t = σ(ε_t0)' MPa, damage -'d(ε_t0)
+
+"Strain sweep with a loop (builds σ and d vectors)
+'A #for loop sweeps ε from -0.0035 to +0.0006 and evaluates the engine
+'at every point, storing the constitutive response in vectors.
+N = 200
+ε_ini = -0.0035
+ε_fin = 0.0006
+Δε = (ε_fin - ε_ini)/(N - 1)
+εv = vector(N)
+σv = vector(N)
+dv = vector(N)
+#hide
+#for i = 1 : N
+    εv.i = ε_ini + (i - 1)*Δε
+    σv.i = σ(εv.i)
+    dv.i = d(εv.i)
+#loop
+#show
+'Peak compressive stress found by the loop -'min(σv)' MPa
+'Maximum damage found by the loop -'max(dv)
+
+"Reference table (validated)
+'<table style="border-collapse:collapse" border="1" cellpadding="4">
+'<tr><th>ε</th><th>σ (MPa)</th><th>d</th></tr>
+'<tr><td>+0.00010</td><td>'σ(0.0001)'</td><td>'d(0.0001)'</td></tr>
+'<tr><td>+0.00030</td><td>'σ(0.0003)'</td><td>'d(0.0003)'</td></tr>
+'<tr><td>+0.00100</td><td>'σ(0.001)'</td><td>'d(0.001)'</td></tr>
+'<tr><td>-0.00100</td><td>'σ(-0.001)'</td><td>'d(-0.001)'</td></tr>
+'<tr><td>-0.00200</td><td>'σ(-0.002)'</td><td>'d(-0.002)'</td></tr>
+'<tr><td>-0.00300</td><td>'σ(-0.003)'</td><td>'d(-0.003)'</td></tr>
+'<tr><td>-0.00350</td><td>'σ(-0.0035)'</td><td>'d(-0.0035)'</td></tr>
+'</table>
+
+PlotWidth = 500
+PlotHeight = 300
+#post
+"Constitutive curve  σ(ε)
+'Stress-strain law with tensile cracking and compressive softening.
+$Plot{εv.k | σv.k @ k = 1 : N}
+"Damage evolution  d(ε)
+'Scalar damage grows from 0 (undamaged) towards 1 (fully damaged).
+$Plot{εv.k | dv.k @ k = 1 : N}

@@ -2900,24 +2900,42 @@ namespace Calcpad.Wpf
         // (IntersectionObserver) y se purga al salir → contextos WebGL acotados. Sin esto,
         // 6+ gráficas 3D saturan el WebView2 (solo se pintaban 2-3).
         private const string LazyPlotScript = @"<script>
+// Renderiza las gráficas UNA por una: newPlot -> aplica restyle/relayout -> toImage (PNG
+// estático) -> purga el contexto WebGL -> siguiente. Así CUALQUIER cantidad de gráficas 3D
+// rinde (solo 1 contexto WebGL vivo a la vez); antes 6+ saturaban el WebView2 (salían 2-3).
 window.__plotDefs = window.__plotDefs || {};
+window.__plotQueue = window.__plotQueue || [];
 window.__lazyPlot = function(id, data, layout, config){
-  window.__plotDefs[id] = {data:data, layout:layout, config:config, rendered:false, ops:[]};
-  var el = document.getElementById(id); if(!el) return;
-  var io = new IntersectionObserver(function(es){ es.forEach(function(e){
-    var d = window.__plotDefs[id]; if(!d || d.rendered) return;
-    if(e.isIntersecting){
-      d.rendered = true;
-      io.unobserve(el);   // ya renderizada; no volver a tocar el div (evita colapsos)
-      Plotly.newPlot(id, d.data, d.layout, d.config).then(function(){
-        d.ops.forEach(function(op){ try{ Plotly[op.fn](id, op.a, op.b); }catch(_){} });
-      });
-    }
-  }); }, {rootMargin:'400px'});
-  io.observe(el);
+  var d = {id:id, data:data, layout:layout, config:config, ops:[]};
+  window.__plotDefs[id] = d;
+  window.__plotQueue.push(d);
+  if(window.__plotQueue.length === 1) setTimeout(window.__renderNext, 0);
 };
-window.__lazyRestyle = function(id,a,b){ var d=window.__plotDefs[id]; if(d&&d.rendered){try{Plotly.restyle(id,a,b);}catch(_){}} else if(d){d.ops.push({fn:'restyle',a:a,b:b});} };
-window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d&&d.rendered){try{Plotly.relayout(id,a,b);}catch(_){}} else if(d){d.ops.push({fn:'relayout',a:a,b:b});} };
+window.__renderNext = function(){
+  if(!window.__plotQueue.length) return;
+  var q = window.__plotQueue[0];
+  var el = document.getElementById(q.id);
+  var next = function(){ window.__plotQueue.shift(); if(window.__plotQueue.length) window.__renderNext(); };
+  if(!el || typeof Plotly === 'undefined'){ next(); return; }
+  var w = el.style.width || '640px', h = el.style.height || '480px';
+  var pw = parseInt(w)||640, ph = parseInt(h)||480;
+  var done = false;
+  // En timeout NO purgamos: dejamos la gráfica VIVA (se ve igual). Así ninguna
+  // queda en blanco; las que sí convierten a imagen liberan su contexto WebGL.
+  var finish = function(){ if(done) return; done = true; next(); };
+  var timer = setTimeout(finish, 9000);
+  Plotly.newPlot(q.id, q.data, q.layout, q.config).then(function(gd){
+    q.ops.forEach(function(op){ try{ Plotly[op.fn](q.id, op.a, op.b); }catch(_){} });
+    return Plotly.toImage(gd, {format:'png', width:pw*2, height:ph*2});
+  }).then(function(url){
+    if(done) return; done = true; clearTimeout(timer);
+    try{ Plotly.purge(q.id); }catch(_){}
+    el.innerHTML = '<img src=""'+url+'"" style=""width:'+pw+'px;height:'+ph+'px;display:block"">';
+    next();
+  }).catch(function(){ clearTimeout(timer); finish(); });
+};
+window.__lazyRestyle = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.ops.push({fn:'restyle',a:a,b:b});} };
+window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.ops.push({fn:'relayout',a:a,b:b});} };
 </script>";
 
         /// <summary>Convierte las gráficas Plotly del reporte a lazy-load (renderizado al hacer

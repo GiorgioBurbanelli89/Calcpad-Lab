@@ -1,0 +1,13 @@
+x = 1.5
+y = 0.5
+#repeat 15
+  f1 = x^2 + y^2 - 4
+  f2 = x*y - 1
+  J = [2*x; 2*y | y; x]
+  fv = [0 - f1; 0 - f2]
+  d = lsolve(J; fv)
+  x = x + d.1
+  y = y + d.2
+#loop
+rx = x
+ry = y

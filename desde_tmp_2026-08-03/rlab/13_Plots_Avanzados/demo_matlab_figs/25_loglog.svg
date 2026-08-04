@@ -1,0 +1,23 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
+  <rect x='0' y='0' width='800' height='800' fill='white'/>
+  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>25. log-log — y = x^{2.5}</text>
+  <text x='415' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>log10(x)</text>
+  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>log10(y)</text>
+  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>-0.15</text>
+  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>-0.375</text>
+  <text x='201.99999999999997' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>0.51</text>
+  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>1.27</text>
+  <text x='343.99999999999994' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1.17</text>
+  <text x='55' y='468' text-anchor='end' font-family='sans-serif' font-size='10'>2.92</text>
+  <text x='485.9999999999999' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>1.83</text>
+  <text x='55' y='329.99999999999994' text-anchor='end' font-family='sans-serif' font-size='10'>4.58</text>
+  <text x='627.9999999999999' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>2.49</text>
+  <text x='55' y='192' text-anchor='end' font-family='sans-serif' font-size='10'>6.22</text>
+  <text x='770' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>3.15</text>
+  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>7.88</text>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+    <polyline points='92.27,708.64 105.45,695.83 118.62,683.03 131.79,670.23 144.96,657.43 158.14,644.63 171.31,631.83 184.48,619.03 197.65,606.22 210.83,593.42 224.00,580.62 237.17,567.82 250.34,555.02 263.52,542.22 276.69,529.42 289.86,516.61 303.03,503.81 316.21,491.01 329.38,478.21 342.55,465.41 355.72,452.61 368.90,439.81 382.07,427.00 395.24,414.20 408.41,401.40 421.59,388.60 434.76,375.80 447.93,363.00 461.10,350.19 474.28,337.39 487.45,324.59 500.62,311.79 513.79,298.99 526.97,286.19 540.14,273.39 553.31,260.58 566.48,247.78 579.66,234.98 592.83,222.18 606.00,209.38 619.17,196.58 632.35,183.78 645.52,170.97 658.69,158.17 671.86,145.37 685.04,132.57 698.21,119.77 711.38,106.97 724.55,94.17 737.73,81.36' fill='none' stroke='red' stroke-width='1.5'/>
+  </g>
+</svg>

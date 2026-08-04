@@ -1,0 +1,23 @@
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Css classes.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Design check.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Interpolation of Functions.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Plotting Easter Egg in 2D and 3D.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Rectangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Collatz Check.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fourier Series + FFT.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Julia Set.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Sierpinski Christmas Tree.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Matrix math functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Vectors/Vector Initialization, indexing and operators.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Vectors/Vector math functions.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Matrices/Matrix creational functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Matrices/Matrix math functions.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Monte Carlo Pi.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Newton's method animated.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Numerical Differentiation.cpd
+NOHTML|C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Parametric Curves/Common Spirals.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Special functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/System of nonlinear equations.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Vectors/Vector Initialization, indexing and operators.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Vectors/Vector math functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Finite Elements/Rectangular Slab FEA.cpd

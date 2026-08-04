@@ -1,0 +1,10 @@
+ResourceUnavailable: C:\tmp\vsym2\triage.ps1:11
+Line |
+  11 |      $cliout = & $cli $f.FullName $out 2>&1 | Out-String
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Program 'Cli.exe' failed to run: An error occurred trying to start process 'C:\Users\j-b-j\Documents\Hekatan
+     | Calc 1.0.0\Calcpad-Symbolic\Symbolic.Cli\bin\Release\net10.0\Cli.exe' with working directory
+     | 'C:\Users\j-b-j\Documents\Hekatan Calc 1.0.0'. El archivo de paginación es demasiado pequeño para completar la
+     | operación.At C:\tmp\vsym2\triage.ps1:11 char:15 +     $cliout = & $cli $f.FullName $out 2>&1 | Out-String +     
+     | ~~~~~~~~~~~~~~~~~~~~~~~~~~~~.
+

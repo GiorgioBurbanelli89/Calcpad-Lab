@@ -1,0 +1,133 @@
+"Cyclic Damage - Uniaxial Damaged Elasticity under Load Reversals (hysteresis)
+'<hr />
+'<h3>Model</h3>
+'Same uniaxial <b>damaged elasticity</b> law as the <i>Concrete Damage</i> example,
+'but now the damage is a <b>persistent state</b> (historical maximum), so the concrete
+'is driven through <b>load reversals</b>. On unloading and reloading the stress stays
+'on the <b>secant</b> to the origin with the frozen damage, the stiffness degrades every
+'cycle and the crack closes when the sign of the strain flips:
+#math 360 44
+\sigma = \bigl(1 - d\bigr)\,E\,\varepsilon,\qquad d = \max_{\text{history}} d(\varepsilon),\qquad d \in [0,1]
+#end math
+'Sign convention: tension <var>ε</var> &gt; 0 (positive), compression <var>ε</var> &lt; 0.
+'This reproduces the secant (no residual plastic strain) cyclic response of
+'<b>ASDConcrete1D</b> (ASDEA / STKO).
+
+'<h3>Material properties (same as Concrete Damage)</h3>
+'<table><tr><td>
+'Elastic modulus -'E = 30000
+'Compressive strength -'f_c = 30
+'Peak compressive strain -'ε_c0 = 0.002
+'Ultimate compressive strain -'ε_cu = 0.0035
+'Tensile strength -'f_t = 3
+'Tensile cracking strain -'ε_t0 = f_t/E
+'Tension softening strain -'ε_tf = 0.0005
+'</td></tr></table>
+'Compression softening slope (residual 0.2·f_c reached at ε_cu):
+Z = (1 - 0.2)/(ε_cu - ε_c0)
+
+#hide
+'--- Envelope constitutive law σ(ε) [MPa] (identical to Concrete Damage) ---
+'Tension branch: elastic up to ε_t0, then exponential softening
+σ_t(ε) = if(ε ≤ ε_t0; E*ε; f_t*exp(-(ε - ε_t0)/ε_tf))
+'Compression branch (x = -ε is the magnitude): Hognestad/Kent-Park parabola
+'up to the peak, then a linear descending branch with residual 0.2·f_c
+σ_c(ε) = if(-ε ≤ ε_c0; -f_c*(2*(-ε/ε_c0) - (-ε/ε_c0)^2); -f_c*max(0.2; 1 - Z*(-ε - ε_c0)))
+'Full envelope law by sign of ε
+σ(ε) = if(ε ≥ 0; σ_t(ε); σ_c(ε))
+'Secant damage of the envelope: d = clamp(1 - σ/(E·ε), 0, 1), with d = 0 at ε = 0
+d(ε) = if(ε ≡ 0; 0; min(1; max(0; 1 - σ(ε)/(E*ε))))
+#show
+
+'<h3>State machine (secant unloading / reloading)</h3>
+'Two history variables are carried through the loop and only ever <b>grow</b>:
+'<var>ε_tmax</var> (largest tensile strain seen) and <var>ε_cmax</var> (largest
+'compressive magnitude seen). At every step the active branch uses its own frozen
+'damage, so the response returns to the origin along the secant <var>(1 − d)E</var>:
+#math 360 48
+\varepsilon \ge 0:\;\sigma=(1-d(\varepsilon_{tmax}))E\varepsilon\quad\quad\varepsilon<0:\;\sigma=(1-d(-\varepsilon_{cmax}))E\varepsilon
+#end math
+
+'<h3>Strain protocol (reversals with growing amplitude)</h3>
+'Piecewise-linear path through the corner strains below (compression cycles of
+'increasing amplitude, unloaded to zero each time, plus one tension excursion):
+#math 360 24
+0 \to -0.0006 \to 0 \to -0.0012 \to 0 \to -0.0020 \to 0 \to -0.0030 \to 0 \to +0.0001 \to 0 \to -0.0040
+#end math
+np = 12
+x_c = [0; -0.0006; 0; -0.0012; 0; -0.0020; 0; -0.0030; 0; 0.0001; 0; -0.0040]
+'Sub-steps per segment -'sub = 40
+'Total steps -'N = (np - 1)*sub + 1
+
+"Cyclic sweep with a loop (fills ε, σ and damage vectors)
+'The outer loop walks the corners; the inner loop interpolates each segment. The
+'history variables ε_tmax and ε_cmax are updated with max() and persist between
+'steps, freezing the damage so unloading/reloading trace secant loops.
+εv = vector(N)
+σv = vector(N)
+dtv = vector(N)
+dcv = vector(N)
+nv = vector(N)
+ε_tmax = 0
+ε_cmax = 0
+#hide
+εv.1 = x_c.1
+σv.1 = 0
+nv.1 = 1
+#for s = 1 : np - 1
+    #for j = 1 : sub
+        idx = (s - 1)*sub + j + 1
+        ε = x_c.s + (x_c.(s + 1) - x_c.s)*(j/sub)
+        ε_tmax = max(ε_tmax; ε)
+        ε_cmax = max(ε_cmax; -ε)
+        εv.idx = ε
+        σv.idx = if(ε ≥ 0; (1 - d(ε_tmax))*E*ε; (1 - d(-ε_cmax))*E*ε)
+        dtv.idx = d(ε_tmax)
+        dcv.idx = d(-ε_cmax)
+        nv.idx = idx
+    #loop
+#loop
+#show
+'Peak compressive stress reached by the sweep -'min(σv)' MPa
+'Maximum compression damage (persistent) -'max(dcv)
+'Final compression damage at ε = -0.0040 -'dcv.N
+
+"Envelope peak values (validated)
+'On first loading to each amplitude the state lands exactly on the envelope, so the
+'peaks match the validated Concrete Damage table.
+'<table style="border-collapse:collapse" border="1" cellpadding="4">
+'<tr><th>ε (peak)</th><th>σ (MPa)</th><th>d</th></tr>
+'<tr><td>-0.00060</td><td>'σ(-0.0006)'</td><td>'d(-0.0006)'</td></tr>
+'<tr><td>-0.00120</td><td>'σ(-0.0012)'</td><td>'d(-0.0012)'</td></tr>
+'<tr><td>-0.00200 (peak f_c)</td><td>'σ(-0.002)'</td><td>'d(-0.002)'</td></tr>
+'<tr><td>-0.00300</td><td>'σ(-0.003)'</td><td>'d(-0.003)'</td></tr>
+'<tr><td>-0.00400 (residual)</td><td>'σ(-0.004)'</td><td>'d(-0.004)'</td></tr>
+'<tr><td>+0.00010 (tension)</td><td>'σ(0.0001)'</td><td>'d(0.0001)'</td></tr>
+'</table>
+
+"Hysteresis evidence (secant vs envelope at the same strain)
+'After the first cycle the damage is frozen, so at ε = -0.0003 the reloading stress
+'differs from the monotonic envelope — proof that the path traces a loop, not the
+'backbone. With sub = 40 the first peak (-0.0006) sits at index 41 and the point
+'reloaded at -0.0003 from that cycle sits at index 61.
+'<table style="border-collapse:collapse" border="1" cellpadding="4">
+'<tr><th></th><th>ε</th><th>σ (MPa)</th></tr>
+'<tr><td>1st peak (index 41)</td><td>'εv.41'</td><td>'σv.41'</td></tr>
+'<tr><td>secant unload (index 61)</td><td>'εv.61'</td><td>'σv.61'</td></tr>
+'<tr><td>monotonic envelope</td><td>-0.0003</td><td>'σ(-0.0003)'</td></tr>
+'</table>
+'The secant stress -'σv.61' MPa (frozen d = 0.15) is flatter than the envelope
+'-'σ(-0.0003)' MPa: the unloading branch degrades away from the backbone.
+
+PlotWidth = 500
+PlotHeight = 300
+#post
+"Hysteresis  σ vs ε
+'Parametric plot of the whole protocol. Each cycle unloads to the origin along the
+'secant (1 − d)E and reloads on the same line until it rejoins the envelope; the
+'slope flattens every cycle as the stored damage grows — the hysteresis loops.
+$Plot{εv.k | σv.k @ k = 1 : N}
+"Compression-damage growth  d_c
+'The persistent compression damage only increases through the protocol: it steps up
+'0 → 0.15 → 0.30 → 0.50 → 0.844 → 0.95, staying flat during every unloading.
+$Plot{nv.k | dcv.k @ k = 1 : N}

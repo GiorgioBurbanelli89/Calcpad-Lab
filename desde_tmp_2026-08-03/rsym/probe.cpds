@@ -1,0 +1,20 @@
+"Probe A - global outside cen
+a = 5
+f_a(x) = x*a
+$Plot{f_a(x) @ x = 0 : 1}
+"Probe B - global inside cen
+#cen
+b = 7
+f_b(x) = x*b
+#end cen
+$Plot{f_b(x) @ x = 0 : 1}
+"Probe C - inlined constant
+f_c(x) = x*5
+$Plot{f_c(x) @ x = 0 : 1}
+"Probe D - subscript global inside cen
+#cen
+φ_1 = 2
+φ_2 = 5
+g(x) = (1-x)*φ_1 + x*φ_2
+#end cen
+$Plot{g(x) @ x = 0 : 1}

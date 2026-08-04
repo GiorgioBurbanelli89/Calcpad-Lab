@@ -1,0 +1,116 @@
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Beam design with Markdown.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Bolt 3D Model.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Custom units/Currency units.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Custom units/Information units.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Double Interpolation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Functions of Multiple Parameters.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Html UI.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Interpolation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Markdown.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Multiline functions/Cubic roots function.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Multiline functions/Fibonacci numbers.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Multiline functions/Greatest common divisor - Euclid algorithm.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Multiline functions/Quadratic roots function.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Optimization of foundation pad dimensions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Page header with logo/Page header with logo.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Parametric 3D Drawing of RC Beam.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Plot with attributes.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Plotly.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/Rounding and formatting.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/svg_drawing.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/toc.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Demos/TT Panel.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Circle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Ellipse.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Equilateral Triangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Parabola.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Polygon.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Right Triangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Sector (angle).cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Sector (chord).cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Segment (angle).cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Segment (chord).cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Square.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Trapezoid.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Triangle (height).cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Areas/Triangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Bitwise operations.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Combinatorics.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Cubic Equation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/FFT.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fourier Series.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Koch Snowflake Animation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Koch Snowflake.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Kochwave Animation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Kochwave Snowflake Animation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Fractals/Mandelbrot Set.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Heart Function Animation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Least squares.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Matrix creational functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Matrix data functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Matrix initialization and indexing.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Matrix operators.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Matrix structural functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Matrices/Rayleigh quotient iteration.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Vectors/Vector data functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/High performance/Vectors/Vector structural functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Least Squares Fitting.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Matrices/Matrix data functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Matrices/Matrix initialization and indexing.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Matrices/Matrix operators.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Matrices/Matrix structural functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Numerical Integration.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Parametric Curves/Cornu Spiral.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Parametric Curves/Epicycloid.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Parametric Curves/Hypocycloid.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Parametric Curves/Lissajous Curve.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Parametric Curves/Rose Curve.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Quadratic Equation.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Rayleigh Quotient Iteration.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Solution of a triangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Strong Motion FFT.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Vectors/Vector data functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Vectors/Vector structural functions.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Cone.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Cube.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Cylinder.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Ellipsoid.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Rectangular Frustum.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Rectangular Prism.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Rectangular Pyramid.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Right Polygonal Prism.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Sphere.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Spherical Cap.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Spherical Segment.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Tetrahedron.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Triangular Frustum.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Triangular prism.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mathematics/Volumes/Triangular Pyramid.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Concrete Damage.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Cyclic Damage.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Elastic analysis/Deep Beam.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Elastic analysis/Rectangular Slab.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Elastic analysis/Saint-Venant Torsion.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Finite Elements/Deep Beam FEA.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Finite Elements/Flat Slab FEA Optimized.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Finite Elements/Flat Slab FEA.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Angle Section.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Channel Section.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Circle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Circlular Pipe.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Double Tee Section.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Ellipse.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Elliptical Pipe .cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Equilateral Triangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Half Circle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Hexagon.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Polygon.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Quarter Circle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Rectangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Rectangular Tube.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Rhombus (square).cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Rhombus.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Right Triangle.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Sector.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Segment.cpd
+C:/Users/j-b-j/Documents/Hekatan Calc 1.0.0/calcpad_original_ned/Examples/Mechanics/Geometrical Properties/Square.cpd

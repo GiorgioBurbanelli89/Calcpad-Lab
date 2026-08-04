@@ -1,0 +1,1 @@
+MATLAB M-phi guardado. En ky=0.001 My=27481  ky=0.002 My=48380

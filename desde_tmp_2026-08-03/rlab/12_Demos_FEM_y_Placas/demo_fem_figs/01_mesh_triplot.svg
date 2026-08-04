@@ -1,0 +1,41 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'>
+  <rect x='0' y='0' width='800' height='800' fill='white'/>
+  <rect x='60' y='50' width='710' height='690' fill='none' stroke='#ccc'/>
+  <text x='400' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>Mallado (triplot): 100 Q4 -&gt; 200 T3, 121 nodos, 484 GDL</text>
+  <text x='415' y='785' text-anchor='middle' font-family='sans-serif' font-size='12'>x [mm]</text>
+  <text x='15' y='395' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 395)'>y [mm]</text>
+  <text x='60' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>30</text>
+  <text x='55' y='744' text-anchor='end' font-family='sans-serif' font-size='10'>11.1</text>
+  <text x='202' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>118</text>
+  <text x='55' y='606' text-anchor='end' font-family='sans-serif' font-size='10'>103</text>
+  <text x='344' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>206</text>
+  <text x='55' y='468' text-anchor='end' font-family='sans-serif' font-size='10'>195</text>
+  <text x='486' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>294</text>
+  <text x='55' y='330' text-anchor='end' font-family='sans-serif' font-size='10'>287</text>
+  <text x='628' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>382</text>
+  <text x='55' y='192' text-anchor='end' font-family='sans-serif' font-size='10'>379</text>
+  <text x='770' y='755' text-anchor='middle' font-family='sans-serif' font-size='10'>470</text>
+  <text x='55' y='54' text-anchor='end' font-family='sans-serif' font-size='10'>471</text>
+  <defs><clipPath id='plot'><rect x='60' y='50' width='710' height='690'/></clipPath></defs>
+  <g clip-path='url(#plot)'>
+    <circle cx='92.27' cy='681.62' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='92.27' y='708.64' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B1</text>
+    <circle cx='415.00' cy='681.62' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='415.00' y='708.64' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B2</text>
+    <circle cx='737.73' cy='681.62' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='737.73' y='708.64' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B3</text>
+    <circle cx='92.27' cy='381.49' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='92.27' y='408.51' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B4</text>
+    <circle cx='737.73' cy='381.49' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='737.73' y='408.51' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B5</text>
+    <circle cx='92.27' cy='81.36' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='92.27' y='108.38' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B6</text>
+    <circle cx='415.00' cy='81.36' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='415.00' y='108.38' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B7</text>
+    <circle cx='737.73' cy='81.36' r='6.00' fill='red' stroke='red' stroke-width='1'/>
+    <text x='737.73' y='108.38' fill='red' font-family='sans-serif' font-size='9' text-anchor='middle' dominant-baseline='central'>B8</text>
+    <polygon points='172.95,606.59 657.05,606.59 657.05,156.40 172.95,156.40' fill='rgb(242,229,127)' fill-opacity='0.35' stroke='rgb(153,127,0)' stroke-width='1.5'/>
+    <text x='415.00' y='381.49' fill='black' font-family='sans-serif' font-size='11' text-anchor='middle' dominant-baseline='central'>HSS
+300\times300</text>
+  </g>
+</svg>

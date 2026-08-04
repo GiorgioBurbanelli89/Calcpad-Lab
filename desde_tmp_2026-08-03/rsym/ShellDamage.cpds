@@ -1,0 +1,145 @@
+"Shell Damage - RC Layered Shell Section (Moment-Curvature with Concrete Damage)
+'<hr />
+'<h3>Model</h3>
+'A reinforced-concrete shell/plate section (per metre of width) is analysed by
+'<b>layers</b> (layered shell section). Each concrete layer follows the same
+'uniaxial <b>damaged elasticity</b> law as the <i>Concrete Damage</i> example:
+#math 360 44
+\sigma(\varepsilon) = \bigl(1 - d(\varepsilon)\bigr)\,E\,\varepsilon,\qquad d \in [0,1]
+#end math
+'As the curvature grows, the compression fibres accumulate damage and the section
+'<b>softens</b> — the moment rises to a peak and then descends. This softening of
+'the layered shell is what we call <b>shell damage</b>.
+'Plane-section kinematics: the strain varies linearly through the thickness,
+#math 360 24
+\varepsilon(z) = \varepsilon_0 + \kappa\,z
+#end math
+'where <var>ε_0</var> is the mid-surface strain and <var>κ</var> the curvature.
+'Sign convention: tension <var>ε</var> &gt; 0, compression <var>ε</var> &lt; 0.
+
+'<h3>Material properties (concrete = same as Concrete Damage)</h3>
+'<table><tr><td>
+'Elastic modulus -'E = 30000
+'Compressive strength -'f_c = 30
+'Peak compressive strain -'ε_c0 = 0.002
+'Ultimate compressive strain -'ε_cu = 0.0035
+'Tensile strength -'f_t = 3
+'Tensile cracking strain -'ε_t0 = f_t/E
+'Tension softening strain -'ε_tf = 0.0005
+'</td></tr></table>
+'Compression softening slope (residual 0.2·f_c reached at ε_cu):
+Z = (1 - 0.2)/(ε_cu - ε_c0)
+'Reinforcing steel (elasto-plastic):
+'Steel modulus -'E_s = 200000
+'Yield strength -'f_y = 420
+
+#hide
+'--- Constitutive laws σ(ε) [MPa] ---
+'Tension: elastic up to ε_t0, then exponential softening
+σ_t(ε) = if(ε ≤ ε_t0; E*ε; f_t*exp(-(ε - ε_t0)/ε_tf))
+'Compression (x = -ε is the magnitude): Hognestad/Kent-Park parabola then linear softening
+σ_c(ε) = if(-ε ≤ ε_c0; -f_c*(2*(-ε/ε_c0) - (-ε/ε_c0)^2); -f_c*max(0.2; 1 - Z*(-ε - ε_c0)))
+'Concrete law by sign of ε
+σ(ε) = if(ε ≥ 0; σ_t(ε); σ_c(ε))
+'Steel: bilinear elasto-plastic
+σ_s(ε) = min(f_y; max(-f_y; E_s*ε))
+'Scalar concrete damage: d = clamp(1 - σ/(E·ε), 0, 1), with d = 0 at ε = 0
+d(ε) = if(ε ≡ 0; 0; min(1; max(0; 1 - σ(ε)/(E*ε))))
+#show
+
+'<h3>Section (per metre of width)</h3>
+'<table><tr><td>
+'Thickness -'t = 200
+'Width -'b = 1000
+'Number of concrete layers -'nc = 20
+'Layer thickness -'dz = t/nc
+'Steel area per face -'A_s = 1000
+'Cover -'cover = 25
+'Steel lever arm -'z_s = t/2 - cover
+'</td></tr></table>
+'Concrete layer <var>i</var> is centred at:
+#math 360 24
+z_i = -t/2 + dz\,(i - 0.5),\qquad i = 1 \ldots nc
+#end math
+zc(i) = -t/2 + dz*(i - 0.5)
+
+'<h3>Section resultants at a given curvature κ</h3>
+'Axial force and bending moment are sums over the concrete layers plus the two
+'steel layers (at +z_s and -z_s). They depend on the mid-surface strain e and on
+'the current curvature κ:
+#hide
+N(e) = $Sum{σ(e + κ*zc(i))*b*dz @ i = 1 : nc} + σ_s(e + κ*z_s)*A_s + σ_s(e - κ*z_s)*A_s
+Mn(e) = $Sum{σ(e + κ*zc(i))*b*dz*zc(i) @ i = 1 : nc} + σ_s(e + κ*z_s)*A_s*z_s + σ_s(e - κ*z_s)*A_s*(-z_s)
+#show
+#math 360 30
+N(e) = \sum_i \sigma(e + \kappa z_i)\,b\,dz + \sigma_s(e+\kappa z_s)A_s + \sigma_s(e-\kappa z_s)A_s
+#end math
+'For every curvature we first find the mid-surface strain <var>ε_0</var> that makes
+'the section <b>axially balanced</b> N(ε_0) = 0 (pure bending), using the built-in
+'root finder over ε_0 ∈ [-0.01, 0.01]:
+#math 360 24
+\varepsilon_0 : \; N(\varepsilon_0) = 0 \;\Rightarrow\; M(\kappa) = M_n(\varepsilon_0)
+#end math
+'The compression-fibre damage is read at the most compressed fibre (z = -t/2):
+#math 360 24
+d_{comp} = d\bigl(\varepsilon_0 - \kappa\,t/2\bigr)
+#end math
+
+"Reference table (validated)
+'The 7 curvatures below reproduce the validated moment-curvature response. For each
+'one, ε_0 is solved from N(ε_0)=0 and then M and d_comp are evaluated.
+n_ref = 7
+κ_ref = [0.000005; 0.00001; 0.000015; 0.0000164; 0.00002; 0.00003; 0.00004]
+M_ref = vector(n_ref)
+d_ref = vector(n_ref)
+#hide
+#for j = 1 : n_ref
+    κ = κ_ref.j
+    ε_0 = $Root{N(e) @ e = -0.01 : 0.01}
+    M_ref.j = Mn(ε_0)/1000000
+    d_ref.j = d(ε_0 - κ*t/2)
+#loop
+#show
+'<table style="border-collapse:collapse" border="1" cellpadding="4">
+'<tr><th>κ (1/mm)</th><th>M (kN·m/m)</th><th>d_comp</th></tr>
+'<tr><td>'κ_ref.1'</td><td>'M_ref.1'</td><td>'d_ref.1'</td></tr>
+'<tr><td>'κ_ref.2'</td><td>'M_ref.2'</td><td>'d_ref.2'</td></tr>
+'<tr><td>'κ_ref.3'</td><td>'M_ref.3'</td><td>'d_ref.3'</td></tr>
+'<tr><td>'κ_ref.4'</td><td>'M_ref.4' (peak)</td><td>'d_ref.4'</td></tr>
+'<tr><td>'κ_ref.5'</td><td>'M_ref.5'</td><td>'d_ref.5'</td></tr>
+'<tr><td>'κ_ref.6'</td><td>'M_ref.6'</td><td>'d_ref.6'</td></tr>
+'<tr><td>'κ_ref.7'</td><td>'M_ref.7'</td><td>'d_ref.7'</td></tr>
+'</table>
+
+"Curvature sweep with a loop (builds M-κ and d-κ vectors)
+'A #for loop sweeps κ from 0 to 4·10⁻⁵ (1/mm). At every step it solves the axial
+'equilibrium for ε_0 and stores the moment and the compression damage in vectors.
+nk = 41
+κ_max = 0.00004
+Δκ = κ_max/(nk - 1)
+κv = vector(nk)
+Mv = vector(nk)
+dv = vector(nk)
+#hide
+#for k = 1 : nk
+    κ = (k - 1)*Δκ
+    κv.k = κ
+    ε_0 = $Root{N(e) @ e = -0.01 : 0.01}
+    Mv.k = Mn(ε_0)/1000000
+    dv.k = d(ε_0 - κ*t/2)
+#loop
+#show
+'Peak moment found by the sweep -'max(Mv)' kN·m/m
+'Residual moment at κ = 4·10⁻⁵ -'Mv.nk' kN·m/m
+'Maximum compression damage -'max(dv)
+
+PlotWidth = 500
+PlotHeight = 300
+#post
+"Moment-curvature  M(κ)
+'The section stiffens, reaches a peak moment (~72.3 kN·m/m near κ ≈ 1.64·10⁻⁵) and
+'then softens as concrete damage spreads through the compression layers.
+$Plot{κv.k|Mv.k @ k = 1 : nk}
+"Compression-fibre damage  d_comp(κ)
+'Scalar damage at the most compressed fibre grows monotonically with curvature.
+$Plot{κv.k|dv.k @ k = 1 : nk}
