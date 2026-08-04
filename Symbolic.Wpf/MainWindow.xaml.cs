@@ -1732,7 +1732,7 @@ namespace Calcpad.Wpf
                     }
                     else
                     {
-                        await _wv2Warper.NavigateToStringAsync(WithThemeClass(htmlResult));
+                        await _wv2Warper.NavigateToStringAsync(WithThemeClass(InjectLazyPlots(htmlResult)));
                     }
                     StartupMark($"Output rendered (HTML: {htmlResult.Length / 1024} KB)");
                 }
@@ -2894,6 +2894,44 @@ namespace Calcpad.Wpf
                     $"var h=document.documentElement; h.classList.remove('dark','gold'); h.classList.add('{cls}');");
             }
             catch { }
+        }
+
+        // Script de lazy-load: cada gráfica Plotly se renderiza SOLO cuando entra en vista
+        // (IntersectionObserver) y se purga al salir → contextos WebGL acotados. Sin esto,
+        // 6+ gráficas 3D saturan el WebView2 (solo se pintaban 2-3).
+        private const string LazyPlotScript = @"<script>
+window.__plotDefs = window.__plotDefs || {};
+window.__lazyPlot = function(id, data, layout, config){
+  window.__plotDefs[id] = {data:data, layout:layout, config:config, rendered:false, ops:[]};
+  var el = document.getElementById(id); if(!el) return;
+  var io = new IntersectionObserver(function(es){ es.forEach(function(e){
+    var d = window.__plotDefs[id]; if(!d) return;
+    if(e.isIntersecting && !d.rendered){
+      d.rendered = true;
+      Plotly.newPlot(id, d.data, d.layout, d.config).then(function(){
+        d.ops.forEach(function(op){ try{ Plotly[op.fn](id, op.a, op.b); }catch(_){} });
+      });
+    } else if(!e.isIntersecting && d.rendered){
+      try{ Plotly.purge(id); }catch(_){} d.rendered = false;
+    }
+  }); }, {rootMargin:'400px'});
+  io.observe(el);
+};
+window.__lazyRestyle = function(id,a,b){ var d=window.__plotDefs[id]; if(d&&d.rendered){try{Plotly.restyle(id,a,b);}catch(_){}} else if(d){d.ops.push({fn:'restyle',a:a,b:b});} };
+window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d&&d.rendered){try{Plotly.relayout(id,a,b);}catch(_){}} else if(d){d.ops.push({fn:'relayout',a:a,b:b});} };
+</script>";
+
+        /// <summary>Convierte las gráficas Plotly del reporte a lazy-load (renderizado al hacer
+        /// scroll) para que CUALQUIER cantidad de gráficas 3D rinda sin saturar el WebView2.</summary>
+        private static string InjectLazyPlots(string html)
+        {
+            if (string.IsNullOrEmpty(html) || !html.Contains("Plotly.newPlot(")) return html;
+            html = html.Replace("Plotly.newPlot(", "window.__lazyPlot(")
+                       .Replace("Plotly.restyle(", "window.__lazyRestyle(")
+                       .Replace("Plotly.relayout(", "window.__lazyRelayout(");
+            int b = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+            if (b >= 0) return html.Substring(0, b) + LazyPlotScript + html.Substring(b);
+            return html + LazyPlotScript;
         }
 
         /// <summary>Incrusta la clase de tema (dark/gold) en el &lt;html&gt; del reporte ANTES

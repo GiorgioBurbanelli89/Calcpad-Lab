@@ -102,9 +102,11 @@ namespace Calcpad.Core.Matlab
         /// el fondo de la figura, texto y ejes van claros; en print/PDF se ignora (hoja blanca).</summary>
         public static bool DarkTheme = false;
         // Colores de tema para las figuras.
-        internal static string PlotBg   => DarkTheme ? "#1a1712" : "#ffffff";
-        internal static string PlotFg   => DarkTheme ? "#e8e2d4" : "#222222";
-        internal static string PlotGrid => DarkTheme ? "#3a3226" : "#e0e0e0";
+        // Gold (no-dark) = parchment, para que la gráfica combine con el reporte oro
+        // (antes salía blanca). Dark = oscuro.
+        internal static string PlotBg   => DarkTheme ? "#1a1712" : "#ede4ce";
+        internal static string PlotFg   => DarkTheme ? "#e8e2d4" : "#2b2416";
+        internal static string PlotGrid => DarkTheme ? "#3a3226" : "#cdbf9c";
         // Fragmentos de layout Plotly tematizados (reutilizados por todos los emisores).
         private static string Ax3(string t) => $"{{title:{{text:'{t}'}}, color:'{PlotFg}', gridcolor:'{PlotGrid}', backgroundcolor:'{PlotBg}', showbackground:true}}";
         /// <summary>Bloque paper+font+scene 3D tematizado (dark: oscuro; gold/claro: blanco).</summary>
