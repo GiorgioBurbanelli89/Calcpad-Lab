@@ -357,7 +357,10 @@ namespace Calcpad.Core.Matlab
             var terms = new System.Collections.Generic.List<SymNode>();
             FlattenAdd(a, terms);
             FlattenAdd(b, terms);
-            return CollectLikeTermsAdd(terms);
+            // factor:false → forma EXPANDIDA ordenada por grado (x³ + 2·x), como MATLAB.
+            // Antes (factor:true) extraía factor común y mostraba x·(x²+2), que difiere de MATLAB.
+            // El factorizado real se obtiene con el builtin factor() explícito.
+            return CollectLikeTermsAdd(terms, factor: false);
         }
         internal static void FlattenAdd(SymNode n, System.Collections.Generic.List<SymNode> acc)
         {

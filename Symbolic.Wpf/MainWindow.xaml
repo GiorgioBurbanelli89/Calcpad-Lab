@@ -1780,7 +1780,7 @@
                                           ToolTip="Declara x como variable simbólica. Necesario antes de derivar, integrar, resolver, etc. Varias: syms x y z"/>
                                 <MenuItem Header="── Cálculo ──" IsEnabled="False"/>
                                 <MenuItem Header="Derivada  ∂" Click="Button_Click"
-                                          Tag="%' Derivada de f = x³ + 2x respecto a x:§syms x§f = x^3 + 2*x;§df = diff(f, x)"
+                                          Tag="%' Derivada de f(x) = x³ + 2x respecto a x:§syms x§f(x) = x^3 + 2*x§df = diff(f, x)"
                                           ToolTip="Derivada simbólica ∂f/∂x. Ejemplo: ∂(x³+2x)/∂x = 3x²+2. Cambia f."/>
                                 <MenuItem Header="Integral indefinida  ∫" Click="Button_Click"
                                           Tag="%' Integral indefinida (antiderivada) de x²:§syms x§F = int(x^2, x)"
