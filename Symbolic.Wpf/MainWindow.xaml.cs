@@ -2763,16 +2763,17 @@ namespace Calcpad.Wpf
         private void InsertImage(string filePath)
         {
             var fileName = Path.GetFileName(filePath);
-            var size = GetImageSize(filePath);
             var fileDir = Path.GetDirectoryName(filePath);
             string src;
             if (!string.IsNullOrEmpty(CurrentFileName) &&
                 string.Equals(Path.GetDirectoryName(CurrentFileName), fileDir, StringComparison.OrdinalIgnoreCase))
-                src = "./" + fileName;
+                src = fileName;                    // relativo al script (imshow lo resuelve con PrimaryScriptDir)
             else
-                src = filePath.Replace('\\', '/');
+                src = filePath.Replace('\\', '/'); // absoluto
             var p = new Paragraph();
-            p.Inlines.Add(new Run($"'<img style=\"height:{size.Height}pt; width:{size.Width}pt;\" src=\"{src}\" alt=\"{fileName}\">"));
+            // Forma de ARCHIVO: una sola línea, MATLAB puro. (La otra forma, base64 autocontenido con
+            // miniatura, es al pegar Ctrl+V.) Antes insertaba '<img> de Calcpad, que daba error en MATLAB.
+            p.Inlines.Add(new Run($"imshow('{src}');"));
             _highlighter.Parse(p, IsComplex, GetLineNumber(p), true);
             _document.Blocks.InsertBefore(_currentParagraph ?? _document.Blocks.FirstBlock, p);
         }
