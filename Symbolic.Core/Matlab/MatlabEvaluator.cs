@@ -1927,7 +1927,10 @@ namespace Calcpad.Core.Matlab
                     {
                         try
                         {
-                            var bytes = System.IO.File.ReadAllBytes(s);
+                            var path = s;
+                            if (!System.IO.Path.IsPathRooted(path) && !string.IsNullOrEmpty(PrimaryScriptDir))
+                                path = System.IO.Path.Combine(PrimaryScriptDir, path);
+                            var bytes = System.IO.File.ReadAllBytes(path);
                             var ext = System.IO.Path.GetExtension(s).ToLowerInvariant();
                             var mime = ext == ".jpg" || ext == ".jpeg" ? "image/jpeg"
                                      : ext == ".gif" ? "image/gif" : ext == ".bmp" ? "image/bmp" : "image/png";

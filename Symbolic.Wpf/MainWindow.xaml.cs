@@ -3759,20 +3759,33 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             {
                 var bmp = Clipboard.GetImage();
                 if (bmp == null) return;
-                string b64;
-                using (var ms = new MemoryStream())
+                // Carpeta Images/ junto al script (ruta relativa portable). Si no está guardado,
+                // se usa Imágenes/Hekatan con ruta absoluta.
+                string dir, argPrefix;
+                if (!string.IsNullOrEmpty(CurrentFileName))
+                {
+                    dir = Path.Combine(Path.GetDirectoryName(CurrentFileName), "Images");
+                    argPrefix = "Images/";
+                }
+                else
+                {
+                    dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Hekatan");
+                    argPrefix = null;   // ruta absoluta
+                }
+                Directory.CreateDirectory(dir);
+                // Siguiente nombre libre: recorte_1.png, recorte_2.png, …
+                int n = 1; string file;
+                do { file = Path.Combine(dir, $"recorte_{n}.png"); n++; } while (File.Exists(file));
+                using (var fs = new FileStream(file, FileMode.Create))
                 {
                     var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
                     enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
-                    enc.Save(ms);
-                    b64 = Convert.ToBase64String(ms.ToArray());
+                    enc.Save(fs);
                 }
-                // Cada recorte en su propia línea. Con ';' el output muestra SOLO la imagen (no el base64).
+                // Línea LIMPIA en el script: imshow('Images/recorte_N.png');  (con ; → output = solo la imagen)
+                var arg = argPrefix != null ? argPrefix + Path.GetFileName(file) : file.Replace('\\', '/');
                 RichTextBox.BeginChange();
-                try
-                {
-                    _insertManager.InsertText($"imshow('data:image/png;base64,{b64}');");
-                }
+                try { _insertManager.InsertText($"imshow('{arg}');"); }
                 finally { RichTextBox.EndChange(); }
                 if (IsAutoRun)
                     CalculateAsync();
