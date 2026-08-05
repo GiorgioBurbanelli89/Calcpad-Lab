@@ -377,7 +377,7 @@ namespace Calcpad.Wpf
 
         private void TryRestoreState()
         {
-            if (IsHeadless) return;   // headless: nada de MessageBox/FileOpen (bloquearia el proceso)
+            if (IsHeadless || IsControlMode) return;   // headless/control: nada de MessageBox/FileOpen (bloquearia)
             var tempFile = Properties.Settings.Default.TempFile;
             if (string.IsNullOrEmpty(tempFile)) return;
             var fileName = Properties.Settings.Default.FileName;
@@ -1506,8 +1506,9 @@ namespace Calcpad.Wpf
             // ── GUARD incremental: si el código NO cambió en nada que afecte el resultado
             //    (solo espacios de más, indentación o líneas en blanco), NO recalcular — el
             //    output actual ya es correcto. Evita recalcular las integrales al tocar un espacio.
+            bool ctlRerun = _recalcFromControl;   // Piso 3: este cálculo lo disparó un control
             if (!toWebForm && !IsWebForm && IsCalculated && _lastReportHtml != null &&
-                _lastCalcSourceNorm != null && !_recalcFromControl &&
+                _lastCalcSourceNorm != null && !ctlRerun &&
                 NormalizeForCompare(outputText) == _lastCalcSourceNorm)
             {
                 StartupMark("Skip recalc: sin cambio semántico (solo whitespace)");
@@ -1531,7 +1532,23 @@ namespace Calcpad.Wpf
                 var streamingPage = BuildStreamingPage();
                 try
                 {
-                    await _wv2Warper.NavigateToStringAsync(WithThemeClass(streamingPage));
+                    if (ctlRerun)
+                    {
+                        // Piso 3 EN VIVO: re-run disparado por un control → NO re-navegar
+                        // (evita flash blanco y no cortar el arrastre). Solo limpiar el
+                        // #matlab-output y re-streamear ahí; los controles viven en la barra
+                        // persistente #hkt-controls (fuera del output) → no se tocan.
+                        string cleared = "0";
+                        try { cleared = await WebViewer.ExecuteScriptAsync(
+                            "(function(){var o=document.getElementById('matlab-output');if(o){o.innerHTML='';return 1}return 0})()"); }
+                        catch { }
+                        if (cleared != "1")
+                            await _wv2Warper.NavigateToStringAsync(WithThemeClass(streamingPage));
+                    }
+                    else
+                    {
+                        await _wv2Warper.NavigateToStringAsync(WithThemeClass(streamingPage));
+                    }
                 }
                 catch
                 {
@@ -1995,6 +2012,27 @@ namespace Calcpad.Wpf
     var status = document.getElementById('matlab-status');
     var statusText = document.getElementById('matlab-status-text');
     var output = document.getElementById('matlab-output');
+    // ── Piso 3: controles interactivos en una barra PERSISTENTE (#hkt-controls),
+    //    fuera de #matlab-output (que se limpia en cada re-run por control). El
+    //    slider usa 'input' → recalcula EN VIVO mientras se arrastra (como MATLAB).
+    //    Si el control ya existe no se recrea (no corta el arrastre); solo se
+    //    actualiza su valor cuando NO está enfocado (cambios programáticos/CLI).
+    window.__hkt = function(spec){
+      var bar=document.getElementById('hkt-controls');
+      if(!bar){bar=document.createElement('div');bar.id='hkt-controls';bar.style.cssText='padding:6px 4px;margin-bottom:6px;border-bottom:1px solid rgba(0,0,0,.12)';var host=document.getElementById('matlab-output');host.parentNode.insertBefore(bar,host);}
+      var el=document.getElementById(spec.id);
+      if(el){var q=el.querySelector('input,select');if(q&&document.activeElement!==q){if(spec.type==='checkbox')q.checked=spec.value!=0;else if(spec.type==='select')q.selectedIndex=spec.value-1;else{q.value=spec.value;var s0=el.querySelector('.hktv');if(s0)s0.textContent=spec.value;}}return;}
+      el=document.createElement('div');el.id=spec.id;el.style.cssText='display:inline-block;margin:4px 14px 4px 0;font:14px sans-serif;vertical-align:middle';
+      function post(v){if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({type:'ctrl',name:spec.key,value:v}));}
+      if(spec.label&&spec.type!=='checkbox'&&spec.type!=='button'){var lb=document.createElement('span');lb.textContent=spec.label+' ';lb.style.fontWeight='600';el.appendChild(lb);}
+      if(spec.type==='range'){var i=document.createElement('input');i.type='range';i.min=spec.min;i.max=spec.max;i.step=spec.step;i.value=spec.value;i.style.cssText='width:240px;vertical-align:middle';var sp=document.createElement('span');sp.className='hktv';sp.textContent=spec.value;sp.style.marginLeft='8px';i.addEventListener('input',function(){sp.textContent=this.value;post(parseFloat(this.value));});el.appendChild(i);el.appendChild(sp);}
+      else if(spec.type==='number'){var i=document.createElement('input');i.type='number';i.value=spec.value;i.style.width='110px';i.addEventListener('change',function(){post(parseFloat(this.value)||0);});el.appendChild(i);}
+      else if(spec.type==='checkbox'){var l=document.createElement('label');l.style.fontWeight='600';var c=document.createElement('input');c.type='checkbox';c.checked=spec.value!=0;c.addEventListener('change',function(){post(this.checked?1:0);});l.appendChild(c);l.appendChild(document.createTextNode(' '+(spec.label||spec.key)));el.appendChild(l);}
+      else if(spec.type==='button'){var b=document.createElement('button');b.textContent=spec.label||spec.key;b.style.cssText='padding:4px 12px;cursor:pointer';b.addEventListener('click',function(){post(1);});el.appendChild(b);}
+      else if(spec.type==='select'){var s=document.createElement('select');(spec.options||[]).forEach(function(o,k){var op=document.createElement('option');op.textContent=o;if(k+1==spec.value)op.selected=true;s.appendChild(op);});s.addEventListener('change',function(){post(this.selectedIndex+1);});el.appendChild(s);}
+      else{var t=document.createElement('span');t.textContent=spec.label||'';el.appendChild(t);}
+      bar.appendChild(el);
+    };
     window.__matlabSetStatus = function(label){
       if (!statusText) return;
       // `label` ahora viene formateado desde C# (`L289 (1.2s) — Z = K \ F`)
@@ -3422,6 +3460,144 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             catch { }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        //  CANAL DE CONTROL (--ctl <dir>): servidor por cola de archivos para
+        //  manejar el WPF VIVO desde el CLI (Claude). Yo escribo cmd-N.json,
+        //  el WPF lo ejecuta y escribe resp-N.json (+ PNG capturado con
+        //  PrintWindow, que SÍ captura la superficie nativa del WebView2).
+        //  Ops: setctrl{name,value} · run · capture{path} · getoutput · quit.
+        // ═══════════════════════════════════════════════════════════════════
+        internal static bool IsControlMode =
+            System.Environment.GetCommandLineArgs().Any(a => a == "--ctl");
+        private string _ctlDir;
+        private System.Windows.Threading.DispatcherTimer _ctlTimer;
+        private readonly System.Collections.Generic.HashSet<string> _ctlDone =
+            new(System.StringComparer.OrdinalIgnoreCase);
+        private bool _ctlBusy;
+
+        private const uint PW_RENDERFULLCONTENT = 0x00000002;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out NRECT lpRect);
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NRECT { public int Left, Top, Right, Bottom; }
+
+        // Captura la VENTANA COMPLETA incluida la superficie nativa del WebView2
+        // (RenderTargetBitmap NO puede; PrintWindow con PW_RENDERFULLCONTENT sí).
+        private void CaptureWindowNative(string path)
+        {
+            try
+            {
+                UpdateLayout();
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+                if (!GetWindowRect(hwnd, out var r)) return;
+                int w = r.Right - r.Left, h = r.Bottom - r.Top;
+                if (w <= 0 || h <= 0) return;
+                using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    var hdc = g.GetHdc();
+                    try { PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT); }
+                    finally { g.ReleaseHdc(hdc); }
+                }
+                var dir = System.IO.Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
+                bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            catch { }
+        }
+
+        private void StartControlServer()
+        {
+            try { System.IO.Directory.CreateDirectory(_ctlDir); } catch { }
+            try { System.IO.File.WriteAllText(System.IO.Path.Combine(_ctlDir, "ready.txt"), System.Environment.ProcessId.ToString()); } catch { }
+            _ctlTimer = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromMilliseconds(150) };
+            _ctlTimer.Tick += async (s, e) => await CtlPoll();
+            _ctlTimer.Start();
+        }
+
+        private async System.Threading.Tasks.Task CtlPoll()
+        {
+            if (_ctlBusy) return;
+            string[] cmds;
+            try { cmds = System.IO.Directory.GetFiles(_ctlDir, "cmd-*.json"); }
+            catch { return; }
+            System.Array.Sort(cmds, System.StringComparer.Ordinal);
+            foreach (var f in cmds)
+            {
+                if (_ctlDone.Contains(f)) continue;
+                _ctlDone.Add(f);
+                _ctlBusy = true;
+                try { await CtlExecute(f); } catch { }
+                _ctlBusy = false;
+            }
+        }
+
+        private async System.Threading.Tasks.Task CtlWaitCalc()
+        {
+            for (int t = 0; t < 200 && _isParsing; t++) await System.Threading.Tasks.Task.Delay(80);
+            await System.Threading.Tasks.Task.Delay(700);   // settle del render (plots)
+        }
+
+        private async System.Threading.Tasks.Task CtlExecute(string cmdFile)
+        {
+            string json; try { json = System.IO.File.ReadAllText(cmdFile); } catch { return; }
+            string id = System.IO.Path.GetFileNameWithoutExtension(cmdFile);
+            if (id.StartsWith("cmd-")) id = id.Substring(4);
+            string resp = "{\"ok\":true}";
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                var op = root.GetProperty("op").GetString();
+                switch (op)
+                {
+                    case "setctrl":
+                        _controlValues[root.GetProperty("name").GetString()] = root.GetProperty("value").GetDouble();
+                        _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
+                        break;
+                    case "run":
+                        _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
+                        break;
+                    case "settext":   // escribir en el editor de script y recalcular
+                        SetInputText(root.GetProperty("text").GetString());
+                        ForceHighlight();
+                        _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
+                        break;
+                    case "capture":
+                        await System.Threading.Tasks.Task.Delay(300);
+                        CaptureWindowNative(root.GetProperty("path").GetString());
+                        break;
+                    case "js":   // ejecutar JS en el WebView2 (p.ej. simular arrastre del slider)
+                        string jr = "null";
+                        try { jr = await WebViewer.ExecuteScriptAsync(root.GetProperty("code").GetString()); }
+                        catch { }
+                        await CtlWaitCalc();   // por si el JS disparó un re-run (onchange del slider)
+                        resp = "{\"ok\":true,\"result\":" + (string.IsNullOrEmpty(jr) ? "null" : jr) + "}";
+                        break;
+                    case "getoutput":
+                        string outText = "\"\"";
+                        try { outText = await WebViewer.ExecuteScriptAsync("(document.getElementById('matlab-output')||document.body).innerText"); }
+                        catch { }
+                        resp = "{\"ok\":true,\"output\":" + (string.IsNullOrEmpty(outText) ? "\"\"" : outText) + "}";
+                        break;
+                    case "quit":
+                        try { System.IO.File.WriteAllText(System.IO.Path.Combine(_ctlDir, "resp-" + id + ".json"), resp); } catch { }
+                        System.Environment.Exit(0);
+                        break;
+                    default:
+                        resp = "{\"ok\":false,\"error\":\"op desconocida\"}";
+                        break;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                resp = "{\"ok\":false,\"error\":" + System.Text.Json.JsonSerializer.Serialize(ex.Message) + "}";
+            }
+            try { System.IO.File.WriteAllText(System.IO.Path.Combine(_ctlDir, "resp-" + id + ".json"), resp); } catch { }
+        }
+
         private void TryOpenOnStartup()
         {
             StartupMark("TryOpenOnStartup: start");
@@ -3457,8 +3633,10 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                     if (i + 1 < argv.Length && int.TryParse(argv[i + 1], out var nf)) { _gifFrames = nf; i++; }
                     if (i + 1 < argv.Length && int.TryParse(argv[i + 1], out var iv)) { _gifIntervalMs = iv; i++; }
                 }
+                else if (argv[i] == "--ctl" && i + 1 < argv.Length) _ctlDir = argv[++i];
                 else fileParts.Add(argv[i]);
             }
+            if (_ctlDir != null) StartControlServer();   // canal de control CLI (Piso 3 / pruebas)
             if (fileParts.Count > 0)
             {
                 var s = string.Join(" ", fileParts);

@@ -321,6 +321,7 @@ namespace Calcpad.Core.Matlab
         /// Un control lee su valor de aquí (si existe) o usa su default; al moverlo, la WPF actualiza
         /// este diccionario y re-ejecuta el script → el control devuelve el nuevo valor. = "Piso 3".</summary>
         public System.Collections.Generic.Dictionary<string, double> ControlValues { get; set; }
+        private int _uiCounter = 0;    // contador por-run para clavear uicontrols sin Tag (Piso 3)
         private int _vizCounter = 0;   // ids unicos para visores 3D interactivos (solidmesh)
         // Canal para FRAMES de animación (drawnow): se emite EN VIVO por iteración y el host
         // lo repinta en el mismo lienzo. Distinto de HtmlOut (que se bufferiza por statement).
@@ -2955,72 +2956,76 @@ namespace Calcpad.Core.Matlab
             _builtins["gca"] = a => MkGfxHandle(System.Array.Empty<MValue>());   // ejes actuales (handle)
             // --- Handles de ejes / GUI (Lab usa un eje implicito; props en Fields) ---
             _builtins["axes"] = a => MkGfxHandle(a);
-            _builtins["uicontrol"] = a => MkGfxHandle(a);
-            _builtins["uipanel"] = a => MkGfxHandle(a);
-            // ═══ CONTROLES INTERACTIVOS (Piso 3) ═══════════════════════════════
-            // Emiten HTML en el WebView2 y DEVUELVEN su valor vivo. Al cambiarlos
-            // (onchange), JS hace postMessage → la WPF guarda el valor en ControlValues
-            // y RE-EJECUTA el script → el control devuelve el nuevo valor. Se componen
-            // con MATLAB normal + plots para armar programas interactivos.
-            //   NOTA: todo número en el HTML/JS va con InvariantCulture (coma decimal
-            //   del locale rompería el atributo y parseFloat).
-            {
+            // ═══ uicontrol NATIVO de MATLAB → control interactivo en el WebView2 (Piso 3) ═══
+            // El MISMO script corre en MATLAB 2017a (crea GUI real) y en Hekatan (control HTML).
+            // Emite el control según su 'Style', keyed por 'Tag' (o contador por-run), leyendo su
+            // valor VIVO de ControlValues. Al cambiarlo, JS postMessage → la WPF guarda y re-ejecuta
+            // → get(h,'Value') devuelve el nuevo valor. Números con InvariantCulture (coma decimal
+            // del locale rompería el atributo/parseFloat).
+            _builtins["uicontrol"] = a => {
+                var h = MkGfxHandle(a);              // name-value → Fields (claves en minúscula)
+                if (_htmlOut == null) return h;      // batch/CLI: handle mudo (como MATLAB sin display)
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 string Inv(double d) => d.ToString("0.######", ic);
-                string SafeId(string s) => "hkt_" + System.Text.RegularExpressions.Regex.Replace(s, "[^A-Za-z0-9]", "_");
-                double CtrlVal(string nm, double def) =>
-                    (ControlValues != null && ControlValues.TryGetValue(nm, out var v)) ? v : def;
-
-                // slider(nombre, def, min, max [, step])
-                _builtins["slider"] = a => {
-                    string nm = a.Length > 0 && a[0].IsString ? a[0].StringValue : "slider";
-                    double def = a.Length > 1 ? a[1].Scalar : 0;
-                    double mn  = a.Length > 2 ? a[2].Scalar : 0;
-                    double mx  = a.Length > 3 ? a[3].Scalar : 1;
-                    double val = CtrlVal(nm, def);
-                    if (val < mn) val = mn;  if (val > mx) val = mx;
-                    double step = a.Length > 4 ? a[4].Scalar : (mx - mn) / 200.0;
-                    if (step <= 0) step = 1e-6;
-                    string sid = SafeId(nm), jn = System.Text.Json.JsonSerializer.Serialize(nm);
-                    _htmlOut?.Invoke(
-                        "<div class=\"hkt-ctrl\" style=\"margin:8px 0;font-family:sans-serif;font-size:14px\">" +
-                        "<label style=\"font-weight:600\">" + System.Net.WebUtility.HtmlEncode(nm) +
-                        ": <span id=\"" + sid + "_v\">" + Inv(val) + "</span></label><br>" +
-                        "<input type=\"range\" style=\"width:300px;vertical-align:middle\" min=\"" + Inv(mn) +
-                        "\" max=\"" + Inv(mx) + "\" step=\"" + Inv(step) + "\" value=\"" + Inv(val) + "\" " +
-                        "oninput=\"document.getElementById('" + sid + "_v').textContent=this.value\" " +
-                        "onchange=\"if(window.chrome&amp;&amp;chrome.webview)chrome.webview.postMessage(JSON.stringify({type:'ctrl',name:" +
-                        jn + ",value:parseFloat(this.value)}))\"></div>");
-                    return new MValue(val);
-                };
-                // numbox(nombre, def) — caja de número
-                _builtins["numbox"] = a => {
-                    string nm = a.Length > 0 && a[0].IsString ? a[0].StringValue : "num";
-                    double def = a.Length > 1 ? a[1].Scalar : 0;
-                    double val = CtrlVal(nm, def);
-                    string jn = System.Text.Json.JsonSerializer.Serialize(nm);
-                    _htmlOut?.Invoke(
-                        "<div class=\"hkt-ctrl\" style=\"margin:8px 0;font-family:sans-serif;font-size:14px\">" +
-                        "<label style=\"font-weight:600\">" + System.Net.WebUtility.HtmlEncode(nm) + ": </label>" +
-                        "<input type=\"number\" style=\"width:120px\" value=\"" + Inv(val) + "\" " +
-                        "onchange=\"if(window.chrome&amp;&amp;chrome.webview)chrome.webview.postMessage(JSON.stringify({type:'ctrl',name:" +
-                        jn + ",value:parseFloat(this.value)}))\"></div>");
-                    return new MValue(val);
-                };
-                // checkbox(nombre, def) — devuelve 0/1
-                _builtins["checkbox"] = a => {
-                    string nm = a.Length > 0 && a[0].IsString ? a[0].StringValue : "chk";
-                    double def = a.Length > 1 ? a[1].Scalar : 0;
-                    double val = CtrlVal(nm, def) != 0 ? 1 : 0;
-                    string jn = System.Text.Json.JsonSerializer.Serialize(nm);
-                    _htmlOut?.Invoke(
-                        "<div class=\"hkt-ctrl\" style=\"margin:8px 0;font-family:sans-serif;font-size:14px\">" +
-                        "<label style=\"font-weight:600\"><input type=\"checkbox\" " + (val != 0 ? "checked " : "") +
-                        "onchange=\"if(window.chrome&amp;&amp;chrome.webview)chrome.webview.postMessage(JSON.stringify({type:'ctrl',name:" +
-                        jn + ",value:this.checked?1:0}))\"> " + System.Net.WebUtility.HtmlEncode(nm) + "</label></div>");
-                    return new MValue(val);
-                };
-            }
+                string Enc(string s) => System.Net.WebUtility.HtmlEncode(s ?? "");
+                string Fs(string k, string def) => (h.Fields != null && h.Fields.TryGetValue(k, out var mv) && mv.IsString) ? mv.StringValue : def;
+                double Fn(string k, double def) => (h.Fields != null && h.Fields.TryGetValue(k, out var mv) && !mv.IsString && mv.Data != null && mv.Data.Length > 0) ? mv.Scalar : def;
+                string style = Fs("style", "pushbutton").Trim().ToLowerInvariant();
+                string key = Fs("tag", "");
+                if (key.Length == 0) key = "uictrl_" + (++_uiCounter);
+                string sid = "hkt_" + System.Text.RegularExpressions.Regex.Replace(key, "[^A-Za-z0-9]", "_");
+                double liveVal = (ControlValues != null && ControlValues.TryGetValue(key, out var sv)) ? sv : Fn("value", 0);
+                string lbl = Fs("string", "");
+                string J(string s) => System.Text.Json.JsonSerializer.Serialize(s ?? "");   // string JS/JSON seguro
+                string spec;
+                switch (style)
+                {
+                    case "slider": {
+                        double mn = Fn("min", 0), mx = Fn("max", 1);
+                        if (liveVal < mn) liveVal = mn;  if (liveVal > mx) liveVal = mx;
+                        double step = (mx - mn) / 200.0;  if (step <= 0) step = 1e-6;
+                        spec = "{id:" + J(sid) + ",type:'range',key:" + J(key) + ",label:" + J(lbl) +
+                               ",min:" + Inv(mn) + ",max:" + Inv(mx) + ",step:" + Inv(step) + ",value:" + Inv(liveVal) + "}";
+                        h.Fields["value"] = new MValue(liveVal);
+                        break; }
+                    case "checkbox": case "radiobutton": case "togglebutton": {
+                        bool on = liveVal != 0;
+                        spec = "{id:" + J(sid) + ",type:'checkbox',key:" + J(key) + ",label:" + J(lbl.Length > 0 ? lbl : key) + ",value:" + (on ? 1 : 0) + "}";
+                        h.Fields["value"] = new MValue(on ? 1 : 0);
+                        break; }
+                    case "pushbutton": {
+                        spec = "{id:" + J(sid) + ",type:'button',key:" + J(key) + ",label:" + J(lbl.Length > 0 ? lbl : key) + "}";
+                        h.Fields["value"] = new MValue(liveVal);
+                        break; }
+                    case "popupmenu": case "listbox": {
+                        var opts = new System.Collections.Generic.List<string>();
+                        if (h.Fields != null && h.Fields.TryGetValue("string", out var so))
+                        {
+                            if (so.CellData != null) { foreach (var c in so.CellData) opts.Add(c != null && c.IsString ? c.StringValue : ""); }
+                            else if (so.StringArrayData != null) { foreach (var s2 in so.StringArrayData) opts.Add(s2 ?? ""); }
+                            else if (so.IsString) opts.AddRange(so.StringValue.IndexOf('|') >= 0 ? so.StringValue.Split('|') : so.StringValue.Split('\n'));
+                        }
+                        if (opts.Count == 0) opts.Add("(vacio)");
+                        int idx = (int)System.Math.Round(liveVal);  if (idx < 1) idx = 1;  if (idx > opts.Count) idx = opts.Count;
+                        var ob = new System.Text.StringBuilder("[");
+                        for (int i = 0; i < opts.Count; i++) { if (i > 0) ob.Append(','); ob.Append(J(opts[i])); }
+                        ob.Append(']');
+                        spec = "{id:" + J(sid) + ",type:'select',key:" + J(key) + ",label:" + J(lbl) + ",value:" + idx + ",options:" + ob + "}";
+                        h.Fields["value"] = new MValue(idx);
+                        break; }
+                    case "edit": {
+                        spec = "{id:" + J(sid) + ",type:'number',key:" + J(key) + ",label:" + J(lbl) + ",value:" + Inv(liveVal) + "}";
+                        h.Fields["value"] = new MValue(liveVal);
+                        h.Fields["string"] = new MValue(Inv(liveVal));
+                        break; }
+                    default: {
+                        spec = "{id:" + J(sid) + ",type:'text',key:" + J(key) + ",label:" + J(lbl) + "}";
+                        break; }
+                }
+                _htmlOut.Invoke("<script>window.__hkt&&window.__hkt(" + spec + ")</script>");
+                return h;
+            };
+            _builtins["uipanel"] = a => MkGfxHandle(a);
             _builtins["addlistener"] = a => MkGfxHandle(System.Array.Empty<MValue>());
             // ancestor(h,'figure') -> handle (Lab usa un contenedor implícito; devolvemos el mismo
             // handle para que get/set/appdata hagan round-trip dentro de la función).
