@@ -1731,6 +1731,59 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
+                    <!-- Desplegable de operaciones SIMBÓLICAS (lo que Calcpad NO tiene). Todas verificadas.
+                         Renderizan como math (d/dx, ∫, factorización…). -->
+                    <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="712,0,0,0"
+                        x:Name="SymMenuButton" Width="46" FontSize="10" FontFamily="Roboto"
+                        Click="DispMenuButton_Click" Content="symb▾"
+                        ToolTip="Cálculo simbólico (syms): derivadas, integrales, límites, factorizar, resolver, sustituir, Taylor, jacobiano, LaTeX. Lo que Calcpad no tiene.">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="SymTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
+                                <MenuItem Header="Declarar variable  (syms)" Click="Button_Click"
+                                          Tag="syms x"
+                                          ToolTip="Declara x como variable simbólica. Necesario antes de derivar, integrar, resolver, etc. Varias: syms x y z"/>
+                                <MenuItem Header="── Cálculo ──" IsEnabled="False"/>
+                                <MenuItem Header="Derivada  ∂" Click="Button_Click"
+                                          Tag="syms x§f = x^3 + 2*x;§df = diff(f, x)"
+                                          ToolTip="Derivada simbólica ∂f/∂x. Ejemplo: ∂(x³+2x)/∂x = 3x²+2. Cambia f."/>
+                                <MenuItem Header="Integral indefinida  ∫" Click="Button_Click"
+                                          Tag="syms x§F = int(x^2, x)"
+                                          ToolTip="Integral simbólica (antiderivada). Ejemplo: ∫x² dx = x³/3."/>
+                                <MenuItem Header="Integral definida  ∫ₐᵇ" Click="Button_Click"
+                                          Tag="syms x§I = int(x^2, x, 0, 1)"
+                                          ToolTip="Integral simbólica entre límites. Ejemplo: ∫₀¹ x² dx = 1/3 (exacto, como fracción)."/>
+                                <MenuItem Header="Límite  lim" Click="Button_Click"
+                                          Tag="syms x§L = limit(sin(x)/x, x, 0)"
+                                          ToolTip="Límite simbólico. Ejemplo: lim(x→0) sin(x)/x = 1."/>
+                                <MenuItem Header="Serie de Taylor" Click="Button_Click"
+                                          Tag="syms x§T = taylor(exp(x), x, 0)"
+                                          ToolTip="Polinomio de Taylor alrededor de un punto. Ejemplo: eˣ ≈ 1 + x + x²/2 + …"/>
+                                <MenuItem Header="── Álgebra ──" IsEnabled="False"/>
+                                <MenuItem Header="Simplificar" Click="Button_Click"
+                                          Tag="syms x§s = simplify((x^2 - 1)/(x - 1))"
+                                          ToolTip="Simplifica una expresión. Ejemplo: (x²−1)/(x−1) = x+1."/>
+                                <MenuItem Header="Expandir" Click="Button_Click"
+                                          Tag="syms x§e = expand((x + 1)^3)"
+                                          ToolTip="Desarrolla productos y potencias. Ejemplo: (x+1)³ = x³+3x²+3x+1."/>
+                                <MenuItem Header="Factorizar" Click="Button_Click"
+                                          Tag="syms x§fa = factor(x^2 - 1)"
+                                          ToolTip="Factoriza. Ejemplo: x²−1 = (x−1)(x+1)."/>
+                                <MenuItem Header="Resolver ecuación  (solve)" Click="Button_Click"
+                                          Tag="syms x§sol = solve(x^2 - 4 == 0, x)"
+                                          ToolTip="Resuelve simbólicamente. Ejemplo: x²−4 = 0 → x = 2, −2 (exacto)."/>
+                                <MenuItem Header="Sustituir valor  (subs)" Click="Button_Click"
+                                          Tag="syms x§f = x^2;§v = subs(f, x, 3)"
+                                          ToolTip="Reemplaza una variable por un valor o expresión. Ejemplo: x²|ₓ₌₃ = 9."/>
+                                <MenuItem Header="── Vectorial / salida ──" IsEnabled="False"/>
+                                <MenuItem Header="Jacobiano" Click="Button_Click"
+                                          Tag="syms x y§J = jacobian([x*y, x + y], [x, y])"
+                                          ToolTip="Matriz de derivadas parciales de un vector de funciones. Ejemplo: J = [y x; 1 1]."/>
+                                <MenuItem Header="Exportar a LaTeX" Click="Button_Click"
+                                          Tag="syms x§L = latex(x^2 + 1)"
+                                          ToolTip="Convierte la expresión a código LaTeX para pegar en un documento. Ejemplo: x^{2}+1."/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                     <RichTextBox x:Name="RichTextBox" Margin="55,33,5,24"
                                  Background="{DynamicResource ThemeEditorBg}"
                                  Foreground="{DynamicResource ThemeText}"
