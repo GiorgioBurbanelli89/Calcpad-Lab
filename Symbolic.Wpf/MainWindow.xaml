@@ -1780,42 +1780,42 @@
                                           ToolTip="Declara x como variable simbólica. Necesario antes de derivar, integrar, resolver, etc. Varias: syms x y z"/>
                                 <MenuItem Header="── Cálculo ──" IsEnabled="False"/>
                                 <MenuItem Header="Derivada  ∂" Click="Button_Click"
-                                          Tag="%' Derivada de f(x) = x³ + 2x respecto a x:§syms x§f(x) = x^3 + 2*x§df = diff(f, x)"
+                                          Tag="%' Derivada de f(x) = x³ + 2x respecto a x:§syms x§f(x) = x^3 + 2*x§df = diff(f(x), x)"
                                           ToolTip="Derivada simbólica ∂f/∂x. Ejemplo: ∂(x³+2x)/∂x = 3x²+2. Cambia f."/>
                                 <MenuItem Header="Integral indefinida  ∫" Click="Button_Click"
-                                          Tag="%' Integral indefinida (antiderivada) de x²:§syms x§F = int(x^2, x)"
+                                          Tag="%' Integral indefinida de f(x) = x²:§syms x§f(x) = x^2§F = int(f(x), x)"
                                           ToolTip="Integral simbólica (antiderivada). Ejemplo: ∫x² dx = x³/3."/>
                                 <MenuItem Header="Integral definida  ∫ₐᵇ" Click="Button_Click"
-                                          Tag="%' Integral definida de x² entre 0 y 1:§syms x§I = int(x^2, x, 0, 1)"
+                                          Tag="%' Integral definida de f(x) = x² entre 0 y 1:§syms x§f(x) = x^2§I = int(f(x), x, 0, 1)"
                                           ToolTip="Integral simbólica entre límites. Ejemplo: ∫₀¹ x² dx = 1/3 (exacto, como fracción)."/>
                                 <MenuItem Header="Límite  lim" Click="Button_Click"
-                                          Tag="%' Límite de sin(x)/x cuando x → 0:§syms x§L = limit(sin(x)/x, x, 0)"
+                                          Tag="%' Límite de f(x) = sin(x)/x cuando x → 0:§syms x§f(x) = sin(x)/x§L = limit(f(x), x, 0)"
                                           ToolTip="Límite simbólico. Ejemplo: lim(x→0) sin(x)/x = 1."/>
                                 <MenuItem Header="Serie de Taylor" Click="Button_Click"
-                                          Tag="%' Serie de Taylor de eˣ alrededor de x = 0:§syms x§T = taylor(exp(x), x, 0)"
+                                          Tag="%' Serie de Taylor de f(x) = eˣ alrededor de x = 0:§syms x§f(x) = exp(x)§T = taylor(f(x), x, 0)"
                                           ToolTip="Polinomio de Taylor alrededor de un punto. Ejemplo: eˣ ≈ 1 + x + x²/2 + …"/>
                                 <MenuItem Header="── Álgebra ──" IsEnabled="False"/>
                                 <MenuItem Header="Simplificar" Click="Button_Click"
-                                          Tag="%' Simplificar (x²−1)/(x−1):§syms x§s = simplify((x^2 - 1)/(x - 1))"
+                                          Tag="%' Simplificar f(x) = (x²−1)/(x−1):§syms x§f(x) = (x^2 - 1)/(x - 1)§s = simplify(f(x))"
                                           ToolTip="Simplifica una expresión. Ejemplo: (x²−1)/(x−1) = x+1."/>
                                 <MenuItem Header="Expandir" Click="Button_Click"
-                                          Tag="%' Expandir (x + 1)³:§syms x§e = expand((x + 1)^3)"
+                                          Tag="%' Expandir f(x) = (x + 1)³:§syms x§f(x) = (x + 1)^3§e = expand(f(x))"
                                           ToolTip="Desarrolla productos y potencias. Ejemplo: (x+1)³ = x³+3x²+3x+1."/>
                                 <MenuItem Header="Factorizar" Click="Button_Click"
-                                          Tag="%' Factorizar x²−1:§syms x§fa = factor(x^2 - 1)"
+                                          Tag="%' Factorizar f(x) = x²−1:§syms x§f(x) = x^2 - 1§fa = factor(f(x))"
                                           ToolTip="Factoriza. Ejemplo: x²−1 = (x−1)(x+1)."/>
                                 <MenuItem Header="Resolver ecuación  (solve)" Click="Button_Click"
-                                          Tag="%' Resolver x² − 4 = 0:§syms x§sol = solve(x^2 - 4 == 0, x)"
+                                          Tag="%' Resolver f(x) = 0 con f(x) = x² − 4:§syms x§f(x) = x^2 - 4§sol = solve(f(x) == 0, x)"
                                           ToolTip="Resuelve simbólicamente. Ejemplo: x²−4 = 0 → x = 2, −2 (exacto)."/>
                                 <MenuItem Header="Sustituir valor  (subs)" Click="Button_Click"
-                                          Tag="%' Sustituir x = 3 en f = x²:§syms x§f = x^2;§v = subs(f, x, 3)"
+                                          Tag="%' Sustituir x = 3 en f(x) = x²:§syms x§f(x) = x^2§v = subs(f(x), x, 3)"
                                           ToolTip="Reemplaza una variable por un valor o expresión. Ejemplo: x²|ₓ₌₃ = 9."/>
                                 <MenuItem Header="── Vectorial / salida ──" IsEnabled="False"/>
                                 <MenuItem Header="Jacobiano" Click="Button_Click"
-                                          Tag="%' Jacobiano de [x·y, x + y] respecto a [x, y]:§syms x y§J = jacobian([x*y, x + y], [x, y])"
+                                          Tag="%' Jacobiano de F = [x·y, x + y] respecto a [x, y]:§syms x y§F = [x*y, x + y]§J = jacobian(F, [x, y])"
                                           ToolTip="Matriz de derivadas parciales de un vector de funciones. Ejemplo: J = [y x; 1 1]."/>
                                 <MenuItem Header="Exportar a LaTeX" Click="Button_Click"
-                                          Tag="%' Exportar x² + 1 a código LaTeX:§syms x§L = latex(x^2 + 1)"
+                                          Tag="%' Exportar f(x) = x² + 1 a código LaTeX:§syms x§f(x) = x^2 + 1§L = latex(f(x))"
                                           ToolTip="Convierte la expresión a código LaTeX para pegar en un documento. Ejemplo: x^{2}+1."/>
                             </ContextMenu>
                         </Button.ContextMenu>
