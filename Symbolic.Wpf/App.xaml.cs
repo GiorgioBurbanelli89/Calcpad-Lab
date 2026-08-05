@@ -29,6 +29,22 @@ namespace Calcpad.Wpf
 
         private static void ReportUnhandledExceptionAndClose(Exception e)
         {
+            // Headless (--shot/--gif/--wshot/--pdf): volcar el crash a %TEMP% y salir DURO.
+            // Nada de SaveStateAndRestart/Execute (respawn) ni Process.Start(Notepad):
+            // en headless el respawn re-lanza la app SIN --shot, TryRestoreState abre un
+            // MessageBox que bloquea, y se acumulan huérfanos msedgewebview2. Environment.Exit
+            // termina el proceso y sus hijos WebView2 de inmediato -> sin huérfanos ni cuelgue.
+            if (Calcpad.Wpf.MainWindow.IsHeadless)
+            {
+                try
+                {
+                    var dump = Path.Combine(Path.GetTempPath(), "calcpad_lab_crash.txt");
+                    File.WriteAllText(dump, $"{e.GetType().FullName}\n{e.Message}\n\n{e.StackTrace}\n\nInner: {e.InnerException}");
+                }
+                catch { }
+                Environment.Exit(1);
+                return;
+            }
 
             MainWindow main = (MainWindow)Current.MainWindow;
             var logFileName = Path.ChangeExtension(Path.GetTempFileName(), ".txt");

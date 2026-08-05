@@ -58,9 +58,13 @@ namespace Calcpad.Core
         {
             if (!Directory.Exists(folder)) return mainScript;
 
-            // Encontrar todos los .m en la carpeta y subcarpetas (MATLAB path-like).
+            // Encontrar los .m SOLO en la carpeta del script (no subcarpetas). MATLAB
+            // pone en el path el current directory, NO su subarbol (eso requiere
+            // addpath(genpath(...))). Recursar metia librerias foraneas alojadas en
+            // subcarpetas (p.ej. emdlab-win64) ANTEPUESTAS al script -> cientos de
+            // errores ajenos antes del contenido real. TopDirectoryOnly lo corrige.
             string[] mFiles;
-            try { mFiles = Directory.GetFiles(folder, "*.m", SearchOption.AllDirectories); }
+            try { mFiles = Directory.GetFiles(folder, "*.m", SearchOption.TopDirectoryOnly); }
             catch { return mainScript; }
 
             // Ordenar para reproducibilidad

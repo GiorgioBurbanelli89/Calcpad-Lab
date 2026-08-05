@@ -377,6 +377,7 @@ namespace Calcpad.Wpf
 
         private void TryRestoreState()
         {
+            if (IsHeadless) return;   // headless: nada de MessageBox/FileOpen (bloquearia el proceso)
             var tempFile = Properties.Settings.Default.TempFile;
             if (string.IsNullOrEmpty(tempFile)) return;
             var fileName = Properties.Settings.Default.FileName;
@@ -1691,7 +1692,20 @@ namespace Calcpad.Wpf
                 // Modo headless --shot: capturar CUANDO el cálculo terminó de verdad (no a
                 // los 7s fijos, que para FEM pesado capturaba en blanco). +settle para que
                 // el último frame de animación (drawnow) acabe de pintarse en el WebView2.
-                if (_shotPng != null) { await Task.Delay(1200); await WaitForPlotsAsync(); await CaptureWebViewerAndExit(_shotPng); }
+                if (_shotPng != null)
+                {
+                    await Task.Delay(1200);
+                    await WaitForPlotsAsync();
+                    // Blindaje: si la captura no retorna en 15s (animación viva que nunca
+                    // vacía __plotQueue, o WebView2 colgado), salir DURO en vez de colgar 2min.
+                    var cap = CaptureWebViewerAndExit(_shotPng);
+                    if (await Task.WhenAny(cap, Task.Delay(15000)) != cap)
+                    {
+                        try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "calcpad_lab_shot_timeout.txt"), System.DateTime.Now.ToString()); }
+                        catch { }
+                        System.Environment.Exit(2);
+                    }
+                }
                 else if (_pdfOut != null)
                 {
                     await Task.Delay(1000);
@@ -2907,6 +2921,13 @@ namespace Calcpad.Wpf
             }
             catch { }
         }
+
+        // Modo headless (--shot/--gif/--wshot/--pdf): sin interacción, sin respawn, sin popups.
+        // Evita que el crash-handler re-lance la app y que TryRestoreState abra un MessageBox
+        // (que en headless bloquea para siempre) -> huérfanos msedgewebview2 + cuelgues.
+        internal static readonly bool IsHeadless =
+            System.Environment.GetCommandLineArgs().Any(a =>
+                a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf");
 
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
