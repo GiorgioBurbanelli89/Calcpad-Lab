@@ -458,8 +458,9 @@ namespace Calcpad.Core.Matlab
         private void ReturnGlobalScope(MatlabScope s) { if (_scopePool.Count < 256) _scopePool.Push(s); }
         /// <summary>Para tic/toc.</summary>
         private System.Diagnostics.Stopwatch _ticStopwatch;
-        /// <summary>RNG estable (seed determinístico para repetibilidad).</summary>
-        private Random _rng = new(42);   // reseed via rng(seed) (MATLAB)
+        /// <summary>RNG = Mersenne Twister mt19937ar BIT-IDÉNTICO a MATLAB. Arranca en el estado
+        /// 'default' de MATLAB (seed 0 → init_genrand(5489)). Ver MatlabTwister.</summary>
+        private MatlabTwister _rng = new(0u);   // 0 → 5489 (default de MATLAB)
 
         private void RegisterBuiltins()
         {
@@ -1130,18 +1131,21 @@ namespace Calcpad.Core.Matlab
                 int nR = a.Length >= 1 ? (int)a[0].Scalar : 1;
                 int nC = a.Length >= 2 ? (int)a[1].Scalar : nR;
                 var r = new MValue(nR, nC);
-                for (int i = 0; i < r.Data.Length; i++) r.Data[i] = _rng.NextDouble();
+                // MATLAB llena rand(m,n) en orden COLUMN-major (aunque aquí se almacena row-major).
+                for (int j = 0; j < nC; j++)
+                    for (int i = 0; i < nR; i++)
+                        r.Data[i * nC + j] = _rng.NextDouble();
                 return r;
             };
             // rng(seed) / rng('default') / rng('shuffle') — re-siembra el RNG (MATLAB): reproducible.
             _builtins["rng"] = a => {
                 if (a.Length >= 1 && a[0] != null && !a[0].IsString)
-                    _rng = new Random((int)a[0].Scalar);
+                    _rng.Seed((uint)(long)a[0].Scalar);          // rng(k): k>0→init_genrand(k), 0→5489
                 else if (a.Length >= 1 && a[0] != null && a[0].IsString &&
                          a[0].StringValue.Equals("shuffle", StringComparison.OrdinalIgnoreCase))
-                    _rng = new Random();
+                    _rng.Seed((uint)Environment.TickCount | 1u);  // no determinista
                 else
-                    _rng = new Random(42);   // 'default'
+                    _rng.Seed(0u);                                // 'default' → 5489 (como MATLAB)
                 return new MValue(0);
             };
             _builtins["randn"] = a => {
@@ -2138,7 +2142,10 @@ namespace Calcpad.Core.Matlab
             _builtins["title"] = a => {
                 a = DropAxes(a);   // tolerar title(ax, …)
                 if (a.Length > 0 && a[0].IsString) {
-                    if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigTitle(a[0].StringValue);
+                    // subplot con panel 3D bufferizado → inyecta el título dentro del plot (antes
+                    // que SetFigTitle, porque la figura 2D del panel está abierta pero vacía).
+                    if (MatlabPlots.SetPanelTitle(a[0].StringValue)) { }
+                    else if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigTitle(a[0].StringValue);
                     else RelayoutLastPlot("title", JsonEscape(a[0].StringValue));
                 }
                 return new MValue(0);
@@ -2197,7 +2204,9 @@ namespace Calcpad.Core.Matlab
             {
                 int id = MatlabPlots.LastPlotId;
                 if (id == 0) return;
-                _htmlOut?.Invoke($"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, '{property}', \"{jsonValue}\");}})();</script>\n");
+                string js = $"<script>(function(){{var d=document.getElementById('matlab_plot_{id}'); if(d&&window.Plotly) Plotly.relayout(d, '{property}', \"{jsonValue}\");}})();</script>\n";
+                if (MatlabPlots.TryBufferPanel(js)) return;   // subplot → título 3D dentro de su celda
+                _htmlOut?.Invoke(js);
             }
             string JsonEscape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
             _builtins["colorbar"] = a => {
@@ -2667,7 +2676,7 @@ namespace Calcpad.Core.Matlab
                 int m = (int)a[0].Scalar, n = (int)a[1].Scalar, p = (int)a[2].Scalar;
                 _subplotGrid = (m, n);
                 _activeSubplotPos = p;
-                var html = MatlabPlots.SubplotCell(m, n);
+                var html = MatlabPlots.SubplotCell(m, n, p);
                 if (!string.IsNullOrEmpty(html)) _htmlOut?.Invoke(html);
                 _colorCycleIdx = 0;   // ejes nuevos → reinicia ciclo de colores
                 return new MValue(0);
@@ -14624,6 +14633,20 @@ namespace Calcpad.Core.Matlab
         }
 
         /// <summary>Inversa por eliminación Gauss-Jordan.</summary>
+        /// <summary>¿La matriz densa (row-major, length n·n) es SIMÉTRICA? O(n²/2), ~50 ms para
+        /// n=5000 → despreciable frente a los segundos que ahorra usar Cholesky en vez de LU.</summary>
+        private static bool IsSymmetricDense(double[] d, int n)
+        {
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n; j++)
+                {
+                    double a = d[i * n + j], b = d[j * n + i];
+                    double tol = 1e-12 + 1e-9 * System.Math.Max(System.Math.Abs(a), System.Math.Abs(b));
+                    if (System.Math.Abs(a - b) > tol) return false;
+                }
+            return true;
+        }
+
         public static MValue Inverse(MValue m)
         {
             if (m.Rows != m.Cols) throw new MatlabRuntimeException($"inv: matrix must be square, got {m.Rows}×{m.Cols}");
@@ -14633,6 +14656,17 @@ namespace Calcpad.Core.Matlab
             if (n >= LapackInterop.LapackThreshold && LapackInterop.Available
                 && m.Imag == null && !m.IsSparseReal && m.Data != null)
             {
+                // SIMÉTRICA definida positiva → Cholesky (dpotrf+dpotri): ~2-4× más rápido que
+                // dgesv general (que ignora la simetría). Es lo que hace Calcpad para ganar en inv.
+                if (IsSymmetricDense(m.Data, n))
+                {
+                    try
+                    {
+                        var spd = LapackInterop.InverseSPD(n, m.Data);
+                        if (spd != null) return new MValue(n, n, spd);   // null = no SPD → sigue a dgesv
+                    }
+                    catch { }
+                }
                 try { return new MValue(n, n, LapackInterop.Inverse(n, m.Data)); }
                 catch { /* singular u otro → cae al Gauss-Jordan (mismo mensaje de error) */ }
             }

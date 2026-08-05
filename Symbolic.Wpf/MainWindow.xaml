@@ -905,6 +905,13 @@
                 Foreground="{DynamicResource ThemeText}" Background="{DynamicResource ThemeButtonBg}"
                 BorderBrush="{DynamicResource ThemeButtonBorder}" Content="%'"
                 ToolTip="Insertar texto VISIBLE (%' texto) en el output"/>
+        <!-- Maximizar SOLO el Output (gráficas): oculta el editor. Click de nuevo o Esc/F11 vuelve. -->
+        <Button Grid.Row="0" Click="MaximizeOutput_Click" x:Name="MaximizeOutputBtn"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="432,26,0,0" Height="22" Width="88" FontSize="11.5"
+                Foreground="{DynamicResource ThemeAccentGold}" Background="{DynamicResource ThemeButtonBg}"
+                BorderBrush="{DynamicResource ThemeButtonBorder}" Content="⛶ Output"
+                ToolTip="Maximizar solo el Output (gráficas) — vuelve con este botón, F11 o Esc"/>
         <!-- ═══ Toggle de tema visible: Oscuro | Oro (maqueta) — a la derecha, sin chocar ═══ -->
         <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,25,180,0"
                 Height="24" CornerRadius="12" Padding="2,0" BorderThickness="1"
@@ -1074,12 +1081,14 @@
                       Padding="2,0,0,0"
                       TabIndex="14" 
                       Click="SubstituteCheckBox_Click"/>
-            <TextBlock Text="{x:Static wpf:MainWindowResources.Plot}" 
-                       Height="18" 
-                       FontSize="11" 
-                       VerticalAlignment="Center" 
+            <!-- Controles de gráficas del $Plot NATIVO de Calcpad — NO aplican a Hekatan Lab (MATLAB
+                 usa colormap() del código). Ocultos para no confundir. -->
+            <TextBlock Text="{x:Static wpf:MainWindowResources.Plot}" Visibility="Collapsed"
+                       Height="18"
+                       FontSize="11"
+                       VerticalAlignment="Center"
                        HorizontalAlignment="Left"/>
-            <CheckBox x:Name="AdaptiveCheckBox" 
+            <CheckBox x:Name="AdaptiveCheckBox" Visibility="Collapsed"
                       Content="{x:Static wpf:MainWindowResources.Adaptive}" 
                       ToolTip="{x:Static wpf:MainWindowResources.AdaptiveTooltip}" 
                       IsChecked="True" 
@@ -1088,8 +1097,8 @@
                       HorizontalAlignment="Center" 
                       TabIndex="15" 
                       Click="AdaptiveCheckBox_Click" FontSize="11"/>
-            <CheckBox x:Name="ShadowsCheckBox" 
-                      Content="{x:Static wpf:MainWindowResources.Shadows}" 
+            <CheckBox x:Name="ShadowsCheckBox" Visibility="Collapsed"
+                      Content="{x:Static wpf:MainWindowResources.Shadows}"
                       ToolTip="{x:Static wpf:MainWindowResources.ShadowsTooltip}" 
                       Height="16" 
                       VerticalAlignment="Top"
@@ -1097,8 +1106,8 @@
                       Margin="2,0,0,0"
                       TabIndex="16" 
                       Click="ShadowsCheckBox_Click" FontSize="11" />
-            <ComboBox x:Name="LightDirectionComboBox" 
-                      ToolTip="{x:Static wpf:MainWindowResources.LightDirection}" 
+            <ComboBox x:Name="LightDirectionComboBox" Visibility="Collapsed"
+                      ToolTip="{x:Static wpf:MainWindowResources.LightDirection}"
                       Height="22"
                       Width="105" 
                       VerticalAlignment="Center" 
@@ -1115,13 +1124,13 @@
                 <ComboBoxItem Content="{x:Static wpf:MainWindowResources.West}"/>
                 <ComboBoxItem Content="{x:Static wpf:MainWindowResources.NorthWest}" IsSelected="True"/>
             </ComboBox>
-            <TextBlock Text="{x:Static wpf:MainWindowResources.Palette}" 
-                       Height="18" 
-                       VerticalAlignment="Center" 
-                       HorizontalAlignment="Left" 
+            <TextBlock Text="{x:Static wpf:MainWindowResources.Palette}" Visibility="Collapsed"
+                       Height="18"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Left"
                        Margin="4,0,0,0" FontSize="11"/>
-            <ComboBox x:Name="ColorScaleComboBox" 
-                      ToolTip="{x:Static wpf:MainWindowResources.PaletteTooltip}" 
+            <ComboBox x:Name="ColorScaleComboBox" Visibility="Collapsed"
+                      ToolTip="{x:Static wpf:MainWindowResources.PaletteTooltip}"
                       Height="22"
                       Width="100" 
                       VerticalAlignment="Top" 
@@ -1213,14 +1222,14 @@
                     </ComboBoxItem.Background>
                 </ComboBoxItem>
             </ComboBox>
-            <CheckBox x:Name="SmoothCheckBox" 
-                    Content="{x:Static wpf:MainWindowResources.Smooth}" 
+            <CheckBox x:Name="SmoothCheckBox" Visibility="Collapsed"
+                    Content="{x:Static wpf:MainWindowResources.Smooth}"
                     ToolTip="{x:Static wpf:MainWindowResources.SmoothTooltip}" 
                     Height="16" Margin="4,0,0,0" TabIndex="19" 
                     VerticalAlignment="Top" HorizontalAlignment="Right" 
                     Click="SmoothCheckBox_Click" FontSize="11"/>
-            <CheckBox x:Name="EmbedCheckBox" 
-                    Content="{x:Static wpf:MainWindowResources.Embed}" 
+            <CheckBox x:Name="EmbedCheckBox" Visibility="Collapsed"
+                    Content="{x:Static wpf:MainWindowResources.Embed}"
                     ToolTip="{x:Static wpf:MainWindowResources.EmbedPlotsInsideTheHtmlAsBase64EncodedImagesSaveToFilesIfUnchecked}" 
                     Height="16" 
                     VerticalAlignment="Top" HorizontalAlignment="Right" 
@@ -1258,9 +1267,9 @@
         </StatusBar>
         <Grid x:Name="FramesGrid" Margin="0,1,0,35" Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="120*"/>
-                <ColumnDefinition />
-                <ColumnDefinition Width="120*" />
+                <ColumnDefinition x:Name="EditorCol" Width="120*"/>
+                <ColumnDefinition x:Name="SplitterCol" Width="Auto"/>
+                <ColumnDefinition x:Name="WebCol" Width="120*" />
             </Grid.ColumnDefinitions>
             <GroupBox x:Name="InputFrame" Header="{x:Static wpf:MainWindowResources.Code}"
                       FontSize="13" FontFamily="Segoe UI Semibold"
@@ -1916,7 +1925,7 @@
                     <me:MathCanvasControl x:Name="MathCanvasView" Visibility="Collapsed" Margin="5,5,5,5"/>
                 </Grid>
             </GroupBox>
-            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Margin="1,5,1,0" Background="#32DDDDDD" />
+            <GridSplitter x:Name="MainSplitter" Grid.Column="1" HorizontalAlignment="Stretch" Margin="1,5,1,0" Background="#32DDDDDD" />
             <Border x:Name="CodeCheckBorder"
                     CornerRadius="4" Padding="4,2,2,2" Margin="0,2,16,0" 
                     HorizontalAlignment="Right" VerticalAlignment="Top"  

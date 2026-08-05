@@ -55,6 +55,10 @@ namespace Calcpad.Core
         public static delegate* unmanaged[Cdecl]<int, int, int, double*, int, int*, double*, int, int> Dgesv;
         // LAPACKE_dpbsv(layout, uplo, n, kd, nrhs, AB, ldab, B, ldb) -> info
         public static delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int> Dpbsv;
+        // LAPACKE_dpotrf(layout, uplo, n, A, lda) -> info  (Cholesky de simétrica SPD)
+        public static delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int> Dpotrf;
+        // LAPACKE_dpotri(layout, uplo, n, A, lda) -> info  (inversa desde el factor Cholesky)
+        public static delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int> Dpotri;
         // LAPACKE_dsygv(layout, itype, jobz, uplo, n, A, lda, B, ldb, w) -> info  (LAPACKE gestiona el workspace)
         public static delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int> Dsygv;
         // LAPACKE_dgeev(layout, jobvl, jobvr, n, a, lda, wr, wi, vl, ldvl, vr, ldvr) -> info  (eig NO simétrica)
@@ -160,6 +164,8 @@ namespace Calcpad.Core
             if (NativeLibrary.TryGetExport(h, "cblas_ddot", out p)) Ddot = (delegate* unmanaged[Cdecl]<int, double*, int, double*, int, double>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgesv", out p)) Dgesv = (delegate* unmanaged[Cdecl]<int, int, int, double*, int, int*, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpbsv", out p)) Dpbsv = (delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int>)p;
+            if (NativeLibrary.TryGetExport(h, "LAPACKE_dpotrf", out p)) Dpotrf = (delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int>)p;
+            if (NativeLibrary.TryGetExport(h, "LAPACKE_dpotri", out p)) Dpotri = (delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dsygv", out p)) Dsygv = (delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgeev", out p)) Dgeev = (delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int>)p;
             // Forzar multi-threading de MKL (por defecto se quedaba en 1 thread en este proceso).
@@ -579,6 +585,33 @@ namespace Calcpad.Core
             if (info != 0)
                 throw new InvalidOperationException($"dgesv(inv) info={info} (singular or argument error)");
             return x;
+        }
+
+        /// <summary>A⁻¹ para A SIMÉTRICA definida positiva vía Cholesky (dpotrf + dpotri). Hace ~2×
+        /// menos trabajo que dgesv/dgetri general (aprovecha la simetría, como Calcpad). Devuelve
+        /// null si A NO es SPD (dpotrf info>0) → el llamador cae a la ruta general. A row-major
+        /// n×n; se factoriza el triángulo 'U' y luego se refleja a la mitad inferior.</summary>
+        public static double[] InverseSPD(int n, double[] A_row)
+        {
+            if (!Available || NativeBlas.Dpotrf == null || NativeBlas.Dpotri == null) return null;
+            var a = (double[])A_row.Clone();
+            int info;
+            // A es SIMÉTRICA → su almacenamiento row-major ES idéntico al col-major. Usamos
+            // COL_MAJOR para que LAPACKE NO haga la transposición interna (2 copias de n²·8 bytes
+            // = 200 MB en n=5000). La inversa también es simétrica → válida en ambos layouts.
+            fixed (double* pA = a)
+            {
+                info = NativeBlas.Dpotrf(NativeBlas.LapackColMajor, (sbyte)'U', n, pA, n);
+                if (info != 0) return null;           // info>0 → no SPD; info<0 → arg error
+                info = NativeBlas.Dpotri(NativeBlas.LapackColMajor, (sbyte)'U', n, pA, n);
+                if (info != 0) return null;
+            }
+            // dpotri('U' col-major) deja la inversa en el triángulo que, en ROW-major, es el
+            // INFERIOR (row≥col). Se refleja inferior→superior para completar la matriz simétrica.
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n; j++)
+                    a[i * n + j] = a[j * n + i];
+            return a;
         }
 
         /// <summary>Valores propios generalizados simétricos A·φ = λ·B·φ (itype=1), A simétrica

@@ -1462,6 +1462,16 @@ namespace Calcpad.Wpf
                     _parser.Settings.Math.Degrees = 1;
                 outputText = MatlabFolderLoader.Load(outputText, CurrentFileName);
             }
+            // ── GUARD incremental: si el código NO cambió en nada que afecte el resultado
+            //    (solo espacios de más, indentación o líneas en blanco), NO recalcular — el
+            //    output actual ya es correcto. Evita recalcular las integrales al tocar un espacio.
+            if (!toWebForm && !IsWebForm && IsCalculated && _lastReportHtml != null &&
+                _lastCalcSourceNorm != null &&
+                NormalizeForCompare(outputText) == _lastCalcSourceNorm)
+            {
+                StartupMark("Skip recalc: sin cambio semántico (solo whitespace)");
+                return;
+            }
             string htmlResult;
             // ── PURE MATLAB pipeline para archivos .m: usar motor MATLAB nativo,
             //    no MatlabPreprocessor (que rompe sintaxis tic, transpose, slicing).
@@ -1714,26 +1724,9 @@ namespace Calcpad.Wpf
                     }
                     catch { /* ignore — log es secundario */ }
 
-                    // NavigateToStringAsync uses document.write+ExecuteScriptAsync, which has
-                    // a ~2 MB JSON limit AND triggers parser-blocking warnings for external
-                    // scripts (calcpad-viz, jQuery). For HTML over ~1 MB or containing big
-                    // SVG meshes (>500 inline <line>s), write to %TEMP% and Navigate(file:///).
-                    const int NAV_STRING_LIMIT = 1_000_000; // 1 MB margin (UTF-16 in C# is 2 B/char)
-                    bool hasLargeSvg = htmlResult.Length > 200_000 &&
-                        System.Text.RegularExpressions.Regex.IsMatch(htmlResult,
-                            @"<svg[^>]*>.{0,500}<line", System.Text.RegularExpressions.RegexOptions.Singleline);
-                    if (htmlResult.Length > NAV_STRING_LIMIT || hasLargeSvg)
-                    {
-                        var tempHtml = Path.Combine(Path.GetTempPath(),
-                            $"calcpad_render_{Guid.NewGuid():N}.html");
-                        File.WriteAllText(tempHtml, htmlResult, Encoding.UTF8);
-                        var fileUri = "file:///" + tempHtml.Replace("\\", "/");
-                        _wv2Warper.Navigate(fileUri);
-                    }
-                    else
-                    {
-                        await _wv2Warper.NavigateToStringAsync(WithThemeClass(InjectLazyPlots(htmlResult)));
-                    }
+                    _lastReportHtml = htmlResult;   // cache: re-teñir por tema SIN recalcular el motor
+                    _lastCalcSourceNorm = NormalizeForCompare(outputText);  // para saltar recalcs sin cambio
+                    await RenderReportHtmlAsync(htmlResult);
                     StartupMark($"Output rendered (HTML: {htmlResult.Length / 1024} KB)");
                 }
             }
@@ -2968,6 +2961,70 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             return html + LazyPlotScript;
         }
 
+        // HTML crudo del último render (del motor). Permite re-teñir por tema SIN recalcular.
+        private string _lastReportHtml = null;
+
+        // Forma NORMALIZADA del código de la última corrida. Si el código nuevo normaliza igual,
+        // el resultado es idéntico → no se recalcula. Ver NormalizeForCompare.
+        private string _lastCalcSourceNorm = null;
+
+        /// <summary>Reduce el código a una forma canónica que IGNORA lo que NO cambia el resultado:
+        /// indentación, líneas en blanco y espacios repetidos ENTRE tokens de código puro. Las
+        /// líneas con comillas (strings) o '%' (comentarios, que pueden ser texto visible con %')
+        /// se comparan EXACTAS — así nunca se salta un recálculo que sí cambia la salida.
+        /// NO borra espacios sueltos: en MATLAB el espacio dentro de [ ] es significativo
+        /// ([1 2 3] ≠ [123]); por eso solo COLAPSA runs de espacios, no los elimina.</summary>
+        private static string NormalizeForCompare(string src)
+        {
+            if (string.IsNullOrEmpty(src)) return "";
+            var sb = new StringBuilder(src.Length);
+            foreach (var raw in src.Split('\n'))
+            {
+                string line = raw.TrimEnd('\r');
+                bool sensitive = line.IndexOf('\'') >= 0 || line.IndexOf('"') >= 0 || line.IndexOf('%') >= 0;
+                string canon = sensitive
+                    ? line.TrimEnd()                                                   // exacta (solo trim de fin)
+                    : System.Text.RegularExpressions.Regex.Replace(line, @"\s+", " ").Trim();  // colapsa espacios
+                if (canon.Length == 0) continue;                                       // ignora líneas en blanco
+                sb.Append(canon).Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Navega el WebView al HTML del reporte (string chico o file:/// para grande/SVG).</summary>
+        private async System.Threading.Tasks.Task RenderReportHtmlAsync(string htmlResult)
+        {
+            const int NAV_STRING_LIMIT = 1_000_000; // 1 MB margin (UTF-16 en C# = 2 B/char)
+            bool hasLargeSvg = htmlResult.Length > 200_000 &&
+                System.Text.RegularExpressions.Regex.IsMatch(htmlResult,
+                    @"<svg[^>]*>.{0,500}<line", System.Text.RegularExpressions.RegexOptions.Singleline);
+            if (htmlResult.Length > NAV_STRING_LIMIT || hasLargeSvg)
+            {
+                var tempHtml = Path.Combine(Path.GetTempPath(), $"calcpad_render_{Guid.NewGuid():N}.html");
+                File.WriteAllText(tempHtml, htmlResult, Encoding.UTF8);
+                var fileUri = "file:///" + tempHtml.Replace("\\", "/");
+                _wv2Warper.Navigate(fileUri);
+            }
+            else
+            {
+                await _wv2Warper.NavigateToStringAsync(WithThemeClass(InjectLazyPlots(htmlResult)));
+            }
+        }
+
+        /// <summary>Cambio de tema SIN recalcular: sólo intercambia los colores de tema (fondo/texto/
+        /// grid de las gráficas, incrustados en su HTML) y re-navega. El cómputo numérico no se toca.</summary>
+        private async void RetintReportForTheme(bool dark)
+        {
+            if (string.IsNullOrEmpty(_lastReportHtml)) return;
+            string h = _lastReportHtml;
+            if (dark)   // gold → dark
+                h = h.Replace("#ede4ce", "#1a1712").Replace("#2b2416", "#e8e2d4").Replace("#cdbf9c", "#3a3226");
+            else        // dark → gold
+                h = h.Replace("#1a1712", "#ede4ce").Replace("#e8e2d4", "#2b2416").Replace("#3a3226", "#cdbf9c");
+            _lastReportHtml = h;
+            try { await RenderReportHtmlAsync(h); } catch { }
+        }
+
         /// <summary>Incrusta la clase de tema (dark/gold) en el &lt;html&gt; del reporte ANTES
         /// de escribirlo. Necesario porque NavigateToStringAsync hace document.write y
         /// reemplaza el documento — la clase puesta por ApplyReportTheme se perdía → reporte
@@ -2996,6 +3053,13 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             if (ThemeToggleMenuItem != null)
                 ThemeToggleMenuItem.Header = dark ? "Theme: Dark  →  Gold" : "Theme: Gold  →  Dark";
             UpdateThemeToggleVisual();
+            // El fondo de cada gráfica (paper_bgcolor de Plotly / fill del SVG) va INCRUSTADO en su
+            // HTML, no en el CSS del reporte. Se RE-TIÑE el HTML cacheado y se re-navega SIN recalcular
+            // el motor (las integrales/meshgrid no cambian con el tema). Mucho más rápido.
+            if (IsInitialized && IsCalculated && !IsWebForm && !_isParsing && !string.IsNullOrEmpty(_lastReportHtml))
+            {
+                RetintReportForTheme(dark);
+            }
         }
 
         private void ThemeToggle_Click(object sender, RoutedEventArgs e) => SetTheme(!_isDarkTheme);
@@ -4219,31 +4283,19 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             };
         }
 
-        private void ColorScaleComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            ClearOutput();
-        }
+        // Palette / LightDirection / Shadows / Smooth / Embed son controles del $Plot NATIVO de
+        // Calcpad. El motor MATLAB (surf/plot3) NO los lee — usa su propio colormap() del código.
+        // Antes recalculaban TODO el documento para nada; ahora son no-op (no recalculan).
+        // (La paleta real de una gráfica MATLAB se cambia con colormap('jet') en el código.)
+        private void ColorScaleComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
 
-        private void LightDirectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            ClearOutput();
-        }
+        private void LightDirectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
 
+        private void ShadowsCheckBox_Click(object sender, RoutedEventArgs e) { }
 
-        private void ShadowsCheckBox_Click(object sender, RoutedEventArgs e)
-        {
-            ClearOutput();
-        }
+        private void SmoothCheckBox_Click(object sender, RoutedEventArgs e) { }
 
-        private void SmoothCheckBox_Click(object sender, RoutedEventArgs e)
-        {
-            ClearOutput();
-        }
-
-        private void EmbedCheckBox_Click(object sender, RoutedEventArgs e)
-        {
-            ClearOutput();
-        }
+        private void EmbedCheckBox_Click(object sender, RoutedEventArgs e) { }
 
         private void AdaptiveCheckBox_Click(object sender, RoutedEventArgs e)
         {
@@ -4251,10 +4303,54 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             ClearOutput();
         }
 
+        // ── Modo "solo WebView" (F11): maximiza las gráficas/reporte ocultando el editor y el
+        //    splitter, y maximiza la ventana. F11 o Escape vuelve a la vista normal. ──
+        private bool _webOnlyMode = false;
+        private WindowState _savedWinState = WindowState.Normal;
+        private void MaximizeOutput_Click(object sender, RoutedEventArgs e) => ToggleWebOnlyMode();
+        private void ToggleWebOnlyMode()
+        {
+            _webOnlyMode = !_webOnlyMode;
+            if (_webOnlyMode)
+            {
+                _savedWinState = WindowState;
+                InputFrame.Visibility = Visibility.Collapsed;
+                MainSplitter.Visibility = Visibility.Collapsed;
+                EditorCol.Width = new GridLength(0);
+                SplitterCol.Width = new GridLength(0);
+                WebCol.Width = new GridLength(1, GridUnitType.Star);
+                WindowState = WindowState.Maximized;
+                if (MaximizeOutputBtn != null) MaximizeOutputBtn.Content = "⛶ Editor";
+            }
+            else
+            {
+                // Restaurar SIEMPRE al 50/50 limpio (layout por defecto). No se restaura un ancho
+                // guardado porque podía quedar en px absolutos → aplastaba el Output.
+                InputFrame.Visibility = Visibility.Visible;
+                MainSplitter.Visibility = Visibility.Visible;
+                EditorCol.Width = new GridLength(120, GridUnitType.Star);
+                SplitterCol.Width = GridLength.Auto;
+                WebCol.Width = new GridLength(120, GridUnitType.Star);
+                WindowState = _savedWinState;
+                if (MaximizeOutputBtn != null) MaximizeOutputBtn.Content = "⛶ Output";
+            }
+        }
+
         private void Window_KeyUp(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.F11)
+            {
+                ToggleWebOnlyMode();
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.Escape)
             {
+                if (_webOnlyMode)   // salir del modo "solo gráficas" antes que cancelar el cálculo
+                {
+                    ToggleWebOnlyMode();
+                    return;
+                }
                 if (_isParsing)
                 {
                     _autoRun = false;
@@ -4924,6 +5020,16 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             else if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 Command_Open(this, null);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.F11)   // modo "solo gráficas" también con foco en el WebView
+            {
+                ToggleWebOnlyMode();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _webOnlyMode)
+            {
+                ToggleWebOnlyMode();
                 e.Handled = true;
             }
         }

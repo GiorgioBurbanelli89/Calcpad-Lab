@@ -114,7 +114,7 @@ namespace Calcpad.Core.Matlab
             // aspectmode:'cube' = estira cada eje para llenar la caja (como MATLAB "stretch-to-fill",
             // así el surf se ve peaked, no aplanado). camera = vista 3D clásica de MATLAB (az≈-37.5, el≈30).
             $"paper_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}, scene:{{bgcolor:'{PlotBg}', aspectmode:'cube', " +
-            $"camera:{{eye:{{x:1.5, y:-1.5, z:0.9}}}}, xaxis:{Ax3(xt)}, yaxis:{Ax3(yt)}, zaxis:{Ax3(zt)}}}";
+            $"camera:{{eye:{{x:1.0, y:-1.0, z:0.62}}}}, xaxis:{Ax3(xt)}, yaxis:{Ax3(yt)}, zaxis:{Ax3(zt)}}}";
         /// <summary>Bloque paper+plot bg+font 2D tematizado.</summary>
         internal static string Paper2DJs() => $"paper_bgcolor:'{PlotBg}', plot_bgcolor:'{PlotBg}', font:{{color:'{PlotFg}'}}";
         private static bool _figShowLegend = false;
@@ -182,21 +182,75 @@ namespace Calcpad.Core.Matlab
         // por partes (grid-open, celda, celda), el streaming del WebView2 auto-cerraría el <div>
         // contenedor vacío y los paneles quedarían apilados como bloques hermanos.
         private static System.Text.StringBuilder _subplotBuf = null;
-        /// <summary>subplot(m,n,p): cierra el panel anterior al buffer, abre el grid en el primer
-        /// subplot, arranca una figura nueva para el panel actual. NO emite (todo va al buffer).</summary>
-        public static string SubplotCell(int m, int n)
+        // HTML del panel ACTUAL que no pasa por el sistema de figura 2D: surf/plot3/scatter3 y sus
+        // relayout de título/ejes. Se acumula aquí y se cierra dentro del <div class="sp-cell"> del
+        // panel, para que las gráficas 3D caigan en su celda del grid igual que las 2D.
+        private static readonly System.Text.StringBuilder _panelHtml = new System.Text.StringBuilder();
+        /// <summary>Si hay subplot activo, acumula html en la celda del panel actual y devuelve true
+        /// (el llamador NO debe emitirlo suelto). Fuera de subplot devuelve false → emisión normal.</summary>
+        public static bool TryBufferPanel(string html)
+        {
+            if (!_subplotActive) return false;
+            _panelHtml.Append(html);
+            return true;
+        }
+        // Dimensiones del <div> de un plot 3D: reducidas en subplot para igualar el aspecto de los
+        // paneles 2D y que TODAS las celdas del grid queden del mismo tamaño (como MATLAB).
+        private static string Plot3dDivStyle() => _subplotActive ? "width:430px;height:320px" : "width:640px;height:480px";
+        /// <summary>title() sobre un panel 3D en subplot: reemplaza el título hardcodeado (surf/plot3)
+        /// por el del usuario DENTRO del layout, antes de rasterizar (el relayout diferido no aplica).</summary>
+        public static bool SetPanelTitle(string t)
+        {
+            if (!_subplotActive || _panelHtml.Length == 0) return false;
+            string esc = (t ?? "").Replace("\\", "\\\\").Replace("'", "\\'");
+            string s = _panelHtml.ToString();
+            // SOLO el texto-placeholder del layout (surf/plot3/scatter3/…); NUNCA los títulos de
+            // eje X/Y/Z de la escena ('X'/'Y'/'Z') → antes se corrompían. Reemplaza el text:'…'
+            // interno y preserva el font:{size} que lo acompaña, para tamaño de título uniforme.
+            foreach (var ph in new[] { "plot3", "surf", "scatter3", "mesh", "contour3", "heatmap", "imagesc" })
+            {
+                s = s.Replace("text:'" + ph + "'", "text:'" + esc + "'");
+                s = s.Replace("title:'" + ph + "'", "title:'" + esc + "'");
+                s = s.Replace("title: '" + ph + "'", "title: '" + esc + "'");
+            }
+            _panelHtml.Clear(); _panelHtml.Append(s);
+            return true;
+        }
+        // Geometría del subplot ACTUAL: n columnas, m filas, y p (posición row-major 1..m*n) del
+        // panel que se está dibujando ahora. Se usan al CERRAR el panel para colocarlo en su celda.
+        private static int _spCols = 1, _spRows = 1, _spCurP = 1;
+        /// <summary>Cierra el panel actual en su celda exacta del grid (grid-column/row desde p).</summary>
+        private static void AppendSubplotCell(string figHtml)
+        {
+            int cols = _spCols < 1 ? 1 : _spCols;
+            int p = _spCurP < 1 ? 1 : _spCurP;
+            int row = (p - 1) / cols + 1;      // MATLAB subplot: p es row-major (p=1 → fila1,col1)
+            int col = (p - 1) % cols + 1;
+            _subplotBuf.Append("<div class=\"sp-cell\" style=\"grid-column:").Append(col)
+                       .Append(";grid-row:").Append(row).Append("\">")
+                       .Append(figHtml).Append(_panelHtml).Append("</div>");
+            _panelHtml.Clear();
+        }
+        /// <summary>subplot(m,n,p): cierra el panel anterior en SU celda, abre el grid en el primer
+        /// subplot, arranca una figura nueva para el panel actual. Respeta CUALQUIER posición p
+        /// (salteada o desordenada), no solo el orden 1,2,3… NO emite (todo va al buffer).</summary>
+        public static string SubplotCell(int m, int n, int p)
         {
             if (_subplotActive)
             {
                 string figPrev = FinishFigure();   // _subplotActive sigue true → panel encogido
-                _subplotBuf.Append("<div style=\"display:inline-block;vertical-align:top\">").Append(figPrev).Append("</div>");
+                AppendSubplotCell(figPrev);        // coloca el panel ANTERIOR en su celda (su _spCurP)
             }
             else
             {
                 _subplotBuf = new System.Text.StringBuilder();
-                _subplotBuf.Append("<div class=\"matlab-subplot-grid\" style=\"display:flex;flex-wrap:nowrap;align-items:flex-start;gap:.6em;margin:1em 0;width:max-content\">");
+                _panelHtml.Clear();
+                // GRID real de n columnas × m filas; cada panel va a su celda p (grid-column/row).
+                _subplotBuf.Append("<div class=\"matlab-subplot-grid\" style=\"--sp-cols:").Append(n)
+                           .Append(";--sp-rows:").Append(m).Append("\">");
                 _subplotActive = true;
             }
+            _spCols = n; _spRows = m; _spCurP = p;   // geometría del panel ACTUAL
             BeginFigure();   // ejes NUEVOS para el panel actual (colormap/title/etc. propios)
             return "";       // nada se emite hasta CloseSubplotGrid (chunk único)
         }
@@ -205,8 +259,10 @@ namespace Calcpad.Core.Matlab
         {
             if (!_subplotActive) return "";
             string figLast = FinishFigure();   // FinishFigure ANTES de bajar el flag (panel encogido)
+            AppendSubplotCell(figLast);         // último panel en su celda (su _spCurP)
+            _subplotBuf.Append("</div>\n");
+            _panelHtml.Clear();
             _subplotActive = false;
-            _subplotBuf.Append("<div style=\"display:inline-block;vertical-align:top\">").Append(figLast).Append("</div></div>\n");
             string html = _subplotBuf.ToString();
             _subplotBuf = null;
             return html;
@@ -1444,9 +1500,13 @@ return {make:make};
             svg.AppendLine($"  <rect x='0' y='0' width='{width}' height='{height}' fill='{PlotBg}'/>");
             // Plot area
             svg.AppendLine($"  <rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}' fill='none' stroke='#ccc'/>");
-            // Title
+            // Title. En subplot el SVG (760px) se escala mucho al meterlo en la celda del grid → el
+            // título de 14px queda diminuto; se agranda para igualar el de los paneles 3D (~430px).
             if (!string.IsNullOrEmpty(_figTitle))
-                svg.AppendLine($"  <text x='{width/2}' y='25' text-anchor='middle' font-family='sans-serif' font-size='14' font-weight='bold'>{EscapeXml(_figTitle)}</text>");
+            {
+                int titleFont = _subplotActive ? 26 : 14;
+                svg.AppendLine($"  <text x='{width/2}' y='{(_subplotActive ? 30 : 25)}' text-anchor='middle' font-family='sans-serif' font-size='{titleFont}' font-weight='bold'>{EscapeXml(_figTitle)}</text>");
+            }
             // X label
             if (!string.IsNullOrEmpty(_figXLabel))
                 svg.AppendLine($"  <text x='{marginL + plotW/2}' y='{height-15}' text-anchor='middle' font-family='sans-serif' font-size='12'>{EscapeXml(_figXLabel)}</text>");
@@ -2615,18 +2675,19 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             ValidateGrid(X, Y, Z);
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
-            sb.Append($"    type: 'surface', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, showscale: true,\n");
+            sb.Append($"    type: 'surface', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, showscale: false,\n");
             sb.Append($"    contours: {{ x:{{show:true,color:'rgba(120,120,120,0.35)',width:1}}, y:{{show:true,color:'rgba(120,120,120,0.35)',width:1}} }},\n");
             sb.Append($"    x: {EmitMatrixJs(X)},\n");
             sb.Append($"    y: {EmitMatrixJs(Y)},\n");
             sb.Append($"    z: {EmitMatrixJs(Z)}\n");
             sb.Append($"  }}];\n");
-            sb.Append($"  var layout = {{ title:{{text:'{title}'}}, margin: {{l:40,r:40,t:40,b:40}}, {Scene3DJs()} }};\n");
+            sb.Append($"  var layout = {{ title:{{text:'{title}',font:{{size:14}}}}, margin: {{l:18,r:14,t:34,b:24}}, {Scene3DJs()} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
+            if (TryBufferPanel(sb.ToString())) return "";   // subplot → cae en su celda del grid
             return sb.ToString();
         }
 
@@ -2752,7 +2813,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             double step = (zmax - zmin) / nl;
             string cs(double d) => d.ToString("R", Inv);
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{\n");
             sb.Append($"    type: 'contour', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, autocontour: false, contours: {{coloring: 'fill', start: {cs(zmin)}, end: {cs(zmax)}, size: {cs(step)}}}, line: {{width: 0.4, color: 'rgba(0,0,0,0.12)'}},\n");
@@ -2770,7 +2831,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{ type: 'heatmap', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'imagesc', margin:{{l:40,r:40,t:40,b:40}}, yaxis: {{autorange:'reversed'}} }};\n");
@@ -2833,13 +2894,14 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{ type: 'scatter3d', mode: 'lines',\n");
             sb.Append($"    x: {EmitVecJs(X)}, y: {EmitVecJs(Y)}, z: {EmitVecJs(Z)} }}];\n");
-            sb.Append($"  var layout = {{ title:{{text:'plot3'}}, margin:{{l:0,r:0,t:40,b:0}}, {Scene3DJs()} }};\n");
+            sb.Append($"  var layout = {{ title:{{text:'plot3',font:{{size:14}}}}, margin:{{l:18,r:14,t:34,b:24}}, {Scene3DJs()} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
+            if (TryBufferPanel(sb.ToString())) return "";   // subplot → cae en su celda del grid
             return sb.ToString();
         }
 
@@ -2953,20 +3015,21 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{ type: 'scatter3d', mode: 'markers',\n");
             sb.Append($"    x: {EmitVecJs(X)}, y: {EmitVecJs(Y)}, z: {EmitVecJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'scatter3', margin:{{l:0,r:0,t:40,b:0}} }};\n");
             sb.Append($"  Plotly.newPlot('matlab_plot_{id}', data, layout, {{responsive:true}});\n");
             sb.Append("})();</script>\n");
+            if (TryBufferPanel(sb.ToString())) return "";   // subplot → cae en su celda del grid
             return sb.ToString();
         }
         public static string Histogram2D(MValue X, MValue Y, int nBins = 20)
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{ type: 'histogram2d', colorscale: 'Viridis',\n");
             sb.Append($"    x: {EmitVecJs(X)}, y: {EmitVecJs(Y)}, nbinsx: {nBins}, nbinsy: {nBins} }}];\n");
@@ -2979,7 +3042,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             sb.Append($"  var data = [{{ type: 'heatmap', colorscale: {ColorscaleJs(colormap)}, reversescale: {(ColormapReversed(colormap) ? "true" : "false")}, z: {EmitMatrixJs(Z)} }}];\n");
             sb.Append($"  var layout = {{ title: 'heatmap', margin:{{l:50,r:30,t:40,b:50}} }};\n");
@@ -3044,7 +3107,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             // Plotly no tiene quiver nativo — emulamos con líneas + arrowheads
             sb.Append("  var arrows = []; var lines = [];\n");
@@ -3090,7 +3153,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             int id = ++_plotCounter;
             int n = X.Data.Length;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             // Plotly cone trace
             sb.Append($"  var data = [{{ type: 'cone', sizemode: 'scaled', sizeref: 0.5,\n");
@@ -3105,7 +3168,7 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         {
             int id = ++_plotCounter;
             var sb = new StringBuilder();
-            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"width:640px;height:480px\"></div>\n");
+            sb.Append($"<div id=\"matlab_plot_{id}\" class=\"matlab-plot\" style=\"{Plot3dDivStyle()}\"></div>\n");
             sb.Append("<script>(function() {\n");
             // Plotly isosurface o volume — usamos volume con planos como slices
             sb.Append($"  var data = [{{ type: 'volume',\n");

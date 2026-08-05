@@ -862,20 +862,43 @@
             float: right;
         }
 
-        /* Gráficas en GRID: hasta 3 por fila (estilo subplot de MATLAB). Cada una es
-           su propia unidad; las siguientes bajan a la fila de abajo. */
-        .matlab-plot, .matlab-svg {
-            display: inline-block !important; vertical-align: top; width: 32% !important;
-            height: auto !important; min-width: 280px; margin: 4px 0.4%;
-            box-sizing: border-box; overflow: hidden;
+        /* subplot(m,n,k) de MATLAB → GRID real de n columnas. Los paneles se colocan en
+           fila-mayor (k=1,2,3 arriba / 4,5,6 abajo). --sp-cols lo inyecta el motor. Fuera de
+           subplot, cada gráfica es un bloque normal a ancho completo (como MATLAB figure). */
+        .matlab-subplot-grid {
+            display: grid !important;
+            grid-template-columns: repeat(var(--sp-cols, 3), minmax(0, 1fr));
+            gap: .6em; margin: 1em 0; width: 100%; max-width: none;
+            align-items: start; justify-items: stretch;
         }
-        .matlab-plot > div, .matlab-plot img, .matlab-svg svg {
-            width: 100% !important; max-width: 100% !important; height: auto !important;
+        /* Celda uniforme: el aspect-ratio 4:3 va en la PROPIA celda → como todas las columnas son
+           1fr (mismo ancho), todas las celdas tienen la MISMA altura → 6 cuadros idénticos, como
+           MATLAB. El contenido (plot/svg) se centra dentro con object-fit:contain, sin desbordar.
+           El borde oro marca el límite exacto de cada cuadro. */
+        .matlab-subplot-grid .sp-cell {
+            min-width: 0; overflow: hidden; box-sizing: border-box;
+            aspect-ratio: 4 / 3;
+            border: 1px solid #c9a227;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .matlab-subplot-grid .sp-cell .matlab-plot,
+        .matlab-subplot-grid .sp-cell .matlab-svg {
+            display: block !important; width: 100% !important; height: 100% !important;
+            max-width: 100% !important; overflow: hidden;
+        }
+        .matlab-subplot-grid .sp-cell .matlab-plot img,
+        .matlab-subplot-grid .sp-cell .matlab-svg svg,
+        .matlab-subplot-grid .sp-cell .matlab-plot > div {
+            width: 100% !important; height: 100% !important; max-width: 100% !important;
+            object-fit: contain;
         }
         @media screen {
             .no-screen {
                 display: none;
             }
+            /* En PANTALLA el reporte usa TODO el ancho de la ventana (sobre todo maximizado con
+               ⛶ Output). El ancho de hoja A4 (190mm) se conserva SOLO para imprimir/PDF/Word. */
+            body { max-width: none !important; margin-left: 8px; margin-right: 8px; }
             /* ===== TEMA OSCURO — SOLO PANTALLA y SOLO con html.dark (lo pone la app segun el
                toggle Dark/Gold). print/PDF y Word se quedan SIEMPRE en HOJA BLANCA. ===== */
             html.dark { background-color: #14110b; }
