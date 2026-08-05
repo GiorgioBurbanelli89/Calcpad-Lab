@@ -82,7 +82,7 @@ namespace Calcpad.Core.Matlab
         /// una función llamada `name`. Cada archivo se carga una sola vez.</summary>
         private bool LoadFunctionFile(string name)
         {
-            if (_evaluator.HasUserFunction(name)) return true;
+            if (_evaluator.HasUserFunction(name) || _evaluator.HasClass(name)) return true;
             foreach (var dir in _evaluator.FunctionSearchDirs)
             {
                 string path;
@@ -102,7 +102,7 @@ namespace Calcpad.Core.Matlab
                     }
                 }
                 catch { /* archivo con error de parseo → se ignora, sigue buscando */ }
-                if (_evaluator.HasUserFunction(name)) return true;
+                if (_evaluator.HasUserFunction(name) || _evaluator.HasClass(name)) return true;
             }
             return false;
         }

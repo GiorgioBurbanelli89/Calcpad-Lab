@@ -399,6 +399,8 @@ namespace Calcpad.Core.Matlab
 
         /// <summary>True si el nombre ya está registrado como función de usuario.</summary>
         public bool HasUserFunction(string name) => _userFunctions.ContainsKey(name);
+        /// <summary>True si el nombre ya está registrado como clase (classdef).</summary>
+        public bool HasClass(string name) => _classes.ContainsKey(name);
         /// <summary>Callback que carga una función `.m` hermana desde disco (lo setea el
         /// pipeline con acceso al tokenizer/parser + directorios de búsqueda). Replica el
         /// comportamiento MATLAB: un script encuentra funciones en archivos .m del mismo
@@ -420,10 +422,12 @@ namespace Calcpad.Core.Matlab
         /// registrado en _userFunctions (ya sea porque estaba o porque se cargó).</summary>
         private bool TryLoadExternalFn(string name)
         {
-            if (_userFunctions.ContainsKey(name)) return true;
+            // Cubre función O clase: un `Nombre.m` puede ser `classdef Nombre` (MATLAB carga la
+            // clase por nombre desde su archivo, 1 clase por archivo). El loader registra ambos.
+            if (_userFunctions.ContainsKey(name) || _classes.ContainsKey(name)) return true;
             if (ExternalFunctionLoader == null) return false;
             try { ExternalFunctionLoader(name); } catch { /* archivo ilegible/parse error → sigue Undefined */ }
-            return _userFunctions.ContainsKey(name);
+            return _userFunctions.ContainsKey(name) || _classes.ContainsKey(name);
         }
 
         /// <summary>True si todos los args son IdentRef y referencian sym vars
@@ -1636,12 +1640,47 @@ namespace Calcpad.Core.Matlab
                 foreach (var p in a)
                 {
                     if (p == null || !p.IsString) continue;
-                    var dir = p.StringValue;
-                    if (!System.IO.Path.IsPathRooted(dir) && !string.IsNullOrEmpty(PrimaryScriptDir))
-                        dir = System.IO.Path.Combine(PrimaryScriptDir, dir);
-                    if (!FunctionSearchDirs.Contains(dir)) FunctionSearchDirs.Add(dir);
+                    // genpath(...) devuelve VARIOS directorios en un solo string separados por
+                    // ';' (pathsep). addpath(genpath(...)) es el idioma estándar de MATLAB → dividir.
+                    foreach (var one in p.StringValue.Split(';',
+                                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        var dir = one;
+                        if (!System.IO.Path.IsPathRooted(dir) && !string.IsNullOrEmpty(PrimaryScriptDir))
+                            dir = System.IO.Path.Combine(PrimaryScriptDir, dir);
+                        if (!FunctionSearchDirs.Contains(dir)) FunctionSearchDirs.Add(dir);
+                    }
                 }
                 return new MValue(0);
+            };
+            // genpath(d): d y TODAS sus subcarpetas recursivas, separadas por ';' (como MATLAB).
+            // Excluye paquetes (+pkg), clases (@cls), private y ocultas — igual que MATLAB.
+            _builtins["genpath"] = a => {
+                if (a.Length < 1 || !a[0].IsString) return new MValue("");
+                var root = a[0].StringValue;
+                if (!System.IO.Path.IsPathRooted(root) && !string.IsNullOrEmpty(PrimaryScriptDir))
+                    root = System.IO.Path.Combine(PrimaryScriptDir, root);
+                if (!System.IO.Directory.Exists(root)) return new MValue("");
+                var sb = new System.Text.StringBuilder();
+                void Recurse(string d)
+                {
+                    sb.Append(d).Append(';');
+                    string[] subs;
+                    try { subs = System.IO.Directory.GetDirectories(d); }
+                    catch { return; }
+                    foreach (var sub in subs)
+                    {
+                        var nm = System.IO.Path.GetFileName(sub);
+                        if (nm.Length == 0) continue;
+                        var c0 = nm[0];
+                        if (c0 == '+' || c0 == '@' || c0 == '.' ||
+                            string.Equals(nm, "private", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        Recurse(sub);
+                    }
+                }
+                Recurse(root);
+                return new MValue(sb.ToString());
             };
             _builtins["rmpath"]  = a => new MValue(0);
             _builtins["pause"]   = a => new MValue(0);
@@ -11278,14 +11317,24 @@ namespace Calcpad.Core.Matlab
                         case "false": return new MValue(0);
                         case "i": case "j": return new MValue(0, 1);  // unidad imaginaria
                     }
+                    // Constructor de clase sin args: `g = emdlab_g2d_db;` (identificador pelado).
+                    if (_classes.TryGetValue(id.Name, out var cls0))
+                        return ConstructInstance(cls0, Array.Empty<MValue>(), scope);
                     // Builtin/user-function llamada nullary (MATLAB permite `who`, `tic`, etc.)
                     if (_userFunctions.TryGetValue(id.Name, out var def0))
                         return CallUserFunction(def0, Array.Empty<MValue>());
                     if (_builtins.TryGetValue(id.Name, out var fn0))
                         return fn0(Array.Empty<MValue>());
-                    // Función en archivo .m hermano invocada estilo-comando (`Muro_Acople_ITW;`)
-                    if (TryLoadExternalFn(id.Name) && _userFunctions.TryGetValue(id.Name, out var def0x))
-                        return CallUserFunction(def0x, Array.Empty<MValue>());
+                    // Función O CLASE en archivo .m hermano. Carga on-demand (como MATLAB).
+                    // La clase se construye ANTES del script-runner (si no, correría el .m de la
+                    // clase como script y devolvería 0 en vez de la instancia).
+                    if (TryLoadExternalFn(id.Name))
+                    {
+                        if (_userFunctions.TryGetValue(id.Name, out var def0x))
+                            return CallUserFunction(def0x, Array.Empty<MValue>());
+                        if (_classes.TryGetValue(id.Name, out var cls0x))
+                            return ConstructInstance(cls0x, Array.Empty<MValue>(), scope);
+                    }
                     // Script .m hermano ejecutado inline (script-calls-script de MATLAB)
                     if (ExternalScriptRunner != null && ExternalScriptRunner(id.Name))
                         return new MValue(0);
@@ -12143,9 +12192,15 @@ namespace Calcpad.Core.Matlab
                     return fn(args);
                 if (_multiOutBuiltins.TryGetValue(id.Name, out var fn2))
                     return fn2(args)[0];
-                // 5) Función en archivo .m hermano (carga on-demand, como MATLAB)
-                if (TryLoadExternalFn(id.Name) && _userFunctions.TryGetValue(id.Name, out var defX))
-                    return CallUserFunction(defX, args, ArgNames(c.Args));
+                // 5) Función O CLASE en archivo .m hermano (carga on-demand, como MATLAB:
+                //    1 clase por archivo `Nombre.m`; al llamar `Nombre(args)` se carga y construye).
+                if (TryLoadExternalFn(id.Name))
+                {
+                    if (_userFunctions.TryGetValue(id.Name, out var defX))
+                        return CallUserFunction(defX, args, ArgNames(c.Args));
+                    if (_classes.TryGetValue(id.Name, out var clsX))
+                        return ConstructInstance(clsX, args, scope);
+                }
                 throw new MatlabRuntimeException($"Undefined: {id.Name}");
             }
             // Caso: (expr)(args) — donde expr evalúa a callable
