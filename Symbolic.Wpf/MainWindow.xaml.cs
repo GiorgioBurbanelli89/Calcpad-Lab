@@ -168,6 +168,16 @@ namespace Calcpad.Wpf
             get => WebFormButton.Tag.ToString() == "T";
             set => SetWebForm(value);
         }
+        // Un párrafo cuenta como "imagen" (miniatura) SOLO si su Tag es '% #img ...' Y
+        // realmente contiene la imagen (InlineUIContainer). Al pulsar Enter, WPF parte el
+        // párrafo y COPIA el Tag al nuevo párrafo vacío (sin la imagen); sin este chequeo
+        // ese fantasma emitía la línea '% #img' otra vez → imagen DUPLICADA en el WebView2.
+        private static bool IsImageParagraph(Block b) =>
+            b is Paragraph p
+            && p.Tag is string t
+            && t.StartsWith("% #img", StringComparison.OrdinalIgnoreCase)
+            && p.Inlines.FirstInline is InlineUIContainer;
+
         // Texto del script. FAST-PATH: si NO hay párrafos-imagen (miniatura), devuelve el TextRange
         // plano igual que siempre (comportamiento 100% original → cero riesgo en scripts normales).
         // Con miniaturas: itera y sustituye cada párrafo-imagen por su Tag ('% #img data:...base64').
@@ -177,7 +187,7 @@ namespace Calcpad.Wpf
             {
                 bool hasImg = false;
                 for (var bb = _document.Blocks.FirstBlock; bb != null; bb = bb.NextBlock)
-                    if (bb is Paragraph ip && ip.Tag is string it && it.StartsWith("% #img", StringComparison.OrdinalIgnoreCase))
+                    if (IsImageParagraph(bb))
                     { hasImg = true; break; }
                 if (!hasImg)
                     return new TextRange(_document.ContentStart, _document.ContentEnd).Text;
@@ -187,8 +197,8 @@ namespace Calcpad.Wpf
                 {
                     if (!first) sb.Append("\r\n");
                     first = false;
-                    sb.Append(bb is Paragraph ip2 && ip2.Tag is string it2 && it2.StartsWith("% #img", StringComparison.OrdinalIgnoreCase)
-                        ? it2
+                    sb.Append(IsImageParagraph(bb)
+                        ? ((Paragraph)bb).Tag as string
                         : new TextRange(bb.ContentStart, bb.ContentEnd).Text);
                 }
                 return sb.ToString();
@@ -2386,8 +2396,9 @@ namespace Calcpad.Wpf
                 if (n > 12)
                     n = 12;
                 // Párrafo-imagen (miniatura): su Tag guarda la línea real '% #img data:...base64'.
-                var line = (b as Paragraph)?.Tag is string imgLine && imgLine.StartsWith("% #img", StringComparison.OrdinalIgnoreCase)
-                    ? imgLine
+                // Solo si REALMENTE contiene la imagen (evita el fantasma con Tag heredado al pulsar Enter).
+                var line = IsImageParagraph(b)
+                    ? (b as Paragraph).Tag as string
                     : new TextRange(b.ContentStart, b.ContentEnd).Text;
                 // Convert NO-BREAK SPACE (U+00A0) back to regular space.
                 // The highlighter injects nbsp into comment runs so WPF

@@ -354,7 +354,14 @@ namespace Calcpad.Wpf
             // Párrafo-imagen ya convertido a miniatura (su Tag guarda la línea '% #img data:...').
             // No re-tokenizar: el TextRange ahora es el objeto imagen, no el base64.
             if (p.Tag is string existingImg && existingImg.StartsWith("% #img", System.StringComparison.OrdinalIgnoreCase))
-                return;
+            {
+                // Solo saltar si TODAVÍA contiene la imagen. Al pulsar Enter, WPF parte el
+                // párrafo y copia el Tag al párrafo vacío nuevo (sin imagen): limpiar ese Tag
+                // fantasma y seguir tokenizando normal (si no, esa línea nunca se resaltaría).
+                if (p.Inlines.FirstInline is InlineUIContainer)
+                    return;
+                p.Tag = null;
+            }
             string text;
             if (textOverride != null)
                 text = textOverride;
@@ -382,39 +389,59 @@ namespace Calcpad.Wpf
             TokenizeLine(p, text);
         }
 
-        // Convierte un párrafo '% #img data:...base64' en una MINIATURA (foto) en el editor,
-        // guardando la línea real en p.Tag para no perder el base64 al ejecutar/guardar.
+        // Colapsa un párrafo '% #img data:...base64' a un COMENTARIO CORTO en el editor
+        // (el usuario quiere ver solo '% código corto', no la foto grande). El base64 real
+        // se guarda en p.Tag para no perderlo al ejecutar/guardar; la imagen se muestra como
+        // tooltip (previsualización al pasar el ratón) y en el WebView2 al calcular.
         private static void RenderImageThumbnail(Paragraph p, string line)
         {
             try
             {
                 p.Inlines.Clear();
                 p.Background = null;
+
+                // Decodificar el base64 solo para la previsualización (tooltip).
+                System.Windows.Media.Imaging.BitmapImage bmp = null;
                 var di = line.IndexOf("base64,", System.StringComparison.OrdinalIgnoreCase);
                 if (di >= 0)
                 {
-                    var b64 = line[(di + 7)..].Trim();
-                    var bytes = System.Convert.FromBase64String(b64);
-                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
-                    bmp.BeginInit();
-                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                    bmp.StreamSource = new System.IO.MemoryStream(bytes);
-                    bmp.EndInit();
-                    bmp.Freeze();
-                    var img = new System.Windows.Controls.Image
+                    try
                     {
-                        Source = bmp,
-                        Stretch = System.Windows.Media.Stretch.Uniform,
-                        MaxHeight = 72,
-                        HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                        Margin = new System.Windows.Thickness(0, 2, 0, 2),
-                        ToolTip = "Recorte pegado (% #img) — base64 incrustado en el .m"
-                    };
-                    p.Inlines.Add(new InlineUIContainer(img));
+                        var b64 = line[(di + 7)..].Trim();
+                        var bytes = System.Convert.FromBase64String(b64);
+                        bmp = new System.Windows.Media.Imaging.BitmapImage();
+                        bmp.BeginInit();
+                        bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                        bmp.StreamSource = new System.IO.MemoryStream(bytes);
+                        bmp.EndInit();
+                        bmp.Freeze();
+                    }
+                    catch { bmp = null; }
                 }
-                else
-                    p.Inlines.Add(new Run("🖼 % #img (imagen)"));
-                p.Tag = line;   // línea real para la extracción de texto
+
+                // Etiqueta corta, color de comentario (verde, theme-aware).
+                var label = new System.Windows.Controls.TextBlock
+                {
+                    Text = "% imagen incrustada  🖼",
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas, Cascadia Mono, Courier New"),
+                    FontSize = 14,
+                    Foreground = Colors[(int)Types.Comment],
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    ToolTip = bmp != null
+                        ? new System.Windows.Controls.Image
+                        {
+                            Source = bmp,
+                            Stretch = System.Windows.Media.Stretch.Uniform,
+                            MaxHeight = 320,
+                            MaxWidth = 460
+                        }
+                        : "Recorte pegado (% #img) — base64 incrustado en el .m"
+                };
+                p.Inlines.Add(new InlineUIContainer(label)
+                {
+                    BaselineAlignment = System.Windows.BaselineAlignment.Center
+                });
+                p.Tag = line;   // línea real para la extracción de texto (ejecutar/guardar)
             }
             catch
             {
