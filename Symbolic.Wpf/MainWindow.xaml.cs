@@ -3812,12 +3812,17 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                     if (imgPar != null)
                         _highlighter.Parse(imgPar, IsComplex, GetLineNumber(imgPar), true);
                 }
-                finally { RichTextBox.EndChange(); _isTextChangedEnabled = true; }
+                finally { RichTextBox.EndChange(); }   // NO re-habilitar aún (evita 2º auto-run diferido)
                 Record();
                 IsSaved = false;
                 DispatchLineNumbers();
+                _autoRun = false;
                 if (IsAutoRun)
                     CalculateAsync();   // UN solo render
+                // Re-habilitar TextChanged DESPUÉS de que se procesen los eventos pendientes,
+                // así ningún TextChanged diferido (del EndChange) dispara un segundo render.
+                Dispatcher.InvokeAsync(() => { _isTextChangedEnabled = true; },
+                    System.Windows.Threading.DispatcherPriority.Background);
             }
             catch (Exception ex)
             {
