@@ -1181,10 +1181,10 @@ namespace Calcpad.Wpf
 
         private void Command_Help(object sender, ExecutedRoutedEventArgs e)
         {
-            if (File.Exists(_readmeFileName))
-                Execute(_readmeFileName);
-            else
-                ShowHelp();
+            // Antes intentaba abrir readme.html en un programa EXTERNO (ShellExecute) → daba error
+            // si la asociación de archivo fallaba. Ahora muestra la guía DENTRO del panel Output
+            // (help.html, ya tematizada dark/gold), que es el comportamiento esperado del botón Help.
+            ShowHelp();
         }
 
         private void Command_Close(object sender, ExecutedRoutedEventArgs e) => Application.Current.Shutdown();
