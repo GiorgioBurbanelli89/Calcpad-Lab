@@ -67,6 +67,18 @@
     <Resource Include="resources\search.png" />
     <Resource Include="resources\undo.png" />
     <Resource Include="resources\word.png" />
+    <Resource Include="resources\graf_plot.png" />
+    <Resource Include="resources\graf_marcadores.png" />
+    <Resource Include="resources\graf_varias.png" />
+    <Resource Include="resources\graf_scatter.png" />
+    <Resource Include="resources\graf_bar.png" />
+    <Resource Include="resources\graf_hist.png" />
+    <Resource Include="resources\graf_stem.png" />
+    <Resource Include="resources\graf_surf.png" />
+    <Resource Include="resources\graf_mesh.png" />
+    <Resource Include="resources\graf_contourf.png" />
+    <Resource Include="resources\graf_plot3.png" />
+    <Resource Include="resources\graf_quiver.png" />
   </ItemGroup>
 
   <ItemGroup>

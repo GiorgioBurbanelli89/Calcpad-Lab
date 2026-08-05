@@ -1339,11 +1339,11 @@
                     <Border BorderThickness="0,0,0,1" Height="34" Margin="-4,-2,-4,0" VerticalAlignment="Top"
                             BorderBrush="{DynamicResource ThemeButtonBorder}" Background="{DynamicResource ThemePanelBg}"/>
                     <CheckBox  Style="{StaticResource MarkdownCheckBox}" x:Name="MarkdownCheckBox" Content=" M⭣"  VerticalAlignment="Top" Height="20"  ToolTip="Markdown"
-                            FontFamily="Roboto" Margin="0,0,5,0" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right" Width="26" Focusable="False" IsTabStop="False" Checked="MarkdownCheckBox_Checked"/>
+                            FontFamily="Roboto" Margin="828,0,0,0" FontWeight="Bold" FontSize="12" HorizontalAlignment="Left" Width="26" Focusable="False" IsTabStop="False" Checked="MarkdownCheckBox_Checked"/>
                     <!-- Modo texto: cada Enter arranca una linea %' (texto visible). Pildora con acento oro. -->
                     <ToggleButton x:Name="TextModeToggle" Grid.Row="0" Click="TextModeToggle_Click"
-                            Content="%'  Texto" HorizontalAlignment="Right" VerticalAlignment="Top" Height="20"
-                            Margin="0,0,36,0" Padding="8,0" FontFamily="Roboto" FontWeight="Bold" FontSize="11"
+                            Content="%'  Texto" HorizontalAlignment="Left" VerticalAlignment="Top" Height="20"
+                            Margin="762,0,0,0" Padding="8,0" FontFamily="Roboto" FontWeight="Bold" FontSize="11"
                             Foreground="{DynamicResource ThemeText}" Focusable="False" IsTabStop="False" Cursor="Hand"
                             ToolTip="Modo texto: mientras este activo, cada linea nueva arranca con %' (texto visible). Escribe prosa sin teclear el prefijo en cada linea.">
                         <ToggleButton.Template>
@@ -1565,42 +1565,78 @@
                             <ContextMenu x:Name="GraphTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
                                 <MenuItem Header="── 2D ──" IsEnabled="False"/>
                                 <MenuItem Header="Línea 2D  (plot)" Click="Button_Click"
-                                          Tag="x = linspace(0, 10, 100);§y = sin(x);§plot(x, y)§grid on"
-                                          ToolTip="Curva 2D de y vs x. Ejemplo: y = sin(x). Cambia y por tu función."/>
+                                          Tag="x = linspace(0, 10, 100);§y = sin(x);§plot(x, y)§grid on">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_plot.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Curva 2D de y vs x. Ejemplo: y = sin(x). Cambia y por tu función." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Línea con marcadores" Click="Button_Click"
-                                          Tag="x = 0:10;§y = x.^2;§plot(x, y, '-o')§grid on"
-                                          ToolTip="Línea con puntos marcados en cada dato ('-o'). Prueba '-s', '--*', ':d' para otros estilos."/>
+                                          Tag="x = 0:10;§y = x.^2;§plot(x, y, '-o')§grid on">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_marcadores.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Línea con puntos marcados en cada dato ('-o'). Prueba '-s', '--*', ':d'." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Varias curvas (hold + legend)" Click="Button_Click"
-                                          Tag="x = linspace(0, 2*pi, 100);§plot(x, sin(x))§hold on§plot(x, cos(x))§hold off§legend('sin', 'cos')"
-                                          ToolTip="Dibuja varias curvas en el mismo eje con 'hold on' y las identifica con legend()."/>
+                                          Tag="x = linspace(0, 2*pi, 100);§plot(x, sin(x))§hold on§plot(x, cos(x))§hold off§legend('sin', 'cos')">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_varias.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Varias curvas en el mismo eje con 'hold on', identificadas con legend()." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Dispersión  (scatter)" Click="Button_Click"
-                                          Tag="x = rand(50, 1);§y = rand(50, 1);§scatter(x, y)"
-                                          ToolTip="Nube de puntos (x, y). Útil para datos dispersos o correlaciones."/>
+                                          Tag="x = rand(50, 1);§y = rand(50, 1);§scatter(x, y)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_scatter.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Nube de puntos (x, y). Útil para datos dispersos o correlaciones." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Barras  (bar)" Click="Button_Click"
-                                          Tag="y = [3 7 2 5 4];§bar(y)"
-                                          ToolTip="Diagrama de barras verticales. Usa barh(y) para barras horizontales."/>
+                                          Tag="y = [3 7 2 5 4];§bar(y)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_bar.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Diagrama de barras verticales. Usa barh(y) para horizontales." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Histograma  (histogram)" Click="Button_Click"
-                                          Tag="datos = randn(1000, 1);§histogram(datos)"
-                                          ToolTip="Distribución de frecuencias de un conjunto de datos."/>
+                                          Tag="datos = randn(1000, 1);§histogram(datos)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_hist.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Distribución de frecuencias de un conjunto de datos." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Discreta / tallo  (stem)" Click="Button_Click"
-                                          Tag="n = 0:20;§stem(n, sin(n/3))"
-                                          ToolTip="Gráfica discreta (tallos), típica de señales muestreadas."/>
+                                          Tag="n = 0:20;§stem(n, sin(n/3))">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_stem.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Gráfica discreta (tallos), típica de señales muestreadas." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="── 3D ──" IsEnabled="False"/>
                                 <MenuItem Header="Superficie 3D  (surf)" Click="Button_Click"
-                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = X.^2 - Y.^2;§surf(X, Y, Z)§colorbar"
-                                          ToolTip="Superficie 3D coloreada de Z sobre la malla (X, Y). colorbar muestra la escala."/>
+                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = X.^2 - Y.^2;§surf(X, Y, Z)§colorbar">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_surf.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Superficie 3D coloreada de Z sobre la malla (X, Y). colorbar = escala." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Malla 3D  (mesh)" Click="Button_Click"
-                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = sin(sqrt(X.^2 + Y.^2));§mesh(X, Y, Z)"
-                                          ToolTip="Superficie 3D en malla de alambre (wireframe)."/>
+                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = sin(sqrt(X.^2 + Y.^2));§mesh(X, Y, Z)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_mesh.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Superficie 3D en malla de alambre (wireframe)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Contorno relleno  (contourf)" Click="Button_Click"
-                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = X.^2 - Y.^2;§contourf(X, Y, Z)§colorbar"
-                                          ToolTip="Mapa de contornos 2D relleno por color (curvas de nivel). Ideal para campos escalares."/>
+                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = X.^2 - Y.^2;§contourf(X, Y, Z)§colorbar">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_contourf.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Mapa de contornos 2D relleno por color (curvas de nivel)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Línea 3D  (plot3)" Click="Button_Click"
-                                          Tag="t = linspace(0, 10*pi, 200);§plot3(sin(t), cos(t), t)§grid on"
-                                          ToolTip="Curva en el espacio 3D. Ejemplo: una hélice."/>
+                                          Tag="t = linspace(0, 10*pi, 200);§plot3(sin(t), cos(t), t)§grid on">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_plot3.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Curva en el espacio 3D. Ejemplo: una hélice." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="Campo vectorial  (quiver)" Click="Button_Click"
-                                          Tag="[X, Y] = meshgrid(-2:0.5:2);§quiver(X, Y, -Y, X)"
-                                          ToolTip="Flechas (u, v) sobre la malla (X, Y). Útil para campos de fuerza/velocidad."/>
+                                          Tag="[X, Y] = meshgrid(-2:0.5:2);§quiver(X, Y, -Y, X)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><StackPanel MaxWidth="310"><Image Source="Resources/graf_quiver.png" Stretch="Uniform" MaxWidth="300"/><TextBlock Text="Flechas (u, v) sobre la malla (X, Y). Campos de fuerza/velocidad." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="── Decoración ──" IsEnabled="False"/>
                                 <MenuItem Header="Ejes + título" Click="Button_Click"
                                           Tag="xlabel('x')§ylabel('y')§title('Título')"
@@ -1740,46 +1776,46 @@
                         <Button.ContextMenu>
                             <ContextMenu x:Name="SymTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
                                 <MenuItem Header="Declarar variable  (syms)" Click="Button_Click"
-                                          Tag="syms x"
+                                          Tag="%' Declarar x como variable simbólica:§syms x"
                                           ToolTip="Declara x como variable simbólica. Necesario antes de derivar, integrar, resolver, etc. Varias: syms x y z"/>
                                 <MenuItem Header="── Cálculo ──" IsEnabled="False"/>
                                 <MenuItem Header="Derivada  ∂" Click="Button_Click"
-                                          Tag="syms x§f = x^3 + 2*x;§df = diff(f, x)"
+                                          Tag="%' Derivada de f = x³ + 2x respecto a x:§syms x§f = x^3 + 2*x;§df = diff(f, x)"
                                           ToolTip="Derivada simbólica ∂f/∂x. Ejemplo: ∂(x³+2x)/∂x = 3x²+2. Cambia f."/>
                                 <MenuItem Header="Integral indefinida  ∫" Click="Button_Click"
-                                          Tag="syms x§F = int(x^2, x)"
+                                          Tag="%' Integral indefinida (antiderivada) de x²:§syms x§F = int(x^2, x)"
                                           ToolTip="Integral simbólica (antiderivada). Ejemplo: ∫x² dx = x³/3."/>
                                 <MenuItem Header="Integral definida  ∫ₐᵇ" Click="Button_Click"
-                                          Tag="syms x§I = int(x^2, x, 0, 1)"
+                                          Tag="%' Integral definida de x² entre 0 y 1:§syms x§I = int(x^2, x, 0, 1)"
                                           ToolTip="Integral simbólica entre límites. Ejemplo: ∫₀¹ x² dx = 1/3 (exacto, como fracción)."/>
                                 <MenuItem Header="Límite  lim" Click="Button_Click"
-                                          Tag="syms x§L = limit(sin(x)/x, x, 0)"
+                                          Tag="%' Límite de sin(x)/x cuando x → 0:§syms x§L = limit(sin(x)/x, x, 0)"
                                           ToolTip="Límite simbólico. Ejemplo: lim(x→0) sin(x)/x = 1."/>
                                 <MenuItem Header="Serie de Taylor" Click="Button_Click"
-                                          Tag="syms x§T = taylor(exp(x), x, 0)"
+                                          Tag="%' Serie de Taylor de eˣ alrededor de x = 0:§syms x§T = taylor(exp(x), x, 0)"
                                           ToolTip="Polinomio de Taylor alrededor de un punto. Ejemplo: eˣ ≈ 1 + x + x²/2 + …"/>
                                 <MenuItem Header="── Álgebra ──" IsEnabled="False"/>
                                 <MenuItem Header="Simplificar" Click="Button_Click"
-                                          Tag="syms x§s = simplify((x^2 - 1)/(x - 1))"
+                                          Tag="%' Simplificar (x²−1)/(x−1):§syms x§s = simplify((x^2 - 1)/(x - 1))"
                                           ToolTip="Simplifica una expresión. Ejemplo: (x²−1)/(x−1) = x+1."/>
                                 <MenuItem Header="Expandir" Click="Button_Click"
-                                          Tag="syms x§e = expand((x + 1)^3)"
+                                          Tag="%' Expandir (x + 1)³:§syms x§e = expand((x + 1)^3)"
                                           ToolTip="Desarrolla productos y potencias. Ejemplo: (x+1)³ = x³+3x²+3x+1."/>
                                 <MenuItem Header="Factorizar" Click="Button_Click"
-                                          Tag="syms x§fa = factor(x^2 - 1)"
+                                          Tag="%' Factorizar x²−1:§syms x§fa = factor(x^2 - 1)"
                                           ToolTip="Factoriza. Ejemplo: x²−1 = (x−1)(x+1)."/>
                                 <MenuItem Header="Resolver ecuación  (solve)" Click="Button_Click"
-                                          Tag="syms x§sol = solve(x^2 - 4 == 0, x)"
+                                          Tag="%' Resolver x² − 4 = 0:§syms x§sol = solve(x^2 - 4 == 0, x)"
                                           ToolTip="Resuelve simbólicamente. Ejemplo: x²−4 = 0 → x = 2, −2 (exacto)."/>
                                 <MenuItem Header="Sustituir valor  (subs)" Click="Button_Click"
-                                          Tag="syms x§f = x^2;§v = subs(f, x, 3)"
+                                          Tag="%' Sustituir x = 3 en f = x²:§syms x§f = x^2;§v = subs(f, x, 3)"
                                           ToolTip="Reemplaza una variable por un valor o expresión. Ejemplo: x²|ₓ₌₃ = 9."/>
                                 <MenuItem Header="── Vectorial / salida ──" IsEnabled="False"/>
                                 <MenuItem Header="Jacobiano" Click="Button_Click"
-                                          Tag="syms x y§J = jacobian([x*y, x + y], [x, y])"
+                                          Tag="%' Jacobiano de [x·y, x + y] respecto a [x, y]:§syms x y§J = jacobian([x*y, x + y], [x, y])"
                                           ToolTip="Matriz de derivadas parciales de un vector de funciones. Ejemplo: J = [y x; 1 1]."/>
                                 <MenuItem Header="Exportar a LaTeX" Click="Button_Click"
-                                          Tag="syms x§L = latex(x^2 + 1)"
+                                          Tag="%' Exportar x² + 1 a código LaTeX:§syms x§L = latex(x^2 + 1)"
                                           ToolTip="Convierte la expresión a código LaTeX para pegar en un documento. Ejemplo: x^{2}+1."/>
                             </ContextMenu>
                         </Button.ContextMenu>

@@ -291,6 +291,9 @@ namespace Calcpad.Wpf
             _undoMan = new UndoManager();
             Record();
             _wv2Warper = new WebView2Wrapper(WebViewer, $"{docPath}\\blank.html");
+            ApplyWebViewBackground(_isDarkTheme);   // fondo oscuro desde el arranque (evita flash blanco)
+            // Cuando el CoreWebView2 termine de inicializar, re-aplica (PreferredColorScheme requiere Core listo).
+            WebViewer.CoreWebView2InitializationCompleted += (s, e) => { if (e.IsSuccess) ApplyWebViewBackground(_isDarkTheme); };
             Mark("WebView2 wrapper (Output panel)");
             _macroParser = new MacroParser
             {
@@ -3042,11 +3045,34 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
         }
 
         /// <summary>Cambia el tema completo (chrome + sintaxis + reporte) y lo persiste.</summary>
+        // Fondo por defecto del WebView2 SEGÚN el tema. Sin esto, al calcular/re-navegar el WebView
+        // pinta BLANCO un instante antes de cargar el HTML oscuro → flash blanco molesto en dark.
+        private void ApplyWebViewBackground(bool dark)
+        {
+            try
+            {
+                WebViewer.DefaultBackgroundColor = dark
+                    ? System.Drawing.Color.FromArgb(0x1A, 0x17, 0x12)   // fondo oscuro del reporte
+                    : System.Drawing.Color.FromArgb(0xED, 0xE4, 0xCE);  // crema del tema gold
+                // help.html (la guía de bienvenida) se tematiza por @media (prefers-color-scheme).
+                // Como se navega directo (rutas relativas) NO recibe la clase del tema, así que en gold
+                // salía OSCURO. Fijamos el color scheme del WebView para que la media query responda.
+                // El reporte usa clase html.dark (no media query) → esto NO lo afecta.
+                var core = WebViewer.CoreWebView2;
+                if (core?.Profile != null)
+                    core.Profile.PreferredColorScheme = dark
+                        ? CoreWebView2PreferredColorScheme.Dark
+                        : CoreWebView2PreferredColorScheme.Light;
+            }
+            catch { }
+        }
+
         private void SetTheme(bool dark)
         {
             _isDarkTheme = dark;
             Calcpad.Core.Matlab.MatlabPlots.DarkTheme = dark;   // gráficas oscuras en dark
             SwapThemeBrushes(dark);
+            ApplyWebViewBackground(dark);
             HighLighter.ApplyTheme(dark);
             // FORZAR re-resaltado de TODO el documento: los Run existentes conservan el Foreground
             // del tema anterior (en gold Const/Function son NEGROS → invisibles al pasar a dark).
