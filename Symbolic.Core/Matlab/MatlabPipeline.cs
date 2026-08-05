@@ -139,6 +139,15 @@ namespace Calcpad.Core.Matlab
         /// comments y multi-stmts se renderean como `<p>` standalone.</summary>
         public bool StreamingMode { get; set; }
 
+        /// <summary>Valores vivos de los controles interactivos (Piso 3). Proxy al evaluador,
+        /// que existe desde el constructor. La WPF lo setea antes de correr (el dict vive en la
+        /// WPF y sobrevive a re-runs; el pipeline/evaluador es nuevo cada cálculo).</summary>
+        public System.Collections.Generic.Dictionary<string, double> ControlValues
+        {
+            get => _evaluator.ControlValues;
+            set => _evaluator.ControlValues = value;
+        }
+
         /// <summary>Modo Octave: habilita las extensiones de sintaxis Octave sobre el motor
         /// MATLAB (comentarios <c>#</c>, <c>+= ++ --</c>, <c>endfor/endif/...</c>, <c>!</c>,
         /// <c>do…until</c>, <c>printf</c>, continuación con <c>\</c>). Calcpad-Octave lo pone

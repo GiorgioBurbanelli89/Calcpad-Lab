@@ -1507,12 +1507,13 @@ namespace Calcpad.Wpf
             //    (solo espacios de más, indentación o líneas en blanco), NO recalcular — el
             //    output actual ya es correcto. Evita recalcular las integrales al tocar un espacio.
             if (!toWebForm && !IsWebForm && IsCalculated && _lastReportHtml != null &&
-                _lastCalcSourceNorm != null &&
+                _lastCalcSourceNorm != null && !_recalcFromControl &&
                 NormalizeForCompare(outputText) == _lastCalcSourceNorm)
             {
                 StartupMark("Skip recalc: sin cambio semántico (solo whitespace)");
                 return;
             }
+            _recalcFromControl = false;   // consumir el trigger de control (Piso 3)
             string htmlResult;
             // ── PURE MATLAB pipeline para archivos .m: usar motor MATLAB nativo,
             //    no MatlabPreprocessor (que rompe sintaxis tic, transpose, slicing).
@@ -1596,6 +1597,7 @@ namespace Calcpad.Wpf
                     pipeline.EntryFunctionHint = entryHint;
                     if (!string.IsNullOrEmpty(scriptDir)) pipeline.SetScriptDirectory(scriptDir, CurrentFileName);
                     pipeline.StreamingMode = true;  // chunks vivos al WebView2
+                    pipeline.ControlValues = _controlValues;  // Piso 3: valores vivos de sliders/etc.
                     // Pre-split del source en lineas para mostrar la linea actual en el banner.
                     var sourceLines = sourceCapture.Replace("\r\n", "\n").Split('\n');
                     var parseStart = DateTime.UtcNow;
@@ -2928,6 +2930,12 @@ namespace Calcpad.Wpf
         internal static readonly bool IsHeadless =
             System.Environment.GetCommandLineArgs().Any(a =>
                 a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf");
+
+        // Piso 3: valores VIVOS de los controles interactivos (slider/numbox/checkbox). Vive en la
+        // WPF y sobrevive a re-runs (el motor/pipeline es NUEVO cada cálculo). Se inyecta por run.
+        private readonly Dictionary<string, double> _controlValues = new();
+        private bool _recalcFromControl;              // el próximo cálculo viene de un control → saltar el guard
+        private System.Windows.Threading.DispatcherTimer _ctrlDebounce;   // debounce de re-runs por arrastre
 
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
@@ -5415,6 +5423,40 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 WebViewer_LinkClicked();
             else if (message == "focused")
                 IsWebView2Focused = true;
+            else if (message != null && message.StartsWith("{"))
+                OnControlMessage(message);   // Piso 3: {type:'ctrl',name,value}
+        }
+
+        // Piso 3: un control interactivo (slider/numbox/checkbox) cambió en el WebView2.
+        // Guardamos su valor y re-ejecutamos el script (con debounce para arrastres rápidos).
+        private void OnControlMessage(string json)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("type", out var t) || t.GetString() != "ctrl") return;
+                var name = root.GetProperty("name").GetString();
+                var val  = root.GetProperty("value").GetDouble();
+                if (string.IsNullOrEmpty(name)) return;
+                _controlValues[name] = val;
+            }
+            catch { return; }
+            // Debounce ~150 ms: reinicia el timer en cada mensaje; al parar, re-ejecuta una vez.
+            _ctrlDebounce ??= new System.Windows.Threading.DispatcherTimer
+            { Interval = System.TimeSpan.FromMilliseconds(150) };
+            _ctrlDebounce.Tick -= CtrlDebounceTick;
+            _ctrlDebounce.Tick += CtrlDebounceTick;
+            _ctrlDebounce.Stop();
+            _ctrlDebounce.Start();
+        }
+
+        private void CtrlDebounceTick(object sender, System.EventArgs e)
+        {
+            _ctrlDebounce.Stop();
+            if (_isParsing) { _ctrlDebounce.Start(); return; }   // cálculo en curso → reintentar
+            _recalcFromControl = true;                            // saltar el guard de "source sin cambios"
+            CalculateAsync();
         }
 
         private async void WebViewer_LinkClicked()
