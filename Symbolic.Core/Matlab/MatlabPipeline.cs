@@ -522,6 +522,7 @@ namespace Calcpad.Core.Matlab
                     // no produce salida. Para texto/título VISIBLE se usa `%' texto`.
                     bool visible = ct.StartsWith("'")
                                    || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ")
+                                   || ct.StartsWith("#img")   // % #img <data-uri|ruta> → imagen incrustada (recorte pegado)
                                    // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
                                    // renderiza en modo #equ). Antes quedaba oculto pese a que
                                    // ParseDirective lo soporta; así funcionan con solo `% $Op{...}`.
@@ -544,6 +545,18 @@ namespace Calcpad.Core.Matlab
                             var capEnc = System.Net.WebUtility.HtmlEncode(capText);
                             sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
                             lastEmittedPLine = stmtLine;
+                        }
+                        // % #img <data-uri | ruta> → imagen incrustada (recorte pegado). MATLAB la ignora
+                        // (es comentario) y el .m queda autocontenido cuando el src es un data:...base64.
+                        else if (stmt is CommentStmt cimg && !cimg.IsHeading && !isInlineComment
+                            && cimg.Text.TrimStart().StartsWith("#img", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var isrc = cimg.Text.TrimStart().Substring(4).Trim();
+                            if (isrc.Length > 0)
+                            {
+                                sb.Append($"<div style=\"text-align:center;margin:6px 0;\"><img src=\"{isrc}\" style=\"max-width:100%;height:auto;\" alt=\"imagen\"></div>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
                         }
                         else if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
                             && TryRenderCalcpadDirective(cdir.Text, stmtLine, out var directiveHtml))

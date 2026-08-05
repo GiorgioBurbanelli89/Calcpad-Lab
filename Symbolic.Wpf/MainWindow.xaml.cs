@@ -3759,33 +3759,20 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             {
                 var bmp = Clipboard.GetImage();
                 if (bmp == null) return;
-                // Carpeta Images/ junto al script (ruta relativa portable). Si no está guardado,
-                // se usa Imágenes/Hekatan con ruta absoluta.
-                string dir, argPrefix;
-                if (!string.IsNullOrEmpty(CurrentFileName))
-                {
-                    dir = Path.Combine(Path.GetDirectoryName(CurrentFileName), "Images");
-                    argPrefix = "Images/";
-                }
-                else
-                {
-                    dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Hekatan");
-                    argPrefix = null;   // ruta absoluta
-                }
-                Directory.CreateDirectory(dir);
-                // Siguiente nombre libre: recorte_1.png, recorte_2.png, …
-                int n = 1; string file;
-                do { file = Path.Combine(dir, $"recorte_{n}.png"); n++; } while (File.Exists(file));
-                using (var fs = new FileStream(file, FileMode.Create))
+                // Codificar el recorte como PNG base64 e insertarlo como COMENTARIO % #img:
+                //   % #img data:image/png;base64,....
+                // Es comentario → MATLAB lo ignora (no rompe) y la imagen queda DENTRO del .m
+                // (autocontenido: copias solo el .m y la imagen viaja). Hekatan lo renderiza.
+                string b64;
+                using (var ms = new MemoryStream())
                 {
                     var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
                     enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
-                    enc.Save(fs);
+                    enc.Save(ms);
+                    b64 = Convert.ToBase64String(ms.ToArray());
                 }
-                // Línea LIMPIA en el script: imshow('Images/recorte_N.png');  (con ; → output = solo la imagen)
-                var arg = argPrefix != null ? argPrefix + Path.GetFileName(file) : file.Replace('\\', '/');
                 RichTextBox.BeginChange();
-                try { _insertManager.InsertText($"imshow('{arg}');"); }
+                try { _insertManager.InsertText($"% #img data:image/png;base64,{b64}"); }
                 finally { RichTextBox.EndChange(); }
                 if (IsAutoRun)
                     CalculateAsync();
