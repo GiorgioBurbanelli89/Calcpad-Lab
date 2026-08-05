@@ -3749,29 +3749,33 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             }
         }
 
+        // Pegar un recorte (Ctrl+V): se codifica el portapapeles como PNG base64 y se inserta
+        // imshow('data:image/png;base64,...'); en el script → el código queda incrustado (sin
+        // archivo externo) y la imagen se muestra en el WebView2 al ejecutar. Antes guardaba un
+        // archivo e insertaba '<img> (sintaxis Calcpad que da error en MATLAB).
         private void PasteImage(string name)
         {
-            if (string.IsNullOrEmpty(name))
-            {
-                Random rand = new();
-                name = $"image_{rand.NextInt64()}";
-                InputBox.Show("Hekatan Lab", "Image name:", ref name);
-                name += ".png";
-            }
-            string path;
-            if (!string.IsNullOrEmpty(CurrentFileName))
-                path = Path.GetDirectoryName(CurrentFileName) + "\\Images\\";
-            else
-                path = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures) + "\\Calcpad\\";
-
-            if (!Directory.Exists(path))
-                Directory.CreateDirectory(path);
-
-            path += name;
             try
             {
-                BitmapPaster.PasteImageFromClipboard(path);
-                InsertImage(path);
+                var bmp = Clipboard.GetImage();
+                if (bmp == null) return;
+                string b64;
+                using (var ms = new MemoryStream())
+                {
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+                    enc.Save(ms);
+                    b64 = Convert.ToBase64String(ms.ToArray());
+                }
+                // Cada recorte en su propia línea. Con ';' el output muestra SOLO la imagen (no el base64).
+                RichTextBox.BeginChange();
+                try
+                {
+                    _insertManager.InsertText($"imshow('data:image/png;base64,{b64}');");
+                }
+                finally { RichTextBox.EndChange(); }
+                if (IsAutoRun)
+                    CalculateAsync();
             }
             catch (Exception ex)
             {

@@ -1912,6 +1912,41 @@ namespace Calcpad.Core.Matlab
                 _htmlOut?.Invoke(MatlabPlots.Imagesc(a[0], _activeColormap));
                 return new MValue(0);
             };
+            // imshow / image: muestra una imagen en el output. Acepta un data URI base64
+            // ('data:image/png;base64,...'), una ruta de archivo (se codifica a base64), o una
+            // matriz (cae a imagesc). Pensado para pegar recortes (Ctrl+V) como base64 incrustado.
+            _builtins["imshow"] = a => {
+                string html;
+                if (a.Length >= 1 && a[0] != null && a[0].IsString)
+                {
+                    var s = a[0].StringValue ?? "";
+                    string src;
+                    if (s.StartsWith("data:", System.StringComparison.OrdinalIgnoreCase))
+                        src = s;
+                    else
+                    {
+                        try
+                        {
+                            var bytes = System.IO.File.ReadAllBytes(s);
+                            var ext = System.IO.Path.GetExtension(s).ToLowerInvariant();
+                            var mime = ext == ".jpg" || ext == ".jpeg" ? "image/jpeg"
+                                     : ext == ".gif" ? "image/gif" : ext == ".bmp" ? "image/bmp" : "image/png";
+                            src = "data:" + mime + ";base64," + System.Convert.ToBase64String(bytes);
+                        }
+                        catch (System.Exception ex)
+                        {
+                            _htmlOut?.Invoke($"<div style=\"color:#e0554b;margin:4px 0;\">imshow: no se pudo leer la imagen '{s}': {ex.Message}</div>");
+                            return new MValue(0);
+                        }
+                    }
+                    html = $"<div style=\"text-align:center;margin:6px 0;\"><img src=\"{src}\" style=\"max-width:100%;height:auto;\" alt=\"imagen\"></div>";
+                }
+                else
+                    html = MatlabPlots.Imagesc(a[0], _activeColormap);
+                _htmlOut?.Invoke(html);
+                return new MValue(0);
+            };
+            _builtins["image"] = _builtins["imshow"];
             _builtins["pcolor"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("pcolor(X, Y, Z)");
                 _htmlOut?.Invoke(MatlabPlots.Contourf(a[0], a[1], a[2], 30, _activeColormap));
