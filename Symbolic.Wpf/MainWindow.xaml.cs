@@ -1534,16 +1534,18 @@ namespace Calcpad.Wpf
                 {
                     if (ctlRerun)
                     {
-                        // Piso 3 EN VIVO: re-run disparado por un control → NO re-navegar
-                        // (evita flash blanco y no cortar el arrastre). Solo limpiar el
-                        // #matlab-output y re-streamear ahí; los controles viven en la barra
-                        // persistente #hkt-controls (fuera del output) → no se tocan.
-                        string cleared = "0";
-                        try { cleared = await WebViewer.ExecuteScriptAsync(
-                            "(function(){var o=document.getElementById('matlab-output');if(o){o.innerHTML='';return 1}return 0})()"); }
+                        // Piso 3 EN VIVO: re-run por control → NO re-navegar NI limpiar todavía.
+                        // Se mantiene el contenido viejo visible y al final se hace UN swap
+                        // atómico (__matlabSwap) → sin parpadeo ni banner. Si la página aún no
+                        // existe (primer render fue por control), caer a run normal.
+                        string ok = "0";
+                        try { ok = await WebViewer.ExecuteScriptAsync("(document.getElementById('matlab-output')?1:0)"); }
                         catch { }
-                        if (cleared != "1")
+                        if (ok != "1")
+                        {
+                            ctlRerun = false;   // página no lista → streamear normal
                             await _wv2Warper.NavigateToStringAsync(WithThemeClass(streamingPage));
+                        }
                     }
                     else
                     {
@@ -1625,6 +1627,7 @@ namespace Calcpad.Wpf
                     pipeline.StatementStarting += line =>
                         Dispatcher.InvokeAsync(async () =>
                         {
+                            if (ctlRerun) return;   // re-run por control: sin banner "Calculando…" (evita el destello)
                             try {
                                 var elapsed = (DateTime.UtcNow - parseStart).TotalSeconds;
                                 string preview = "";
@@ -1645,6 +1648,7 @@ namespace Calcpad.Wpf
                     pipeline.StatementCompleted += (line, html) =>
                         Dispatcher.InvokeAsync(async () =>
                         {
+                            if (ctlRerun) return;   // re-run por control: NO streamear por statement; swap único al final
                             try
                             {
                                 // FRAME de animación (drawnow, marcado con \x01FRAME\x01) → se repinta en
@@ -1690,6 +1694,19 @@ namespace Calcpad.Wpf
                         "window.__matlabClearStatus && window.__matlabClearStatus();");
                 }
                 catch { /* WebView2 cerrándose */ }
+                // Piso 3 EN VIVO: re-run por control → UN swap atómico del #matlab-output
+                // (no se streameó por statement ni se limpió antes). Construye el HTML nuevo y
+                // reemplaza el contenido en una sola operación (re-ejecuta Plotly/__hkt) → sin
+                // parpadeo ni banner. El plot se recrea, pero el output no queda en blanco.
+                if (ctlRerun && pureErr == null)
+                {
+                    try
+                    {
+                        var escSwap = System.Text.Json.JsonSerializer.Serialize(pureHtml ?? "");
+                        await WebViewer.ExecuteScriptAsync($"window.__matlabSwap && window.__matlabSwap({escSwap});");
+                    }
+                    catch { }
+                }
                 // Persistir HTML final a log + sidecar (mismo comportamiento que antes)
                 htmlResult = pureErr != null
                     ? HtmlApplyWorksheet($"<p class=\"err\">Error on line {pureErrLine}: " +
@@ -2069,6 +2086,23 @@ namespace Calcpad.Wpf
       // Auto-scroll al final si el usuario no scrolleó manualmente arriba
       var nearBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 200);
       if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    };
+    // Piso 3 EN VIVO: reemplaza TODO el #matlab-output en UNA operación (clear+fill en la
+    // misma ejecución JS → el browser repinta una sola vez, sin blanco intermedio). Re-crea
+    // los <script> para que Plotly/__hkt se ejecuten. Usado en re-runs por control (slider).
+    window.__matlabSwap = function(html){
+      if (!output) return;
+      var tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      tmp.querySelectorAll('script').forEach(function(oldScript){
+        var s = document.createElement('script');
+        for (var i=0;i<oldScript.attributes.length;i++) s.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
+        s.textContent = oldScript.textContent;
+        oldScript.parentNode.replaceChild(s, oldScript);
+      });
+      window.__matlabBindLineLinks && window.__matlabBindLineLinks(tmp);
+      output.innerHTML = '';
+      while (tmp.firstChild) output.appendChild(tmp.firstChild);
     };
     // ANIMACIÓN (drawnow): repinta el frame en el MISMO contenedor #labAnimFrame
     // (lo crea si no existe) → se ve la carga subir y la grieta crecer en vivo.
