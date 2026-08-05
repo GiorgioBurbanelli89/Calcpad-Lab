@@ -1661,19 +1661,19 @@
                             <ContextMenu x:Name="CalcTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
                                 <MenuItem Header="── Integrales ──" IsEnabled="False"/>
                                 <MenuItem Header="Integral definida  ∫" Click="Button_Click"
-                                          Tag="integral(@(x) x.^2, 0, 1)">
+                                          Tag="f = @(x) x.^2;§a = 0; b = 1;§I = integral(f, a, b)">
                                     <MenuItem.ToolTip>
                                         <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∫" FontSize="26"/><Run Text="0" BaselineAlignment="Subscript" FontSize="10"/><Run Text="1" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" dx = "/><Run Text="⅓" FontSize="19"/><LineBreak/><Run Text="Cambia @(x) y los límites 0, 1." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
                                     </MenuItem.ToolTip>
                                 </MenuItem>
                                 <MenuItem Header="Integral doble  ∬" Click="Button_Click"
-                                          Tag="integral2(@(x, y) x.*y, 0, 1, 0, 1)">
+                                          Tag="f = @(x, y) x.*y;§ax = 0; bx = 1; ay = 0; by = 1;§I2 = integral2(f, ax, bx, ay, by)">
                                     <MenuItem.ToolTip>
                                         <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∬" FontSize="26"/><Run Text=" x·y dx dy = "/><Run Text="¼" FontSize="19"/><Run Text="   (sobre [0,1]²)"/><LineBreak/><Run Text="integral2(@(x,y) f, xmin, xmax, ymin, ymax)" FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
                                     </MenuItem.ToolTip>
                                 </MenuItem>
                                 <MenuItem Header="Integral triple  ∭" Click="Button_Click"
-                                          Tag="integral3(@(x, y, z) x.*y.*z, 0, 1, 0, 1, 0, 1)">
+                                          Tag="f = @(x, y, z) x.*y.*z;§I3 = integral3(f, 0, 1, 0, 1, 0, 1)">
                                     <MenuItem.ToolTip>
                                         <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∭" FontSize="26"/><Run Text=" x·y·z dV = "/><Run Text="⅛" FontSize="19"/><Run Text="   (sobre [0,1]³)"/><LineBreak/><Run Text="integral3(@(x,y,z) f, x0,x1, y0,y1, z0,z1)" FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
                                     </MenuItem.ToolTip>
@@ -1723,7 +1723,7 @@
                                     </MenuItem.ToolTip>
                                 </MenuItem>
                                 <MenuItem Header="Raíz de ecuación (fzero)" Click="Button_Click"
-                                          Tag="r = fzero(@(x) x^2 - 2, 1)">
+                                          Tag="f = @(x) x^2 - 2;§x0 = 1;§r = fzero(f, x0)">
                                     <MenuItem.ToolTip>
                                         <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" − 2 = 0   →   x = √2 ≈ 1.414"/><LineBreak/><Run Text="Resuelve f(x) = 0 cerca de un punto inicial." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
                                     </MenuItem.ToolTip>
