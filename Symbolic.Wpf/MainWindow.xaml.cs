@@ -2020,6 +2020,7 @@ namespace Calcpad.Wpf
     window.__hkt = function(spec){
       var bar=document.getElementById('hkt-controls');
       if(!bar){bar=document.createElement('div');bar.id='hkt-controls';bar.style.cssText='padding:6px 4px;margin-bottom:6px;border-bottom:1px solid rgba(0,0,0,.12)';var host=document.getElementById('matlab-output');host.parentNode.insertBefore(bar,host);}
+      if(!document.getElementById('hktstyle')){var st=document.createElement('style');st.id='hktstyle';st.textContent='input.hktrange{-webkit-appearance:none;appearance:none;height:16px;background:transparent;cursor:pointer}input.hktrange::-webkit-slider-runnable-track{height:15px;background:#d8d8d8;border:1px solid #9a9a9a;border-radius:2px}input.hktrange::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:32px;height:13px;margin-top:0px;background:linear-gradient(#fbfbfb,#e2e2e2);border:1px solid #7a7a7a;border-radius:2px}';document.head.appendChild(st);}
       var el=document.getElementById(spec.id);
       if(el){var q=el.querySelector('input,select');if(q&&document.activeElement!==q){if(spec.type==='checkbox')q.checked=spec.value!=0;else if(spec.type==='select')q.selectedIndex=spec.value-1;else{q.value=spec.value;var s0=el.querySelector('.hktv');if(s0)s0.textContent=spec.value;}}return;}
       el=document.createElement('div');el.id=spec.id;el.style.cssText='display:inline-block;margin:4px 14px 4px 0;font:14px sans-serif;vertical-align:middle';
@@ -5620,21 +5621,34 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 _controlValues[name] = val;
             }
             catch { return; }
-            // Debounce ~150 ms: reinicia el timer en cada mensaje; al parar, re-ejecuta una vez.
-            _ctrlDebounce ??= new System.Windows.Threading.DispatcherTimer
-            { Interval = System.TimeSpan.FromMilliseconds(150) };
-            _ctrlDebounce.Tick -= CtrlDebounceTick;
-            _ctrlDebounce.Tick += CtrlDebounceTick;
-            _ctrlDebounce.Stop();
-            _ctrlDebounce.Start();
+            // THROTTLE (no debounce): mientras se ARRASTRA el slider llegan mensajes sin parar;
+            // un debounce (reiniciar el timer con cada uno) solo dispararía AL SOLTAR. Con un
+            // throttle repetitivo re-ejecutamos cada ~90 ms DURANTE el arrastre → EN VIVO.
+            _ctrlPending = true;
+            if (_ctrlDebounce == null)
+            {
+                _ctrlDebounce = new System.Windows.Threading.DispatcherTimer
+                { Interval = System.TimeSpan.FromMilliseconds(90) };
+                _ctrlDebounce.Tick += CtrlThrottleTick;
+            }
+            if (!_ctrlDebounce.IsEnabled) _ctrlDebounce.Start();
         }
 
-        private void CtrlDebounceTick(object sender, System.EventArgs e)
+        private bool _ctrlPending;
+        private int _ctrlIdleTicks;
+        private void CtrlThrottleTick(object sender, System.EventArgs e)
         {
-            _ctrlDebounce.Stop();
-            if (_isParsing) { _ctrlDebounce.Start(); return; }   // cálculo en curso → reintentar
-            _recalcFromControl = true;                            // saltar el guard de "source sin cambios"
-            CalculateAsync();
+            if (_isParsing) return;              // cálculo en curso → esperar al próximo tick
+            if (_ctrlPending)
+            {
+                _ctrlPending = false; _ctrlIdleTicks = 0;
+                _recalcFromControl = true;       // saltar el guard de "source sin cambios"
+                CalculateAsync();
+            }
+            else if (++_ctrlIdleTicks > 8)       // ~0.7 s sin cambios → parar el timer
+            {
+                _ctrlDebounce.Stop();
+            }
         }
 
         private async void WebViewer_LinkClicked()
