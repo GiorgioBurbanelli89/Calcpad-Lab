@@ -3798,16 +3798,25 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                     enc.Save(ms);
                     b64 = Convert.ToBase64String(ms.ToArray());
                 }
+                // Deshabilitar TextChanged durante insert+parse: si no, el insert Y el parse (que
+                // modifica el documento) disparaban cada uno un auto-run → salida DUPLICADA.
+                _isTextChangedEnabled = false;
                 RichTextBox.BeginChange();
-                try { _insertManager.InsertText($"% #img data:image/png;base64,{b64}"); }
-                finally { RichTextBox.EndChange(); }
-                // Convertir de inmediato el párrafo a MINIATURA (el resaltador reemplaza el base64
-                // por la foto y guarda la línea en Tag). Así nunca se ve el blob.
-                var imgPar = RichTextBox.Selection.End.Paragraph;
-                if (imgPar != null)
-                    _highlighter.Parse(imgPar, IsComplex, GetLineNumber(imgPar), true);
+                try
+                {
+                    _insertManager.InsertText($"% #img data:image/png;base64,{b64}");
+                    // Convertir de inmediato el párrafo a MINIATURA (el resaltador reemplaza el base64
+                    // por la foto y guarda la línea en Tag). Así nunca se ve el blob.
+                    var imgPar = RichTextBox.Selection.End.Paragraph;
+                    if (imgPar != null)
+                        _highlighter.Parse(imgPar, IsComplex, GetLineNumber(imgPar), true);
+                }
+                finally { RichTextBox.EndChange(); _isTextChangedEnabled = true; }
+                Record();
+                IsSaved = false;
+                DispatchLineNumbers();
                 if (IsAutoRun)
-                    CalculateAsync();
+                    CalculateAsync();   // UN solo render
             }
             catch (Exception ex)
             {
