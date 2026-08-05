@@ -257,7 +257,7 @@ EndFragment:0000000004";
             }
             catch
             {
-                MessageBox.Show(AppMessages.Error_getting_input_fields_values, "Calcpad", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(AppMessages.Error_getting_input_fields_values, "Hekatan Lab", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             return null;
         }

@@ -446,7 +446,7 @@
                     <!-- VISIBLES en el output (llevan marcador) -->
                     <MenuItem Click="Button_Click" Tag="% '" Header="% '  texto VISIBLE"          ToolTip="Texto visible en el output (apostrofo ' = texto)"/>
                     <MenuItem Click="Button_Click" Tag="%% " Header="%%  seccion (OCULTO, como MATLAB)" ToolTip="Comentario de seccion: NO sale en el output (como MATLAB). Para titulo visible usa %'"/>
-                    <MenuItem Click="Button_Click" Tag="% #noc " Header="% #noc  formula"         ToolTip="Formula tipografiada (Calcpad), visible"/>
+                    <MenuItem Click="Button_Click" Tag="% #noc " Header="% #noc  formula"         ToolTip="Fórmula tipografiada dentro de un comentario %, visible en el reporte"/>
                     <MenuItem Click="Button_Click" Tag="% #md§§% #endmd" Header="% #md ... #endmd  (Markdown)" ToolTip="Bloque Markdown: titulos #, tablas, listas, **negrita**, -&gt; centrado &lt;-"/>
                     <MenuItem Click="Button_Click" Tag="% #plain§§% #render" Header="% #plain ... #render" ToolTip="Texto plano vs renderizado en disp/fprintf"/>
                     <Separator/>
@@ -1115,7 +1115,7 @@
             </StatusBarItem>
             <CheckBox x:Name="ZeroSmallMatrixElementsCheckBox"
                       Content="{x:Static wpf:MainWindowResources.ZeroSmallElem}"
-                      ToolTip="Solo afecta a las fórmulas/matrices Calcpad renderizadas dentro de comentarios % (#noc): muestra 0 en vez de exponente para valores diminutos. NO cambia la salida del script MATLAB."
+                      ToolTip="Solo afecta a las fórmulas/matrices tipografiadas dentro de comentarios % (#noc): muestra 0 en vez de exponente para valores diminutos. NO cambia la salida del script MATLAB."
                       Height="18" 
                       Width="130"
                       IsChecked="True" 
@@ -1126,7 +1126,7 @@
                       TabIndex="13" Click="ZeroSmallMatrixElementsCheckBox_Click"/>
             <CheckBox x:Name="SubstituteCheckBox"
                       Content="{x:Static wpf:MainWindowResources.Substitute}"
-                      ToolTip="Solo afecta a las fórmulas Calcpad renderizadas dentro de comentarios % (#noc): sustituye las variables por sus valores. NO cambia la salida del script MATLAB."
+                      ToolTip="Solo afecta a las fórmulas tipografiadas dentro de comentarios % (#noc): sustituye las variables por sus valores. NO cambia la salida del script MATLAB."
                       Height="18" 
                       Width="80"
                       IsChecked="True" 
@@ -1772,7 +1772,7 @@
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="712,0,0,0"
                         x:Name="SymMenuButton" Width="46" FontSize="10" FontFamily="Roboto"
                         Click="DispMenuButton_Click" Content="symb▾"
-                        ToolTip="Cálculo simbólico (syms): derivadas, integrales, límites, factorizar, resolver, sustituir, Taylor, jacobiano, LaTeX. Lo que Calcpad no tiene.">
+                        ToolTip="Cálculo simbólico (syms): derivadas, integrales, límites, factorizar, resolver, sustituir, Taylor, jacobiano, LaTeX. (En MATLAB requiere el Symbolic Toolbox de pago.)">
                         <Button.ContextMenu>
                             <ContextMenu x:Name="SymTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
                                 <MenuItem Header="Declarar variable  (syms)" Click="Button_Click"

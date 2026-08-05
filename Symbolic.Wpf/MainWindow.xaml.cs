@@ -5159,7 +5159,7 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
 
 
         private static void ShowErrorMessage(string message) =>
-            MessageBox.Show(message, "Calcpad", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(message, "Hekatan Lab", MessageBoxButton.OK, MessageBoxImage.Error);
 
         private async void Window_ContentRendered(object sender, EventArgs e)
         {
@@ -5191,7 +5191,7 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                     System.IO.File.WriteAllText(dump, $"{ex.GetType().FullName}\n{ex.Message}\n\nStack:\n{ex.StackTrace}\n\nInner: {ex.InnerException}");
                 }
                 catch { }
-                System.Windows.MessageBox.Show($"Calcpad Lab error:\n\n{ex.GetType().Name}: {ex.Message}", "Calcpad Lab", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                System.Windows.MessageBox.Show($"Hekatan Lab error:\n\n{ex.GetType().Name}: {ex.Message}", "Hekatan Lab", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
         private Task _webViewInitTask;
