@@ -85,13 +85,14 @@ for step = 1:(2*nE+1)
     % --- Carga lateral de REFERENCIA (unitaria) en el techo ---
     F = zeros(ndof,1);   F(GDLc) = 1;
     Kff = K(free,free);
-    % Detectar mecanismo: rigidez lateral casi nula
-    u = zeros(ndof,1);
-    u(free) = inv(Kff) * F(free);
-    if abs(u(GDLc)) > 1e6 || ~isfinite(u(GDLc))
-        disp('Mecanismo alcanzado (rigidez lateral ~ 0).')
+    % Detectar MECANISMO antes de invertir: al formarse suficientes rotulas la
+    % rigidez lateral se vuelve singular (numero de condicion -> Inf).
+    if cond(Kff) > 1e12
+        disp('Mecanismo de colapso alcanzado (rigidez lateral singular).')
         break
     end
+    u = zeros(ndof,1);
+    u(free) = inv(Kff) * F(free);
 
     % --- Momentos de extremo por elemento (bajo la carga unitaria) ---
     lambda = inf;   ee = 0;   endsel = 0;
