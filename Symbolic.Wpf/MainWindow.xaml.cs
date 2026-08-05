@@ -3759,20 +3759,32 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             {
                 var bmp = Clipboard.GetImage();
                 if (bmp == null) return;
-                // Codificar el recorte como PNG base64 e insertarlo como COMENTARIO % #img:
-                //   % #img data:image/png;base64,....
-                // Es comentario → MATLAB lo ignora (no rompe) y la imagen queda DENTRO del .m
-                // (autocontenido: copias solo el .m y la imagen viaja). Hekatan lo renderiza.
-                string b64;
-                using (var ms = new MemoryStream())
+                // Guardar el recorte en Images/recorte_N.png junto al script (ruta relativa portable)
+                // y insertar la línea LIMPIA imshow('Images/recorte_N.png');  → editor limpio, MATLAB puro.
+                // Para portar un solo archivo se guarda como .cpdz (empaqueta las imágenes).
+                string dir, argPrefix;
+                if (!string.IsNullOrEmpty(CurrentFileName))
+                {
+                    dir = Path.Combine(Path.GetDirectoryName(CurrentFileName), "Images");
+                    argPrefix = "Images/";
+                }
+                else
+                {
+                    dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Hekatan");
+                    argPrefix = null;
+                }
+                Directory.CreateDirectory(dir);
+                int n = 1; string file;
+                do { file = Path.Combine(dir, $"recorte_{n}.png"); n++; } while (File.Exists(file));
+                using (var fs = new FileStream(file, FileMode.Create))
                 {
                     var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
                     enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
-                    enc.Save(ms);
-                    b64 = Convert.ToBase64String(ms.ToArray());
+                    enc.Save(fs);
                 }
+                var arg = argPrefix != null ? argPrefix + Path.GetFileName(file) : file.Replace('\\', '/');
                 RichTextBox.BeginChange();
-                try { _insertManager.InsertText($"% #img data:image/png;base64,{b64}"); }
+                try { _insertManager.InsertText($"imshow('{arg}');"); }
                 finally { RichTextBox.EndChange(); }
                 if (IsAutoRun)
                     CalculateAsync();
