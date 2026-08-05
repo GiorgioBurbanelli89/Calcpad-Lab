@@ -3884,24 +3884,24 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 CommentUncomment(false);
                 e.Handled = true;
             }
+            else if ((e.Key == Key.D1 || e.Key == Key.NumPad1) && isCtrl)
+            {
+                Button_Click(H3Button, e);   // H3Button ahora es el botón "H1"
+                e.Handled = true;
+            }
+            else if ((e.Key == Key.D2 || e.Key == Key.NumPad2) && isCtrl)
+            {
+                Button_Click(H4Button, e);   // "H2"
+                e.Handled = true;
+            }
             else if ((e.Key == Key.D3 || e.Key == Key.NumPad3) && isCtrl)
             {
-                Button_Click(H3Button, e);
+                Button_Click(H5Button, e);   // "H3"
                 e.Handled = true;
             }
             else if ((e.Key == Key.D4 || e.Key == Key.NumPad4) && isCtrl)
             {
-                Button_Click(H4Button, e);
-                e.Handled = true;
-            }
-            else if ((e.Key == Key.D5 || e.Key == Key.NumPad5) && isCtrl)
-            {
-                Button_Click(H5Button, e);
-                e.Handled = true;
-            }
-            else if ((e.Key == Key.D6 || e.Key == Key.NumPad6) && isCtrl)
-            {
-                Button_Click(H6Button, e);
+                Button_Click(H6Button, e);   // "H4"
                 e.Handled = true;
             }
             else if (e.Key == Key.B && isCtrl)
@@ -4665,6 +4665,17 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 UseShellExecute = true
             };
             Process.Start(info);
+        }
+
+        // Abre el menú de plantillas disp/fprintf al hacer clic (no en clic derecho).
+        private void DispMenuButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Button b && b.ContextMenu is not null)
+            {
+                b.ContextMenu.PlacementTarget = b;
+                b.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+                b.ContextMenu.IsOpen = true;
+            }
         }
 
         private bool _isMathCanvasMode = false;

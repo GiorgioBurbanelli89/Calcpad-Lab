@@ -1435,6 +1435,19 @@ namespace Calcpad.Core.Matlab
                 var v = a[0];
                 int rR = (int)a[1].Scalar;
                 int rC = a.Length > 2 ? (int)a[2].Scalar : rR;
+                // Soporte char/string: repmat('-',1,40) → 40 guiones (antes daba "Index outside bounds"
+                // porque v.At() leía Data[] vacío en una cadena).
+                if (v.IsString)
+                {
+                    var sb = new System.Text.StringBuilder();
+                    var s = v.StringValue ?? string.Empty;
+                    for (int c = 0; c < rC; c++) sb.Append(s);
+                    var tiled = sb.ToString();
+                    if (rR <= 1) return new MValue(tiled);
+                    var sarr = new string[rR, 1];
+                    for (int i = 0; i < rR; i++) sarr[i, 0] = tiled;
+                    return MValue.NewStringArray(sarr);
+                }
                 var r = new MValue(v.Rows * rR, v.Cols * rC);
                 for (int i = 0; i < r.Rows; i++)
                     for (int j = 0; j < r.Cols; j++)

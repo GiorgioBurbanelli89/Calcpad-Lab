@@ -231,6 +231,64 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Menús desplegables (disp▾, graf▾) tematizados: fondo oscuro + texto claro + resalte oro.
+             Theme-aware (DynamicResource) → correcto en dark Y en gold. Antes usaban el fondo blanco
+             del sistema, ilegible en dark. -->
+        <Style x:Key="ThemedMenuItem" TargetType="{x:Type MenuItem}">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="mibd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" CornerRadius="3">
+                            <ContentPresenter ContentSource="Header" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="mibd" Property="Background" Value="{DynamicResource ThemeAccentGold}"/>
+                                <Setter Property="Foreground" Value="#141109"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource ThemeAccentGold}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Tooltip tematizado para mostrar expresiones matemáticas renderizadas (∫, Σ, x², fracciones). -->
+        <Style x:Key="MathTip" TargetType="{x:Type ToolTip}">
+            <Setter Property="Background" Value="{DynamicResource ThemePanelBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentGold}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="FontFamily" Value="Cambria Math, Cambria, Georgia"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+        </Style>
+        <Style x:Key="ThemedContextMenu" TargetType="{x:Type ContextMenu}">
+            <Setter Property="Background" Value="{DynamicResource ThemePanelBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentGold}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource ThemedMenuItem}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ContextMenu}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5" Padding="3">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="GreekLetter" TargetType="{x:Type TextBlock}">
             <Setter Property="Margin" Value="1"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
@@ -1308,54 +1366,25 @@
                             </ControlTemplate>
                         </ToggleButton.Template>
                     </ToggleButton>
+                    <!-- Encabezados en MATLAB PURO: insertan disp('= Título =') portable (corre igual en
+                         MATLAB real). Jerarquía por barras '=' (más barras = nivel más alto). Antes eran
+                         '<h3> de Calcpad → daban "Unterminated char-array" en MATLAB. -->
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="50,0,0,0"
-                        x:Name="H3Button" Click="Button_Click" Tag="&lt;h3&gt;‖&lt;/h3&gt;␣‖### " 
-                        Content="H3" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12">
-                        <Button.ToolTip>
-                            <ToolTip>
-                                <TextBlock>
-                                    <Run Text="{x:Static wpf:MainWindowResources.Heading3}"/>
-                                    <Run Text="(Ctrl+3)"/>
-                                </TextBlock>
-                            </ToolTip>
-                        </Button.ToolTip>
-                    </Button>
+                        x:Name="H3Button" Click="Button_Click" Tag="disp('==== TÍTULO ====')"
+                        Content="H1" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12"
+                        ToolTip="Encabezado 1 (nivel más alto) — disp() MATLAB puro (Ctrl+1)"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="72,0,0,0"
-                        x:Name="H4Button" Click="Button_Click" Tag="&lt;h4&gt;‖&lt;/h4&gt;␣‖#### "
-                        Content="H4" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12">
-                        <Button.ToolTip>
-                            <ToolTip>
-                                <TextBlock>
-                                    <Run Text="{x:Static wpf:MainWindowResources.Heading4}"/>
-                                    <Run Text="(Ctrl+4)"/>
-                                </TextBlock>
-                            </ToolTip>
-                        </Button.ToolTip>
-                    </Button>
+                        x:Name="H4Button" Click="Button_Click" Tag="disp('=== Título ===')"
+                        Content="H2" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12"
+                        ToolTip="Encabezado 2 — disp() MATLAB puro (Ctrl+2)"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="94,0,0,0"
-                        x:Name="H5Button" Click="Button_Click" Tag="&lt;h5&gt;‖&lt;/h5&gt;␣‖##### "
-                        Content="H5" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12">
-                        <Button.ToolTip>
-                            <ToolTip>
-                                <TextBlock>
-                                    <Run Text="{x:Static wpf:MainWindowResources.Heading5}"/>
-                                    <Run Text="(Ctrl+5)"/>
-                                </TextBlock>
-                            </ToolTip>
-                        </Button.ToolTip>
-                    </Button>
+                        x:Name="H5Button" Click="Button_Click" Tag="disp('== Título ==')"
+                        Content="H3" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12"
+                        ToolTip="Encabezado 3 — disp() MATLAB puro (Ctrl+3)"/>
                     <Button Grid.Row="0"  Style="{StaticResource FormatButton}" Margin="116,0,0,0"
-                        x:Name="H6Button" Click="Button_Click" Tag="&lt;h6&gt;‖&lt;/h6&gt;␣‖###### "
-                        Content="H6" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12">
-                        <Button.ToolTip>
-                            <ToolTip>
-                                <TextBlock>
-                                    <Run Text="{x:Static wpf:MainWindowResources.Heading6}"/>
-                                    <Run Text="(Ctrl+6)"/>
-                                </TextBlock>
-                            </ToolTip>
-                        </Button.ToolTip>
-                    </Button>
+                        x:Name="H6Button" Click="Button_Click" Tag="disp('= Título =')"
+                        Content="H4" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12"
+                        ToolTip="Encabezado 4 — disp() MATLAB puro (Ctrl+4)"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="138,0,0,0"
                         Click="Button_Click" Tag="&lt;p&gt;‖&lt;/p&gt;" Content="p" >
                         <Button.ToolTip>
@@ -1486,8 +1515,222 @@
                         Click="Button_Click" Tag="§'&lt;table class=&quot;bordered&quot;&gt;§'&lt;thead&gt;§'&lt;tr&gt;&lt;th&gt;col 1&lt;/th&gt;&lt;th&gt;col 2&lt;/th&gt;&lt;/tr&gt;§'&lt;/thead&gt;§'&lt;tbody&gt;§'&lt;tr&gt;&lt;td&gt;'11'&lt;/td&gt;&lt;td&gt;'12'&lt;/td&gt;&lt;/tr&gt;§'&lt;tr&gt;&lt;td&gt;'21'&lt;/td&gt;&lt;td&gt;'22'&lt;/td&gt;&lt;/tr&gt;§'&lt;/tbody&gt;§'&lt;/table&gt;§"                        
                         Content="▦" ToolTip="{x:Static wpf:MainWindowResources.Table}" FontSize="14" />
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="512,0,0,0"
-                        Click="Button_Click" Tag="&lt;hr/&gt;‖␣---‖"
+                        Click="Button_Click" Tag="&lt;hr/&gt;‖␣---&#8214;"
                         Content="—" ToolTip="{x:Static wpf:MainWindowResources.DividingLine}" FontSize="14"/>
+                    <!-- Desplegable de plantillas disp/fprintf (imprimir texto/valores en MATLAB puro).
+                         Cada ítem tiene tooltip que explica qué imprime. -->
+                    <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="536,0,0,0"
+                        x:Name="DispMenuButton" Width="38" FontSize="10" FontFamily="Roboto"
+                        Click="DispMenuButton_Click" Content="disp▾"
+                        ToolTip="Plantillas para imprimir texto y valores (disp / fprintf). Pasa el cursor por cada opción para ver qué hace.">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="DispTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
+                                <MenuItem Header="Valor con nombre    →  x = 5" Click="Button_Click"
+                                          Tag="x = 5;§fprintf('%s = %.4g\n', 'x', x)"
+                                          ToolTip="Imprime el nombre y el valor de una variable, p.ej. 'x = 5'. Edita 'x' (etiqueta) y x (variable). %.4g = 4 cifras significativas."/>
+                                <MenuItem Header="Valor con unidad    →  L = 3.00 m" Click="Button_Click"
+                                          Tag="L = 3.50;§fprintf('%s = %.2f %s\n', 'L', L, 'm')"
+                                          ToolTip="Imprime nombre = valor unidad, p.ej. 'L = 3.00 m'. %.2f = 2 decimales; el último %s es la unidad."/>
+                                <MenuItem Header="Texto + número (num2str)" Click="Button_Click"
+                                          Tag="x = 5;§disp(['Resultado: ', num2str(x)])"
+                                          ToolTip="Concatena texto y un número sin formato manual, p.ej. 'Resultado: 5'. num2str convierte el número a texto."/>
+                                <MenuItem Header="Armar texto (sprintf)" Click="Button_Click"
+                                          Tag="x = 5;§s = sprintf('%s = %.4g', 'x', x)"
+                                          ToolTip="Igual que fprintf pero NO imprime: guarda el texto en s. Útil para títulos, p.ej. title(s)."/>
+                                <MenuItem Header="Número con N decimales  →  5.0000" Click="Button_Click"
+                                          Tag="x = 3.14159;§fprintf('%.4f\n', x)"
+                                          ToolTip="Imprime un número con decimales fijos, p.ej. '5.0000'. Cambia el 4 en %.4f por los decimales que quieras."/>
+                                <MenuItem Header="Fila de tabla (alineada)" Click="Button_Click"
+                                          Tag="valor = 12.3456;§fprintf('%-12s %10.3f\n', 'nombre', valor)"
+                                          ToolTip="Fila tipo tabla: texto alineado a la izquierda (%-12s, 12 espacios) y número a la derecha (%10.3f). Úsalo varias veces para una tabla."/>
+                                <MenuItem Header="Texto simple" Click="Button_Click"
+                                          Tag="disp('texto')"
+                                          ToolTip="Imprime una línea de texto tal cual, p.ej. 'texto'."/>
+                                <MenuItem Header="Línea separadora  →  --------" Click="Button_Click"
+                                          Tag="disp('----------------------------------------')"
+                                          ToolTip="Imprime una línea de guiones para separar secciones del reporte. Agrega o quita guiones para el largo que quieras."/>
+                                <MenuItem Header="Línea en blanco" Click="Button_Click"
+                                          Tag="disp(' ')"
+                                          ToolTip="Imprime una línea vacía (espacio entre bloques)."/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <!-- Desplegable de gráficas comunes: al pulsar se abre un cuadro para elegir el tipo.
+                         Cada opción inserta un ejemplo mínimo funcional (datos + gráfica) con su tooltip. -->
+                    <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="578,0,0,0"
+                        x:Name="GraphMenuButton" Width="40" FontSize="10" FontFamily="Roboto"
+                        Click="DispMenuButton_Click" Content="graf▾"
+                        ToolTip="Gráficas comunes (2D y 3D). Pulsa para elegir el tipo; inserta un ejemplo listo para correr.">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="GraphTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
+                                <MenuItem Header="── 2D ──" IsEnabled="False"/>
+                                <MenuItem Header="Línea 2D  (plot)" Click="Button_Click"
+                                          Tag="x = linspace(0, 10, 100);§y = sin(x);§plot(x, y)§grid on"
+                                          ToolTip="Curva 2D de y vs x. Ejemplo: y = sin(x). Cambia y por tu función."/>
+                                <MenuItem Header="Línea con marcadores" Click="Button_Click"
+                                          Tag="x = 0:10;§y = x.^2;§plot(x, y, '-o')§grid on"
+                                          ToolTip="Línea con puntos marcados en cada dato ('-o'). Prueba '-s', '--*', ':d' para otros estilos."/>
+                                <MenuItem Header="Varias curvas (hold + legend)" Click="Button_Click"
+                                          Tag="x = linspace(0, 2*pi, 100);§plot(x, sin(x))§hold on§plot(x, cos(x))§hold off§legend('sin', 'cos')"
+                                          ToolTip="Dibuja varias curvas en el mismo eje con 'hold on' y las identifica con legend()."/>
+                                <MenuItem Header="Dispersión  (scatter)" Click="Button_Click"
+                                          Tag="x = rand(50, 1);§y = rand(50, 1);§scatter(x, y)"
+                                          ToolTip="Nube de puntos (x, y). Útil para datos dispersos o correlaciones."/>
+                                <MenuItem Header="Barras  (bar)" Click="Button_Click"
+                                          Tag="y = [3 7 2 5 4];§bar(y)"
+                                          ToolTip="Diagrama de barras verticales. Usa barh(y) para barras horizontales."/>
+                                <MenuItem Header="Histograma  (histogram)" Click="Button_Click"
+                                          Tag="datos = randn(1000, 1);§histogram(datos)"
+                                          ToolTip="Distribución de frecuencias de un conjunto de datos."/>
+                                <MenuItem Header="Discreta / tallo  (stem)" Click="Button_Click"
+                                          Tag="n = 0:20;§stem(n, sin(n/3))"
+                                          ToolTip="Gráfica discreta (tallos), típica de señales muestreadas."/>
+                                <MenuItem Header="── 3D ──" IsEnabled="False"/>
+                                <MenuItem Header="Superficie 3D  (surf)" Click="Button_Click"
+                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = X.^2 - Y.^2;§surf(X, Y, Z)§colorbar"
+                                          ToolTip="Superficie 3D coloreada de Z sobre la malla (X, Y). colorbar muestra la escala."/>
+                                <MenuItem Header="Malla 3D  (mesh)" Click="Button_Click"
+                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = sin(sqrt(X.^2 + Y.^2));§mesh(X, Y, Z)"
+                                          ToolTip="Superficie 3D en malla de alambre (wireframe)."/>
+                                <MenuItem Header="Contorno relleno  (contourf)" Click="Button_Click"
+                                          Tag="[X, Y] = meshgrid(-3:0.2:3);§Z = X.^2 - Y.^2;§contourf(X, Y, Z)§colorbar"
+                                          ToolTip="Mapa de contornos 2D relleno por color (curvas de nivel). Ideal para campos escalares."/>
+                                <MenuItem Header="Línea 3D  (plot3)" Click="Button_Click"
+                                          Tag="t = linspace(0, 10*pi, 200);§plot3(sin(t), cos(t), t)§grid on"
+                                          ToolTip="Curva en el espacio 3D. Ejemplo: una hélice."/>
+                                <MenuItem Header="Campo vectorial  (quiver)" Click="Button_Click"
+                                          Tag="[X, Y] = meshgrid(-2:0.5:2);§quiver(X, Y, -Y, X)"
+                                          ToolTip="Flechas (u, v) sobre la malla (X, Y). Útil para campos de fuerza/velocidad."/>
+                                <MenuItem Header="── Decoración ──" IsEnabled="False"/>
+                                <MenuItem Header="Ejes + título" Click="Button_Click"
+                                          Tag="xlabel('x')§ylabel('y')§title('Título')"
+                                          ToolTip="Agrega etiquetas a los ejes y un título a la gráfica actual."/>
+                                <MenuItem Header="Leyenda" Click="Button_Click"
+                                          Tag="legend('curva 1', 'curva 2')"
+                                          ToolTip="Identifica cada curva del gráfico. Un texto por curva, en orden."/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <!-- Desplegable de bucles / control de flujo (MATLAB puro). -->
+                    <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="620,0,0,0"
+                        x:Name="LoopMenuButton" Width="44" FontSize="10" FontFamily="Roboto"
+                        Click="DispMenuButton_Click" Content="loops▾"
+                        ToolTip="Bucles y control de flujo (for, while, if, switch, try). Inserta la estructura lista con la sangría.">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="LoopTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
+                                <MenuItem Header="for  (bucle contado)" Click="Button_Click"
+                                          Tag="for k = 1:5§    disp(k)§end"
+                                          ToolTip="Repite el bloque para k = 1, 2, … 5. Ejemplo: imprime k. Cambia el rango 1:5."/>
+                                <MenuItem Header="for con acumulador" Click="Button_Click"
+                                          Tag="s = 0;§for k = 1:10§    s = s + k;§end§s"
+                                          ToolTip="Suma (o acumula) dentro del bucle. s = 1+2+…+10 = 55. Patrón base del cálculo iterativo."/>
+                                <MenuItem Header="for anidado (2 índices)" Click="Button_Click"
+                                          Tag="for i = 1:3§    for j = 1:3§        disp([i, j])§    end§end"
+                                          ToolTip="Bucle dentro de bucle: recorre filas i y columnas j. Ejemplo: imprime cada par [i j]."/>
+                                <MenuItem Header="while  (mientras)" Click="Button_Click"
+                                          Tag="k = 1;§while k &lt;= 5§    disp(k)§    k = k + 1;§end"
+                                          ToolTip="Repite mientras la condición sea verdadera. Ejemplo: cuenta de 1 a 5 (¡acuérdate de actualizar k!)."/>
+                                <MenuItem Header="if" Click="Button_Click"
+                                          Tag="x = 5;§if x &gt; 0§    disp('positivo')§end"
+                                          ToolTip="Ejecuta el bloque solo si la condición se cumple. Ejemplo: x = 5 → 'positivo'."/>
+                                <MenuItem Header="if / else" Click="Button_Click"
+                                          Tag="x = -2;§if x &gt; 0§    disp('positivo')§else§    disp('negativo')§end"
+                                          ToolTip="Un camino si se cumple, otro si no. Ejemplo: x = -2 → 'negativo'."/>
+                                <MenuItem Header="if / elseif / else" Click="Button_Click"
+                                          Tag="x = 0;§if x &gt; 0§    disp('positivo')§elseif x &lt; 0§    disp('negativo')§else§    disp('cero')§end"
+                                          ToolTip="Varias condiciones encadenadas. Ejemplo: x = 0 → 'cero'."/>
+                                <MenuItem Header="switch" Click="Button_Click"
+                                          Tag="n = 2;§switch n§    case 1§        disp('uno')§    case 2§        disp('dos')§    otherwise§        disp('otro')§end"
+                                          ToolTip="Elige un caso según el valor. Ejemplo: n = 2 → 'dos'."/>
+                                <MenuItem Header="try / catch" Click="Button_Click"
+                                          Tag="try§    error('algo falló')§catch err§    disp(err.message)§end"
+                                          ToolTip="Ejecuta y, si hay error, lo captura en err sin detener todo. Ejemplo: muestra el mensaje del error."/>
+                                <MenuItem Header="break  /  continue" Click="Button_Click"
+                                          Tag="for k = 1:10§    if k &gt; 5§        break§    end§    disp(k)§end"
+                                          ToolTip="break sale del bucle; continue salta a la siguiente vuelta. Ejemplo: imprime 1..5 y corta en 6."/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <!-- Desplegable de cálculo: integrales (simple/doble/triple), sumas Σ, productos Π,
+                         derivadas y raíces. Incluye la versión CON BUCLE (filosofía de Hekatan). -->
+                    <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="666,0,0,0"
+                        x:Name="CalcMenuButton" Width="42" FontSize="10" FontFamily="Roboto"
+                        Click="DispMenuButton_Click" Content="calc▾"
+                        ToolTip="Cálculo: integrales (simple, doble, triple), sumas Σ, productos Π, derivadas y raíces. Con función directa y con bucle.">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="CalcTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
+                                <MenuItem Header="── Integrales ──" IsEnabled="False"/>
+                                <MenuItem Header="Integral definida  ∫" Click="Button_Click"
+                                          Tag="integral(@(x) x.^2, 0, 1)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∫" FontSize="26"/><Run Text="0" BaselineAlignment="Subscript" FontSize="10"/><Run Text="1" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" dx = "/><Run Text="⅓" FontSize="19"/><LineBreak/><Run Text="Cambia @(x) y los límites 0, 1." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Integral doble  ∬" Click="Button_Click"
+                                          Tag="integral2(@(x, y) x.*y, 0, 1, 0, 1)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∬" FontSize="26"/><Run Text=" x·y dx dy = "/><Run Text="¼" FontSize="19"/><Run Text="   (sobre [0,1]²)"/><LineBreak/><Run Text="integral2(@(x,y) f, xmin, xmax, ymin, ymax)" FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Integral triple  ∭" Click="Button_Click"
+                                          Tag="integral3(@(x, y, z) x.*y.*z, 0, 1, 0, 1, 0, 1)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∭" FontSize="26"/><Run Text=" x·y·z dV = "/><Run Text="⅛" FontSize="19"/><Run Text="   (sobre [0,1]³)"/><LineBreak/><Run Text="integral3(@(x,y,z) f, x0,x1, y0,y1, z0,z1)" FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Integral de datos (trapz)" Click="Button_Click"
+                                          Tag="x = linspace(0, 1, 100);§y = x.^2;§area = trapz(x, y)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∫"  FontSize="26"/><Run Text=" f(x) dx  ≈  "/><Run Text="Σ" FontSize="20"/><Run Text=" ½(y"/><Run Text="i" BaselineAlignment="Subscript" FontSize="10"/><Run Text="+y"/><Run Text="i+1" BaselineAlignment="Subscript" FontSize="10"/><Run Text=")Δx"/><LineBreak/><Run Text="Integra datos muestreados (x, y). Sin fórmula." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Integral con bucle (trapecio)" Click="Button_Click"
+                                          Tag="a = 0; b = 1; n = 100;§h = (b - a)/n;§s = 0;§for k = 1:n§    x0 = a + (k-1)*h;§    x1 = a + k*h;§    s = s + 0.5*h*(x0^2 + x1^2);§end§s">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∫" FontSize="26"/><Run Text="0" BaselineAlignment="Subscript" FontSize="10"/><Run Text="1" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" dx = "/><Run Text="⅓" FontSize="19"/><Run Text="   (a mano, con for)"/><LineBreak/><Run Text="La MISMA integral con un bucle (trapecio)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="── Sumas / productos ──" IsEnabled="False"/>
+                                <MenuItem Header="Suma  Σ  (vectorizada)" Click="Button_Click"
+                                          Tag="s = sum((1:100).^2)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="Σ" FontSize="26"/><Run Text="k=1" BaselineAlignment="Subscript" FontSize="10"/><Run Text="100" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" k"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" = 338350"/><LineBreak/><Run Text="En una línea, vectorizada (MKL)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Suma  Σ  con bucle" Click="Button_Click"
+                                          Tag="s = 0;§for k = 1:100§    s = s + k^2;§end§s">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="Σ" FontSize="26"/><Run Text="k=1" BaselineAlignment="Subscript" FontSize="10"/><Run Text="100" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" k"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text="   (con for)"/><LineBreak/><Run Text="La misma Σ con un bucle. Más didáctica." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Producto  Π" Click="Button_Click"
+                                          Tag="p = prod(1:5)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="Π" FontSize="26"/><Run Text="k=1" BaselineAlignment="Subscript" FontSize="10"/><Run Text="5" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" k = 5! = 120"/><LineBreak/><Run Text="prod multiplica los elementos." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="── Derivadas / raíces ──" IsEnabled="False"/>
+                                <MenuItem Header="Derivada numérica (gradient)" Click="Button_Click"
+                                          Tag="x = linspace(0, 2*pi, 100);§y = sin(x);§dydx = gradient(y, x);§plot(x, dydx)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="d" FontStyle="Italic"/><Run Text="y"/><Run Text=" / "/><Run Text="d" FontStyle="Italic"/><Run Text="x  ≈  cos(x)"/><Run Text="   (de sin x)"/><LineBreak/><Run Text="Derivada aproximada de datos: gradient(y, x)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Diferencias (diff)" Click="Button_Click"
+                                          Tag="v = [1 4 9 16];§d = diff(v)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="Δv"/><Run Text="i" BaselineAlignment="Subscript" FontSize="10"/><Run Text=" = v"/><Run Text="i+1" BaselineAlignment="Subscript" FontSize="10"/><Run Text=" − v"/><Run Text="i" BaselineAlignment="Subscript" FontSize="10"/><Run Text="   →  [3  5  7]"/><LineBreak/><Run Text="Diferencias consecutivas (derivada discreta)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                                <MenuItem Header="Raíz de ecuación (fzero)" Click="Button_Click"
+                                          Tag="r = fzero(@(x) x^2 - 2, 1)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" − 2 = 0   →   x = √2 ≈ 1.414"/><LineBreak/><Run Text="Resuelve f(x) = 0 cerca de un punto inicial." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                     <RichTextBox x:Name="RichTextBox" Margin="55,33,5,24"
                                  Background="{DynamicResource ThemeEditorBg}"
                                  Foreground="{DynamicResource ThemeText}"
