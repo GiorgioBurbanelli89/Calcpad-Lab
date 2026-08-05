@@ -2583,6 +2583,14 @@ namespace Calcpad.Wpf
                 --n;
             }
             n = blocks.Count;
+            // Defensa: si la reconstruccion dejo el documento vacio (p.ej. deshacer un
+            // pegado de imagen cuyo estado previo era una sola linea vacia), anadir un
+            // parrafo para no indexar fuera de rango (ElementAt(-1) -> crash).
+            if (n == 0)
+            {
+                blocks.Add(new Paragraph());
+                n = 1;
+            }
             if (currentLine < 1)
                 currentLine = 1;
             else if (currentLine > n)
