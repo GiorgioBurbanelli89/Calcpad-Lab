@@ -3057,7 +3057,7 @@ namespace Calcpad.Core.Matlab
             _builtins["ischar"]    = a => new MValue(a[0].IsString ? 1 : 0);
             _builtins["isstring"]  = a => new MValue((a[0].IsDoubleQuoted || a[0].IsStringArray) ? 1 : 0);
             _builtins["islogical"] = a => new MValue(!a[0].IsStruct && !a[0].IsString ? 1 : 0);
-            _builtins["isreal"]    = a => new MValue(!a[0].IsStruct && !a[0].IsString ? 1 : 0);
+            _builtins["isreal"]    = a => new MValue(!a[0].IsComplex ? 1 : 0);   // isreal=0 si tiene parte imaginaria
             // isequal(A,B,...) → 1 si TODOS son iguales (mismo tamaño y mismos valores). Usado en
             // el bucle de conjunto-activo del FEM (converge cuando el set no cambia).
             _builtins["isequal"] = a => {
@@ -12361,9 +12361,11 @@ namespace Calcpad.Core.Matlab
                         int tot = m.Rows * m.Cols;
                         if (li >= 0 && li < tot)
                         {
-                            if (m.Rows == 1 || m.Cols == 1) return new MValue(m.Data[li]);
+                            if (m.Rows == 1 || m.Cols == 1)
+                                return m.Imag != null ? new MValue(m.Data[li], m.Imag[li]) : new MValue(m.Data[li]);
                             int rr = li % m.Rows, cc = li / m.Rows;   // linear MATLAB = col-major
-                            return new MValue(m.Data[rr * m.Cols + cc]);
+                            int lidx = rr * m.Cols + cc;
+                            return m.Imag != null ? new MValue(m.Data[lidx], m.Imag[lidx]) : new MValue(m.Data[lidx]);
                         }
                         throw new MatlabRuntimeException($"Index {li + 1} out of bounds (1..{tot})");
                     }
@@ -12377,7 +12379,10 @@ namespace Calcpad.Core.Matlab
                     {
                         int ri = (int)r0.Scalar - 1, ci = (int)c0.Scalar - 1;
                         if (ri >= 0 && ri < m.Rows && ci >= 0 && ci < m.Cols)
-                            return new MValue(m.Data[ri * m.Cols + ci]);
+                        {
+                            int sidx = ri * m.Cols + ci;
+                            return m.Imag != null ? new MValue(m.Data[sidx], m.Imag[sidx]) : new MValue(m.Data[sidx]);
+                        }
                         throw new MatlabRuntimeException($"Index ({ri + 1},{ci + 1}) out of bounds ({m.Rows}×{m.Cols})");
                     }
                 }
@@ -12428,7 +12433,7 @@ namespace Calcpad.Core.Matlab
                         int col0 = i / m.Rows, row0 = i - col0 * m.Rows;
                         return MValue.NewSymbolic(m.SymCells[row0, col0]);
                     }
-                    return new MValue(m.Data[i]);
+                    return m.Imag != null ? new MValue(m.Data[i], m.Imag[i]) : new MValue(m.Data[i]);
                 }
                 // Slice: si idxNode es ColonAll (xg(:)) → COLUMN vector column-major
                 // Si idxNode es range/vector → preservar orientación del input (row si input es row)

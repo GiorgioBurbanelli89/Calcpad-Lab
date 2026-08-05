@@ -59,6 +59,13 @@ namespace Calcpad.Core
         public static delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int> Dpotrf;
         // LAPACKE_dpotri(layout, uplo, n, A, lda) -> info  (inversa desde el factor Cholesky)
         public static delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int> Dpotri;
+        // MKL DFTI (FFT). handle = DFTI_DESCRIPTOR_HANDLE (void*). MKL_LONG = Int64 en oneMKL Win64.
+        // DftiCreateDescriptor(&handle, precision, domain, dim, length) -> status
+        public static delegate* unmanaged[Cdecl]<void**, int, int, long, long, long> DftiCreateDescriptor;
+        public static delegate* unmanaged[Cdecl]<void*, long> DftiCommitDescriptor;
+        public static delegate* unmanaged[Cdecl]<void*, void*, long> DftiComputeForward;
+        public static delegate* unmanaged[Cdecl]<void*, void*, long> DftiComputeBackward;
+        public static delegate* unmanaged[Cdecl]<void**, long> DftiFreeDescriptor;
         // LAPACKE_dsygv(layout, itype, jobz, uplo, n, A, lda, B, ldb, w) -> info  (LAPACKE gestiona el workspace)
         public static delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int> Dsygv;
         // LAPACKE_dgeev(layout, jobvl, jobvr, n, a, lda, wr, wi, vl, ldvl, vr, ldvr) -> info  (eig NO simétrica)
@@ -166,6 +173,11 @@ namespace Calcpad.Core
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpbsv", out p)) Dpbsv = (delegate* unmanaged[Cdecl]<int, sbyte, int, int, int, double*, int, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpotrf", out p)) Dpotrf = (delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dpotri", out p)) Dpotri = (delegate* unmanaged[Cdecl]<int, sbyte, int, double*, int, int>)p;
+            if (NativeLibrary.TryGetExport(h, "DftiCreateDescriptor", out p)) DftiCreateDescriptor = (delegate* unmanaged[Cdecl]<void**, int, int, long, long, long>)p;
+            if (NativeLibrary.TryGetExport(h, "DftiCommitDescriptor", out p)) DftiCommitDescriptor = (delegate* unmanaged[Cdecl]<void*, long>)p;
+            if (NativeLibrary.TryGetExport(h, "DftiComputeForward", out p)) DftiComputeForward = (delegate* unmanaged[Cdecl]<void*, void*, long>)p;
+            if (NativeLibrary.TryGetExport(h, "DftiComputeBackward", out p)) DftiComputeBackward = (delegate* unmanaged[Cdecl]<void*, void*, long>)p;
+            if (NativeLibrary.TryGetExport(h, "DftiFreeDescriptor", out p)) DftiFreeDescriptor = (delegate* unmanaged[Cdecl]<void**, long>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dsygv", out p)) Dsygv = (delegate* unmanaged[Cdecl]<int, int, sbyte, sbyte, int, double*, int, double*, int, double*, int>)p;
             if (NativeLibrary.TryGetExport(h, "LAPACKE_dgeev", out p)) Dgeev = (delegate* unmanaged[Cdecl]<int, sbyte, sbyte, int, double*, int, double*, double*, double*, int, double*, int, int>)p;
             // Forzar multi-threading de MKL (por defecto se quedaba en 1 thread en este proceso).
@@ -612,6 +624,57 @@ namespace Calcpad.Core
                 for (int j = i + 1; j < n; j++)
                     a[i * n + j] = a[j * n + i];
             return a;
+        }
+
+        // ── FFT vía MKL DFTI (rápida, precisa ~1e-15, y correcta para entrada real) ──
+        private static bool? _fftOk;
+        /// <summary>¿MKL DFTI disponible y con resultado correcto? Self-test contra fft([1,2,3,4]).</summary>
+        public static bool FftAvailable
+        {
+            get
+            {
+                if (_fftOk.HasValue) return _fftOk.Value;
+                _fftOk = false;
+                if (NativeBlas.DftiCreateDescriptor == null || NativeBlas.DftiCommitDescriptor == null ||
+                    NativeBlas.DftiComputeForward == null || NativeBlas.DftiComputeBackward == null ||
+                    NativeBlas.DftiFreeDescriptor == null) return false;
+                try
+                {
+                    var re = new double[] { 1, 2, 3, 4 }; var im = new double[4];
+                    Fft1DCore(re, im, false);   // fft([1,2,3,4]) = [10, -2+2i, -2, -2-2i]
+                    _fftOk = System.Math.Abs(re[0] - 10) < 1e-9 && System.Math.Abs(re[1] + 2) < 1e-9 &&
+                             System.Math.Abs(im[1] - 2) < 1e-9 && System.Math.Abs(re[2] + 2) < 1e-9 &&
+                             System.Math.Abs(im[3] + 2) < 1e-9;
+                }
+                catch { _fftOk = false; }
+                return _fftOk.Value;
+            }
+        }
+
+        /// <summary>FFT/IFFT 1D compleja in-place sobre (re,im) usando MKL DFTI. ifft divide por n
+        /// (MKL backward no escala, como MATLAB). Lanza si DFTI falla → el llamador cae a Cooley-Tukey.</summary>
+        public static void Fft1D(double[] re, double[] im, bool inverse) => Fft1DCore(re, im, inverse);
+
+        private static void Fft1DCore(double[] re, double[] im, bool inverse)
+        {
+            int n = re.Length;
+            var data = new double[2 * n];                 // complejo intercalado re,im,re,im,…
+            for (int i = 0; i < n; i++) { data[2 * i] = re[i]; data[2 * i + 1] = im[i]; }
+            void* handle = null;
+            long st;
+            fixed (double* pd = data)
+            {
+                st = NativeBlas.DftiCreateDescriptor(&handle, 36, 32, 1, n);   // DFTI_DOUBLE, DFTI_COMPLEX, dim=1
+                if (st != 0) throw new InvalidOperationException($"DftiCreateDescriptor st={st}");
+                st = NativeBlas.DftiCommitDescriptor(handle);
+                if (st == 0)
+                    st = inverse ? NativeBlas.DftiComputeBackward(handle, pd)
+                                 : NativeBlas.DftiComputeForward(handle, pd);
+                NativeBlas.DftiFreeDescriptor(&handle);
+                if (st != 0) throw new InvalidOperationException($"Dfti compute st={st}");
+            }
+            double scale = inverse ? 1.0 / n : 1.0;
+            for (int i = 0; i < n; i++) { re[i] = data[2 * i] * scale; im[i] = data[2 * i + 1] * scale; }
         }
 
         /// <summary>Valores propios generalizados simétricos A·φ = λ·B·φ (itype=1), A simétrica

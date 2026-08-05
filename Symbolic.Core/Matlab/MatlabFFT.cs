@@ -20,10 +20,7 @@ namespace Calcpad.Core.Matlab
                 var im = new double[n];
                 Array.Copy(v.Data, re, n);
                 if (v.IsComplex) Array.Copy(v.Imag, im, n);
-                if ((n & (n - 1)) == 0)
-                    FftRadix2(re, im, inverse);
-                else
-                    FftBluestein(ref re, ref im, n, inverse);
+                Do1D(ref re, ref im, n, inverse);
                 return new MValue(v.Rows, v.Cols, re, im);
             }
             // Matriz: FFT por columna (convención MATLAB)
@@ -39,8 +36,7 @@ namespace Calcpad.Core.Matlab
                     re[r] = v.Data[r * nc + c];
                     if (v.IsComplex) im[r] = v.Imag[r * nc + c];
                 }
-                if ((nr & (nr - 1)) == 0) FftRadix2(re, im, inverse);
-                else FftBluestein(ref re, ref im, nr, inverse);
+                Do1D(ref re, ref im, nr, inverse);
                 for (int r = 0; r < nr; r++)
                 {
                     Re[r * nc + c] = re[r];
@@ -63,8 +59,7 @@ namespace Calcpad.Core.Matlab
             {
                 var re = new double[nr]; var im = new double[nr];
                 for (int r = 0; r < nr; r++) { re[r] = Re[r * nc + c]; im[r] = Im[r * nc + c]; }
-                if ((nr & (nr - 1)) == 0) FftRadix2Public(re, im, inverse);
-                else FftBluesteinPublic(re, im, nr, inverse);
+                Do1D(ref re, ref im, nr, inverse);
                 for (int r = 0; r < nr; r++) { Re[r * nc + c] = re[r]; Im[r * nc + c] = im[r]; }
             }
             // FFT por fila
@@ -72,8 +67,7 @@ namespace Calcpad.Core.Matlab
             {
                 var re = new double[nc]; var im = new double[nc];
                 for (int c = 0; c < nc; c++) { re[c] = Re[r * nc + c]; im[c] = Im[r * nc + c]; }
-                if ((nc & (nc - 1)) == 0) FftRadix2Public(re, im, inverse);
-                else FftBluesteinPublic(re, im, nc, inverse);
+                Do1D(ref re, ref im, nc, inverse);
                 for (int c = 0; c < nc; c++) { Re[r * nc + c] = re[c]; Im[r * nc + c] = im[c]; }
             }
             return new MValue(nr, nc, Re, Im);
@@ -82,6 +76,19 @@ namespace Calcpad.Core.Matlab
         internal static void FftBluesteinPublic(double[] re, double[] im, int n, bool inverse)
         {
             FftBluestein(ref re, ref im, n, inverse);
+        }
+
+        /// <summary>FFT/IFFT 1D: usa MKL DFTI si está disponible (rápida, precisa ~1e-15 y CORRECTA
+        /// para entrada real); si no, cae al Cooley-Tukey/Bluestein administrado.</summary>
+        private static void Do1D(ref double[] re, ref double[] im, int n, bool inverse)
+        {
+            if (Calcpad.Core.LapackInterop.FftAvailable)
+            {
+                try { Calcpad.Core.LapackInterop.Fft1D(re, im, inverse); return; }
+                catch { /* cae a Cooley-Tukey */ }
+            }
+            if ((n & (n - 1)) == 0) FftRadix2(re, im, inverse);
+            else FftBluestein(ref re, ref im, n, inverse);
         }
 
         /// <summary>FFT in-place Cooley-Tukey radix-2 para n = 2^k.</summary>

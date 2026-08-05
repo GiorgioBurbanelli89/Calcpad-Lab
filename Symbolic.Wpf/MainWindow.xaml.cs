@@ -3046,7 +3046,9 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             Calcpad.Core.Matlab.MatlabPlots.DarkTheme = dark;   // gráficas oscuras en dark
             SwapThemeBrushes(dark);
             HighLighter.ApplyTheme(dark);
-            try { ForceHighlight(); } catch { }
+            // FORZAR re-resaltado de TODO el documento: los Run existentes conservan el Foreground
+            // del tema anterior (en gold Const/Function son NEGROS → invisibles al pasar a dark).
+            try { _forceHighlight = true; ForceHighlight(); } catch { }
             ApplyReportTheme(dark);
             Properties.Settings.Default.DarkTheme = dark;
             try { Properties.Settings.Default.Save(); } catch { }
