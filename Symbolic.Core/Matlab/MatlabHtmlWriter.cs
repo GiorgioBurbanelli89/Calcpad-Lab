@@ -895,16 +895,19 @@ namespace Calcpad.Core.Matlab
             return $"{FormatNumber(re)} {sign} {imStr}i";
         }
 
+        /// <summary>Cifras significativas de la salida numérica MATLAB. La controla el
+        /// selector "Round" de la barra inferior (6 por defecto ≈ MATLAB 'format short';
+        /// 15 ≈ 'format long'). Antes estaba fija en 6 e ignoraba el control.</summary>
+        public static int SignificantDigits = 6;
+
         private static string FormatNumber(double v)
         {
             if (double.IsNaN(v)) return "NaN";
             if (double.IsPositiveInfinity(v)) return "Inf";
             if (double.IsNegativeInfinity(v)) return "-Inf";
             if (v == 0) return "0";
-            double absV = System.Math.Abs(v);
-            if (absV >= 1e-4 && absV < 1e6)
-                return v.ToString("G6", CultureInfo.InvariantCulture);
-            return v.ToString("G6", CultureInfo.InvariantCulture);
+            var digits = SignificantDigits < 1 ? 1 : (SignificantDigits > 17 ? 17 : SignificantDigits);
+            return v.ToString("G" + digits.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
         }
         private static bool IsCommonBuiltin(string name) =>
             name is "sin" or "cos" or "tan" or "exp" or "log" or "log2" or "log10"

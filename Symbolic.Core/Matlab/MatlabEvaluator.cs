@@ -504,6 +504,25 @@ namespace Calcpad.Core.Matlab
             _builtins["sinh"] = a => MapUnary(a[0], Math.Sinh);
             _builtins["cosh"] = a => MapUnary(a[0], Math.Cosh);
             _builtins["tanh"] = a => MapUnary(a[0], Math.Tanh);
+            _builtins["asinh"] = a => MapUnary(a[0], Math.Asinh);
+            _builtins["acosh"] = a => MapUnary(a[0], Math.Acosh);
+            _builtins["atanh"] = a => MapUnary(a[0], Math.Atanh);
+            // Trig recíprocas (MATLAB las tiene; el keypad y el toggle Inv/Hyp las generan).
+            _builtins["csc"] = a => MapUnary(a[0], x => 1.0 / Math.Sin(x));
+            _builtins["sec"] = a => MapUnary(a[0], x => 1.0 / Math.Cos(x));
+            _builtins["cot"] = a => MapUnary(a[0], x => 1.0 / Math.Tan(x));
+            _builtins["acsc"] = a => MapUnary(a[0], x => Math.Asin(1.0 / x));
+            _builtins["asec"] = a => MapUnary(a[0], x => Math.Acos(1.0 / x));
+            _builtins["acot"] = a => MapUnary(a[0], x => Math.Atan(1.0 / x));
+            _builtins["csch"] = a => MapUnary(a[0], x => 1.0 / Math.Sinh(x));
+            _builtins["sech"] = a => MapUnary(a[0], x => 1.0 / Math.Cosh(x));
+            _builtins["coth"] = a => MapUnary(a[0], x => 1.0 / Math.Tanh(x));
+            _builtins["acsch"] = a => MapUnary(a[0], x => Math.Asinh(1.0 / x));
+            _builtins["asech"] = a => MapUnary(a[0], x => Math.Acosh(1.0 / x));
+            _builtins["acoth"] = a => MapUnary(a[0], x => Math.Atanh(1.0 / x));
+            // nthroot(x,n): raíz n-ésima real (MATLAB admite x<0 con n impar). xor: o-exclusivo lógico.
+            _builtins["nthroot"] = a => MapBinary(a[0], a[1], (x, n) => x < 0 ? -Math.Pow(-x, 1.0 / n) : Math.Pow(x, 1.0 / n));
+            _builtins["xor"] = a => MapBinary(a[0], a[1], (x, y) => ((x != 0) ^ (y != 0)) ? 1.0 : 0.0);
             _builtins["exp"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Exp) : MapUnaryVml(a[0], 1, Math.Exp);
             _builtins["log"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Log) : MapUnaryVml(a[0], 2, Math.Log);
             _builtins["log2"] = a => MapUnary(a[0], x => Math.Log(x, 2));

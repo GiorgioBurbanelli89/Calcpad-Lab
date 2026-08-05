@@ -127,6 +127,19 @@ namespace Calcpad.Core.Matlab
         public static double JSign(double a) => Math.Sign(a);
         public static double JFix(double a) => Math.Truncate(a);
         public static double JLog2(double a) => Math.Log(a) / 0.6931471805599453;
+        // Trig recíprocas e hiperbólicas inversas (no hay Math.Csc/etc.) — inlineadas por el JIT.
+        public static double JCsc(double a) => 1.0 / Math.Sin(a);
+        public static double JSec(double a) => 1.0 / Math.Cos(a);
+        public static double JCot(double a) => 1.0 / Math.Tan(a);
+        public static double JAcsc(double a) => Math.Asin(1.0 / a);
+        public static double JAsec(double a) => Math.Acos(1.0 / a);
+        public static double JAcot(double a) => Math.Atan(1.0 / a);
+        public static double JCsch(double a) => 1.0 / Math.Sinh(a);
+        public static double JSech(double a) => 1.0 / Math.Cosh(a);
+        public static double JCoth(double a) => 1.0 / Math.Tanh(a);
+        public static double JAcsch(double a) => Math.Asinh(1.0 / a);
+        public static double JAsech(double a) => Math.Acosh(1.0 / a);
+        public static double JAcoth(double a) => Math.Atanh(1.0 / a);
 
         // ─── Matrix variable access ────────────────────────────────────────
         public MValue GetMatrixVar(string name)
@@ -237,6 +250,11 @@ namespace Calcpad.Core.Matlab
             ["tan"]=(1,M1("Tan")), ["asin"]=(1,M1("Asin")), ["acos"]=(1,M1("Acos")),
             ["atan"]=(1,M1("Atan")), ["sinh"]=(1,M1("Sinh")), ["cosh"]=(1,M1("Cosh")),
             ["tanh"]=(1,M1("Tanh")), ["exp"]=(1,M1("Exp")), ["log"]=(1,M1("Log")),
+            ["asinh"]=(1,M1("Asinh")), ["acosh"]=(1,M1("Acosh")), ["atanh"]=(1,M1("Atanh")),
+            ["csc"]=(1,J(nameof(JCsc))), ["sec"]=(1,J(nameof(JSec))), ["cot"]=(1,J(nameof(JCot))),
+            ["acsc"]=(1,J(nameof(JAcsc))), ["asec"]=(1,J(nameof(JAsec))), ["acot"]=(1,J(nameof(JAcot))),
+            ["csch"]=(1,J(nameof(JCsch))), ["sech"]=(1,J(nameof(JSech))), ["coth"]=(1,J(nameof(JCoth))),
+            ["acsch"]=(1,J(nameof(JAcsch))), ["asech"]=(1,J(nameof(JAsech))), ["acoth"]=(1,J(nameof(JAcoth))),
             ["log10"]=(1,M1("Log10")), ["log2"]=(1,J(nameof(JLog2))), ["round"]=(1,J(nameof(JRound))),
             ["sign"]=(1,J(nameof(JSign))), ["fix"]=(1,J(nameof(JFix))),
             ["mod"]=(2,J(nameof(JMod))), ["rem"]=(2,J(nameof(JRem))),

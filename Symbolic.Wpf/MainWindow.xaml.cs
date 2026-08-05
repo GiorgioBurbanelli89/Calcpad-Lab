@@ -1359,6 +1359,8 @@ namespace Calcpad.Wpf
             {
                 var i = (int)Math.Floor(d);
                 mathSettings.Decimals = i;
+                // "Round" ahora SÍ controla la salida MATLAB (cifras significativas del G-format).
+                Calcpad.Core.Matlab.MatlabHtmlWriter.SignificantDigits = i;
                 DecimalsTextBox.Text = mathSettings.Decimals.ToString();
                 DecimalsTextBox.Foreground = Brushes.Black;
             }

@@ -680,14 +680,14 @@
                 Margin="6,24,0,0" Focusable="false" IsTabStop="false"
                 Command="ApplicationCommands.New" Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.NewFile}">
-            <Image Source="Resources/new.png" HorizontalAlignment="Left" VerticalAlignment="Center" Width="20" Height="20"/>
+            <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="OpenButton" Height="24" Width="24"
                 HorizontalAlignment="Left" VerticalAlignment="Top"
                 Margin="33,24,0,0" Focusable="false" IsTabStop="false" 
                 Command="ApplicationCommands.Open" Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.OpenFile}">
-            <Image Source="Resources/open.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE8E5;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="RecentFliesListButton" HorizontalAlignment="Left" VerticalAlignment="Top" 
                 Height="24" Margin="57,24,0,0" 
@@ -705,7 +705,7 @@
                 Focusable="false" IsTabStop="false" Command="ApplicationCommands.Save" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.SaveFile}">
-            <Image Source="Resources/save.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="CopyButton" 
                 HorizontalAlignment="Left" VerticalAlignment="Top" 
@@ -713,35 +713,35 @@
                 Focusable="false" IsTabStop="false" Command="ApplicationCommands.Copy" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.CopyText}">
-            <Image Source="Resources/copy.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="PasteButton" HorizontalAlignment="Left" VerticalAlignment="Top" 
                 Height="24" Width="24" Margin="129,24,0,0"
                 Focusable="false" IsTabStop="false" Command="ApplicationCommands.Paste" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.PasteText}">
-            <Image Source="Resources/paste.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE77F;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="UndoButton" HorizontalAlignment="Left" VerticalAlignment="Top" 
                 Height="24" Width="24" Margin="156,24,0,0"
                 Focusable="false" IsTabStop="false" Command="ApplicationCommands.Undo"
                 Background="{x:Null}"  BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.UndoEdit}">
-            <Image Source="Resources/undo.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE7A7;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="RedoButton" HorizontalAlignment="Left" VerticalAlignment="Top"  
                 Height="24" Width="24" Margin="183,24,0,0"
                 Command="ApplicationCommands.Redo" Focusable="false" IsTabStop="false"
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.RedoEdit}">
-            <Image Source="Resources/redo.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE7A6;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="FindButton" HorizontalAlignment="Left" VerticalAlignment="Top" 
                 Height="24" Width="24" Margin="217,24,0,0" 
                 Command="ApplicationCommands.Find" Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.FindAndReplace}">
-            <Image Source="Resources/search.png" Width="20" Height="20" VerticalAlignment="Top" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" Click="ImageButton_Click" x:Name="ImageButton" 
                 HorizontalAlignment="Left" VerticalAlignment="Top" 
@@ -749,22 +749,22 @@
                 Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.InsertImage}">
-            <Image Source="Resources/image.png" Width="20" Height="20" VerticalAlignment="Top" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" Click="KeyPadButton_Click" x:Name="KeyPadButton" Tag="F" 
                 VerticalAlignment="Top" HorizontalAlignment="Left"
                 Height="24" Width="24" Margin="271,24,0,0"
                 Focusable="false" IsTabStop="false" 
-                Background="AliceBlue" BorderBrush="SteelBlue"
+                Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.ShowHideKeypad}">
-            <Image Source="Resources/calc.png" Width="20" Height="20" VerticalAlignment="Bottom" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE8EF;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="HelpButton" HorizontalAlignment="Left" VerticalAlignment="Top" 
                 Height="24" Width="24" Margin="298,24,0,0"
                 Command="ApplicationCommands.Help" Focusable="false"  IsTabStop="false"
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.ShowHelp}">
-            <Image Source="Resources/help.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE897;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <TextBlock Grid.Row="0" Visibility="Collapsed" TextWrapping="Wrap" FontSize="11.5" Margin="0,6,146,0" Height="16"
             VerticalAlignment="Top"  HorizontalAlignment="Right" Width="110" Foreground="{DynamicResource ThemeText}"
@@ -789,7 +789,7 @@
                 Click="SaveOutputButton_Click" Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.SaveAsHTML}">
-            <Image Source="Resources/save.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" Click="CopyOutputButton_Click" x:Name="CopyOutputButton" 
                 VerticalAlignment="Top" HorizontalAlignment="Right" 
@@ -797,8 +797,7 @@
                 Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.CopyAllOutput}" >
-            <Image Source="Resources/copy.png" Width="20" Height="20" VerticalAlignment="Center"
-                HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE8C8;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" x:Name="PrintButton" Command="ApplicationCommands.Print"
                 HorizontalAlignment="Right"  VerticalAlignment="Top"
@@ -806,7 +805,7 @@
                 IsTabStop="false" Focusable="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.PrintPreview}">
-            <Image Source="Resources/print.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="&#xE749;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" Click="WordButton_Click" x:Name="WordButton" 
                 VerticalAlignment="Top" HorizontalAlignment="Right"
@@ -814,7 +813,7 @@
                 Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.OpenWithWord}" >
-            <Image Source="Resources/word.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Text="W" FontFamily="Cambria, Georgia, serif" FontWeight="Bold" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <Button Grid.Row="0" Click="PdfButton_Click" x:Name="PdfButton" 
                 VerticalAlignment="Top" HorizontalAlignment="Right" 
@@ -822,7 +821,7 @@
                 Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.SaveAsPDF}">
-            <Image Source="Resources\pdf.png" Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="center"/>
+            <TextBlock Text="PDF" FontFamily="Segoe UI, Arial" FontWeight="Bold" FontSize="8.5" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <ToggleButton Grid.Row="0" x:Name="MathCanvasToggle"
                 HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -867,16 +866,14 @@
                 Focusable="false" IsTabStop="false" 
                 Background="{x:Null}" BorderBrush="{x:Null}" Canvas.Left="53"
                 ToolTip="{x:Static wpf:MainWindowResources.Compile_to_input_form_F4}">
-                <Image Source="Resources/form.png" Width="20" Height="20" VerticalAlignment="Center"
-                    HorizontalAlignment="Center"/>
+                <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Button>
             <Button Click="CalcButton_Click" x:Name="CalcButton" Tag="F" Height="24"  Width="24" 
                 VerticalAlignment="Center" HorizontalAlignment="Left"
                 Focusable="false" IsTabStop="false" Background="{x:Null}"
                 Canvas.Left="79" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.RunAndDisplayOutput}">
-                <Image Source="Resources/play.png" Width="20" Height="20" VerticalAlignment="Center"
-                    HorizontalAlignment="Center"/>
+                <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="18" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Button>
             <CheckBox x:Name="AutoRunCheckBox" Content=" AutoRun" IsChecked="True" 
                       TabIndex="6" Padding="0"  FontSize="12.5"
@@ -1033,8 +1030,8 @@
                        VerticalAlignment="Top" 
                        HorizontalAlignment="Left" 
                        Margin="5,0,0,0"/>
-            <TextBox x:Name="DecimalsTextBox" 
-                     Text="2" 
+            <TextBox x:Name="DecimalsTextBox"
+                     Text="6"
                      TextAlignment="Center"
                      UndoLimit="0" 
                      Height="22" Width="30" 
@@ -1051,16 +1048,16 @@
                 </StatusBarItem.RenderTransform>
                 <ScrollBar x:Name="DecimalScrollBar" 
                            Height="34" Width="16" 
-                           Maximum="15" 
-                           SmallChange="1" 
-                           Value="13" 
+                           Maximum="15"
+                           SmallChange="1"
+                           Value="9"
                            RenderTransformOrigin="0.5,0.5" 
                            HorizontalAlignment="Left"
                            ValueChanged="DecimalScrollBar_ValueChanged" />
             </StatusBarItem>
-            <CheckBox x:Name="ZeroSmallMatrixElementsCheckBox" 
+            <CheckBox x:Name="ZeroSmallMatrixElementsCheckBox"
                       Content="{x:Static wpf:MainWindowResources.ZeroSmallElem}"
-                      ToolTip="{x:Static wpf:MainWindowResources.DisplaySmallMatrixElementsAsZeroInsteadOfExponent}" 
+                      ToolTip="Solo afecta a las fórmulas/matrices Calcpad renderizadas dentro de comentarios % (#noc): muestra 0 en vez de exponente para valores diminutos. NO cambia la salida del script MATLAB."
                       Height="18" 
                       Width="130"
                       IsChecked="True" 
@@ -1069,9 +1066,9 @@
                       HorizontalAlignment="Center" 
                       Padding="2,0,0,0"
                       TabIndex="13" Click="ZeroSmallMatrixElementsCheckBox_Click"/>
-            <CheckBox x:Name="SubstituteCheckBox" 
-                      Content="{x:Static wpf:MainWindowResources.Substitute}" 
-                      ToolTip="{x:Static wpf:MainWindowResources.SubstituteTooltip}" 
+            <CheckBox x:Name="SubstituteCheckBox"
+                      Content="{x:Static wpf:MainWindowResources.Substitute}"
+                      ToolTip="Solo afecta a las fórmulas Calcpad renderizadas dentro de comentarios % (#noc): sustituye las variables por sus valores. NO cambia la salida del script MATLAB."
                       Height="18" 
                       Width="80"
                       IsChecked="True" 
@@ -1276,12 +1273,12 @@
                       Foreground="{DynamicResource ThemeAccentGold}"
                       Margin="6,1,4,1" MinWidth="580" BorderBrush="{DynamicResource ThemeButtonBorder}"
                       Background="{DynamicResource ThemePanelBg}">
-                <Grid x:Name="InputGrid" Margin="0,0,0,1">
+                <Grid x:Name="InputGrid" Margin="0,6,0,1">
                     <Grid.RowDefinitions>
                         <RowDefinition/>
                         <RowDefinition Height="142"/>
                     </Grid.RowDefinitions>
-                    <Border BorderThickness="0,0,0,1" Height="36" Margin="-4,-8,-4,0" VerticalAlignment="Top"
+                    <Border BorderThickness="0,0,0,1" Height="34" Margin="-4,-2,-4,0" VerticalAlignment="Top"
                             BorderBrush="{DynamicResource ThemeButtonBorder}" Background="{DynamicResource ThemePanelBg}"/>
                     <CheckBox  Style="{StaticResource MarkdownCheckBox}" x:Name="MarkdownCheckBox" Content=" M⭣"  VerticalAlignment="Top" Height="20"  ToolTip="Markdown"
                             FontFamily="Roboto" Margin="0,0,5,0" FontWeight="Bold" FontSize="12" HorizontalAlignment="Right" Width="26" Focusable="False" IsTabStop="False" Checked="MarkdownCheckBox_Checked"/>
@@ -1695,7 +1692,7 @@
                                 ToolTip="{x:Static wpf:MathResources.RaiseToPower}">
                             <TextBlock><Run Text=" x"/><Run BaselineAlignment="TextTop" FontSize="10" Text=" y"/></TextBlock>
                         </Button>
-                        <Button Click="Button_Click" Tag="e^" x:Name="ExpButton" Margin="197,113,0,0"
+                        <Button Click="Button_Click" Tag="exp(" x:Name="ExpButton" Margin="197,113,0,0"
                                 Style="{StaticResource RoundButton}"
                                 ToolTip="{x:Static wpf:MathResources.NaturalExponent}">
                             <TextBlock><Run Text=" e" /><Run BaselineAlignment="TextTop" FontSize="10" Text=" x" /></TextBlock>
@@ -1705,17 +1702,17 @@
                                 ToolTip="{x:Static wpf:MathResources.SquareRoot}" Grid.Column="1">
                             <TextBlock Margin="-2,2,0,0"><Run FontSize="15" FontFamily="Times New Roman" Text="√"/><Run TextDecorations="Overline" FontSize="15" Text="x"/></TextBlock>
                         </Button>
-                        <Button Click="Button_Click" x:Name="CbrtButton" Tag="cbrt(" Margin="197,57,0,0"  
+                        <Button Click="Button_Click" x:Name="CbrtButton" Tag="nthroot(x, 3)" Margin="197,57,0,0"  
                                 ToolTip="{x:Static wpf:MathResources.CubicRoot}" Visibility="Hidden"
                                 Style="{StaticResource RoundButton}" Grid.Column="1">
                             <TextBlock Margin="-2,1,0,0"><Run BaselineAlignment="TextTop" FontSize="7" Text="3"/><InlineUIContainer><TextBlock Margin="-5,2,0,0"><Run FontSize="15" FontFamily="Times New Roman" Text="√"/><Run FontSize="15" Text="x" TextDecorations="Overline"/></TextBlock></InlineUIContainer></TextBlock>
                         </Button>
-                        <Button Click="Button_Click" Tag="root(" x:Name="RootButton" Margin="197,85,0,0"
+                        <Button Click="Button_Click" Tag="nthroot(" x:Name="RootButton" Margin="197,85,0,0"
                                 Style="{StaticResource RoundButton}" Visibility="Hidden"
                                 ToolTip="{x:Static wpf:MathResources.NthRoot}" Grid.Column="1">
                             <TextBlock Margin="-2,1,0,0"><Run BaselineAlignment="TextTop" FontSize="8" Text="n"/><InlineUIContainer><TextBlock Margin="-5,3,0,0"><Run FontSize="15" FontFamily="Times New Roman" Text="√"/><Run FontSize="15" Text="x" TextDecorations="Overline"/></TextBlock></InlineUIContainer></TextBlock>
                         </Button>
-                        <Button Click="Button_Click" Content="ln" Tag="ln(" Margin="197,113,0,0"
+                        <Button Click="Button_Click" Content="ln" Tag="log(" Margin="197,113,0,0"
                                 Style="{StaticResource RoundButton}"  Visibility="Hidden" FontSize="14"
                                 ToolTip="{x:Static wpf:MathResources.NaturalLogarithm}" x:Name="LnButton" Grid.Column="1"
                                 />
@@ -1757,28 +1754,28 @@
                         <Button Click="Button_Click" Content="‒"     Tag=" - "      
                                 Style="{StaticResource RoundButton}" Margin="101,113,0,0"
                                 ToolTip="{x:Static wpf:MathResources.Subtract}"/>
-                        <Button Click="Button_Click" Content="≡"     Tag="≡"        
+                        <Button Click="Button_Click" Content="≡"     Tag="=="        
                                 Style="{StaticResource RoundButton}" Margin="133,29,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.Equal}"/>
-                        <Button Click="Button_Click" Content="≠"     Tag="≠"        
+                        <Button Click="Button_Click" Content="≠"     Tag="~="        
                                 Style="{StaticResource RoundButton}" Margin="133,57,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.NotEqual}" VerticalAlignment="Top"/>
-                        <Button Click="Button_Click" Content="≤"     Tag="≤"       
+                        <Button Click="Button_Click" Content="≤"     Tag="&lt;="       
                                 Style="{StaticResource RoundButton}" Margin="133,85,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.LessThanOrEqual}"/>
-                        <Button Click="Button_Click" Content="≥"     Tag="≥"       
+                        <Button Click="Button_Click" Content="≥"     Tag="&gt;="       
                                 Style="{StaticResource RoundButton}" Margin="133,113,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.GreaterThanOrEqual}"/>
-                        <Button Click="Button_Click" Content="!"     Tag="!"         
+                        <Button Click="Button_Click" Content="!"     Tag="factorial("         
                                 Style="{StaticResource RoundButton}" Margin="165,29,0,0" FontSize="18"
                                 ToolTip="{x:Static wpf:MathResources.Factorial}"/>
-                        <Button Click="Button_Click" Content="∧"    Tag="∧"         
+                        <Button Click="Button_Click" Content="∧"    Tag="&amp;"         
                                 Style="{StaticResource RoundButton}" Margin="165,57,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.LogicalAnd}" VerticalAlignment="Top"/>
-                        <Button Click="Button_Click" Content="∨"    Tag="∨"        
+                        <Button Click="Button_Click" Content="∨"    Tag="|"        
                                 Style="{StaticResource RoundButton}" Margin="165,85,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.LogicalOr}"/>
-                        <Button Click="Button_Click" Content="⊕"     Tag="⊕"       
+                        <Button Click="Button_Click" Content="⊕"     Tag="xor("       
                                 Style="{StaticResource RoundButton}" Margin="165,113,0,0" 
                                 ToolTip="{x:Static wpf:MathResources.LogicalXor}"/>
                         <Button Click="Button_Click" Content="sin"   Tag="sin(x)" x:Name="SinButton"  
@@ -1805,7 +1802,7 @@
                                 Style="{StaticResource RoundButton}" Margin="275,85,0,0" Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.Cotangent}"/>
-                        <Button Click="Button_Click" Content="log"   Tag="log(x)"     
+                        <Button Click="Button_Click" Content="log"   Tag="log10(x)"     
                                 Style="{StaticResource RoundButton}" Margin="231,113,0,0" Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.DecimalLogarithm}"/>
@@ -1813,7 +1810,7 @@
                                 Style="{StaticResource RoundButton}" Margin="275,113,0,0" Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.AbsoluteValue}"/>
-                        <Button Click="Button_Click" Content="min"   Tag="min(x)"      
+                        <Button Click="Button_Click" Content="min"   Tag="min(x, y)"      
                                 Style="{StaticResource RoundButton}" Margin="319,29,0,0"  Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.MinimumOfMultipleValues}"/>
@@ -1821,7 +1818,7 @@
                                 Style="{StaticResource RoundButton}" Margin="319,57,0,0" Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.RoundToNearestInteger}" VerticalAlignment="Top"/>
-                        <Button Click="Button_Click" Content="ceil"  Tag="ceiling(x)"  
+                        <Button Click="Button_Click" Content="ceil"  Tag="ceil(x)"  
                                 Style="{StaticResource RoundButton}" Margin="319,85,0,0" Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.RoundToTheGreaterInteger}"/>
@@ -1829,30 +1826,30 @@
                                 Style="{StaticResource RoundButton}" Margin="319,113,0,0" Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.RoundToTheLowerInteger}"/>
-                        <Button Click="Button_Click" Content="max"   Tag="max(x; y)"      
+                        <Button Click="Button_Click" Content="max"   Tag="max(x, y)"      
                                 Style="{StaticResource RoundButton}" Margin="363,29,0,0"  Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.MaximumOfMultipleValues}"/>
-                        <Button Click="Button_Click" Content="re"    Tag="re(z)"       
+                        <Button Click="Button_Click" Content="re"    Tag="real(z)"       
                                 Style="{StaticResource RoundButton}" Margin="363,57,0,0"  Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.RealPartOfAComplexNumber}" VerticalAlignment="Top"/>
-                        <Button Click="Button_Click" Content="im"    Tag="im(z)"      
+                        <Button Click="Button_Click" Content="im"    Tag="imag(z)"      
                                 Style="{StaticResource RoundButton}" Margin="363,85,0,0"  Width="42" 
                                 FontSize="15"
                                 ToolTip="{x:Static wpf:MathResources.ImaginaryPartOfAComplexNumber}"/>
-                        <Button Click="Button_Click" Content="phase"    Tag="phase(z)"    
+                        <Button Click="Button_Click" Content="phase"    Tag="angle(z)"    
                                 Style="{StaticResource RoundButton}" Margin="363,113,0,0" Width="42" 
                                 FontSize="14" FontStretch="Condensed"
                                 ToolTip="{x:Static wpf:MathResources.PhaseOfAComplexNumber}" FontFamily="Arial Nova Cond"/>
-                        <Button Click="Button_Click" Content="e"     Tag="e"          
+                        <Button Click="Button_Click" Content="e"     Tag="exp(1)"          
                                 Style="{StaticResource RoundButton}" Margin="409,29,0,0"
                                 ToolTip="{x:Static wpf:ConstantsResources.EulerNumber}"/>
-                        <Button Click="Button_Click" Content="π"     Tag="π"
+                        <Button Click="Button_Click" Content="π"     Tag="pi"
                                 Style="{StaticResource RoundButton}" Margin="409,57,0,0" 
                                 FontFamily="Times New Roman" FontStyle="Italic" FontSize="18"
                                 ToolTip="{x:Static wpf:ConstantsResources.Pi}" VerticalContentAlignment="Top" Padding="1,1,1,1" VerticalAlignment="Top"/>
-                        <Button Click="Button_Click" Content="g"     Tag="g"          
+                        <Button Click="Button_Click" Content="g"     Tag="9.80665"          
                                 Style="{StaticResource RoundButton}" Margin="409,85,0,0"
                                 ToolTip="{x:Static wpf:ConstantsResources.GravitationalAcceleration}"/>
                         <Button Click="Button_Click" Content="("     Tag="("         
