@@ -351,12 +351,25 @@ namespace Calcpad.Wpf
                             string textOverride = null, Paragraph skipParagraph = null)
         {
             if (p is null) return;
+            // Párrafo-imagen ya convertido a miniatura (su Tag guarda la línea '% #img data:...').
+            // No re-tokenizar: el TextRange ahora es el objeto imagen, no el base64.
+            if (p.Tag is string existingImg && existingImg.StartsWith("% #img", System.StringComparison.OrdinalIgnoreCase))
+                return;
             string text;
             if (textOverride != null)
                 text = textOverride;
             else
                 text = new TextRange(p.ContentStart, p.ContentEnd).Text;
             text ??= "";
+
+            // Recorte pegado: `% #img data:...base64` → mostrar como MINIATURA (foto) en el editor.
+            // El base64 real se guarda en p.Tag para que la extracción de texto (ejecutar/guardar) lo recupere.
+            var trimmedImg = text.TrimStart();
+            if (trimmedImg.StartsWith("% #img data:", System.StringComparison.OrdinalIgnoreCase))
+            {
+                RenderImageThumbnail(p, trimmedImg);
+                return;
+            }
 
             // Limpiar inlines existentes
             p.Inlines.Clear();
@@ -367,6 +380,49 @@ namespace Calcpad.Wpf
 
             // Tokenizar línea
             TokenizeLine(p, text);
+        }
+
+        // Convierte un párrafo '% #img data:...base64' en una MINIATURA (foto) en el editor,
+        // guardando la línea real en p.Tag para no perder el base64 al ejecutar/guardar.
+        private static void RenderImageThumbnail(Paragraph p, string line)
+        {
+            try
+            {
+                p.Inlines.Clear();
+                p.Background = null;
+                var di = line.IndexOf("base64,", System.StringComparison.OrdinalIgnoreCase);
+                if (di >= 0)
+                {
+                    var b64 = line[(di + 7)..].Trim();
+                    var bytes = System.Convert.FromBase64String(b64);
+                    var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bmp.StreamSource = new System.IO.MemoryStream(bytes);
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    var img = new System.Windows.Controls.Image
+                    {
+                        Source = bmp,
+                        Stretch = System.Windows.Media.Stretch.Uniform,
+                        MaxHeight = 72,
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                        Margin = new System.Windows.Thickness(0, 2, 0, 2),
+                        ToolTip = "Recorte pegado (% #img) — base64 incrustado en el .m"
+                    };
+                    p.Inlines.Add(new InlineUIContainer(img));
+                }
+                else
+                    p.Inlines.Add(new Run("🖼 % #img (imagen)"));
+                p.Tag = line;   // línea real para la extracción de texto
+            }
+            catch
+            {
+                // base64 inválido → dejar como texto normal (sin romper).
+                p.Tag = null;
+                p.Inlines.Clear();
+                p.Inlines.Add(new Run(line));
+            }
         }
 
         // =====================================================================

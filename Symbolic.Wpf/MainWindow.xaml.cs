@@ -168,7 +168,32 @@ namespace Calcpad.Wpf
             get => WebFormButton.Tag.ToString() == "T";
             set => SetWebForm(value);
         }
-        private string InputText => new TextRange(_document.ContentStart, _document.ContentEnd).Text;
+        // Texto del script. FAST-PATH: si NO hay párrafos-imagen (miniatura), devuelve el TextRange
+        // plano igual que siempre (comportamiento 100% original → cero riesgo en scripts normales).
+        // Con miniaturas: itera y sustituye cada párrafo-imagen por su Tag ('% #img data:...base64').
+        private string InputText
+        {
+            get
+            {
+                bool hasImg = false;
+                for (var bb = _document.Blocks.FirstBlock; bb != null; bb = bb.NextBlock)
+                    if (bb is Paragraph ip && ip.Tag is string it && it.StartsWith("% #img", StringComparison.OrdinalIgnoreCase))
+                    { hasImg = true; break; }
+                if (!hasImg)
+                    return new TextRange(_document.ContentStart, _document.ContentEnd).Text;
+                var sb = new StringBuilder();
+                bool first = true;
+                for (var bb = _document.Blocks.FirstBlock; bb != null; bb = bb.NextBlock)
+                {
+                    if (!first) sb.Append("\r\n");
+                    first = false;
+                    sb.Append(bb is Paragraph ip2 && ip2.Tag is string it2 && it2.StartsWith("% #img", StringComparison.OrdinalIgnoreCase)
+                        ? it2
+                        : new TextRange(bb.ContentStart, bb.ContentEnd).Text);
+                }
+                return sb.ToString();
+            }
+        }
         private int InputTextLength => _document.ContentEnd.GetOffsetToPosition(_document.ContentStart);
         private SpanLineEnumerator InputTextLines => InputText.EnumerateLines();
         private bool IsCalculated
@@ -2360,7 +2385,10 @@ namespace Calcpad.Wpf
                 var n = (int)((b as Paragraph).TextIndent / AutoIndentStep);
                 if (n > 12)
                     n = 12;
-                var line = new TextRange(b.ContentStart, b.ContentEnd).Text;
+                // Párrafo-imagen (miniatura): su Tag guarda la línea real '% #img data:...base64'.
+                var line = (b as Paragraph)?.Tag is string imgLine && imgLine.StartsWith("% #img", StringComparison.OrdinalIgnoreCase)
+                    ? imgLine
+                    : new TextRange(b.ContentStart, b.ContentEnd).Text;
                 // Convert NO-BREAK SPACE (U+00A0) back to regular space.
                 // The highlighter injects nbsp into comment runs so WPF
                 // doesn't collapse consecutive spaces in the editor, but
@@ -3773,6 +3801,11 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 RichTextBox.BeginChange();
                 try { _insertManager.InsertText($"% #img data:image/png;base64,{b64}"); }
                 finally { RichTextBox.EndChange(); }
+                // Convertir de inmediato el párrafo a MINIATURA (el resaltador reemplaza el base64
+                // por la foto y guarda la línea en Tag). Así nunca se ve el blob.
+                var imgPar = RichTextBox.Selection.End.Paragraph;
+                if (imgPar != null)
+                    _highlighter.Parse(imgPar, IsComplex, GetLineNumber(imgPar), true);
                 if (IsAutoRun)
                     CalculateAsync();
             }
