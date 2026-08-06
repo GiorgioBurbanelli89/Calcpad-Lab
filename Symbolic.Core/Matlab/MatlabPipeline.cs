@@ -798,6 +798,17 @@ namespace Calcpad.Core.Matlab
                 renderer.Parse(source, calculate: true, getXml: false);
                 var result = renderer.HtmlResult;
                 if (string.IsNullOrEmpty(result)) return false;
+                // Degradación elegante: si Calcpad no pudo parsear la NOTACIÓN (integral
+                // ∫∫, matriz con griegas [1 ν 0;…], etc.) y devolvió error, un #noc
+                // DECORATIVO debe mostrar la fórmula como texto tipografiado (griegas ya
+                // transliteradas) en vez de un error rojo — el objetivo es ENSEÑAR la
+                // fórmula, no calcularla. Aplica solo a #noc (símbolo/notación libre).
+                if (mode == "#noc" && result.Contains("class=\"err"))
+                {
+                    string typeset = System.Web.HttpUtility.HtmlEncode(expr);
+                    html = $"<p id=\"line-{matlabLine}\" class=\"eq\"><span class=\"eq\">{typeset}</span></p>";
+                    return true;
+                }
                 // El ExpressionParser numera desde su propia línea 1 y puede dejar
                 // comentarios HTML residuales: limpiar y reescribir el id de línea
                 // al número real del .m para que el click→navegación funcione.

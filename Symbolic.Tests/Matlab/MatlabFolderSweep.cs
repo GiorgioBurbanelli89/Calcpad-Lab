@@ -115,7 +115,7 @@ namespace Calcpad.Lab.Tests
             }
 
             // Dump report a disco
-            var reportPath = @"C:\Users\j-b-j\Documents\Hekatan Calc 1.0.0\Calcpad-Lab\Symbolic.Tests\matlab-sweep-report.txt";
+            var reportPath = @"C:\Users\j-b-j\Documents\Hekatan Calc 1.0.0\hekatan-lab\Symbolic.Tests\matlab-sweep-report.txt";
             File.WriteAllLines(reportPath, reportLines);
             _o.WriteLine($"\nReporte completo escrito a: {reportPath}");
 

@@ -157,7 +157,9 @@ namespace Calcpad.Core.Matlab
     public sealed class SymConst : SymNode
     {
         public double Value;
-        public SymConst(double v) { Value = v; }
+        // Normaliza el cero negativo IEEE (-0.0) a 0.0 para que no se muestre "-0"
+        // (p.ej. subs(L*s^2*(s-1), s, 0) = L*0*(-1) = -0). MATLAB muestra 0.
+        public SymConst(double v) { Value = v == 0 ? 0.0 : v; }
         public override SymNode Diff(string var) => new SymConst(0);
         public override double Eval(Dictionary<string, double> vals) => Value;
 
@@ -290,21 +292,32 @@ namespace Calcpad.Core.Matlab
         public override double Eval(Dictionary<string, double> vals) => A.Eval(vals) + B.Eval(vals);
         public override string ToInfix()
         {
-            // Pretty-print: si B es un término negativo, mostrar como sustracción
+            // Pretty-print: si B es un término negativo, mostrar como sustracción.
+            // CLAVE: si la forma positiva es una SUMA/RESTA, hay que parentizarla,
+            // porque `A - (B1 + B2)` != `A - B1 + B2` (el menos debe cubrir todo).
             if (TryNegativeForm(B, out var posNode))
-                return $"{A.ToInfix()} - {posNode.ToInfix()}";
+            {
+                string p = posNode is SymAdd || posNode is SymSub ? $"({posNode.ToInfix()})" : posNode.ToInfix();
+                return $"{A.ToInfix()} - {p}";
+            }
             return $"{A.ToInfix()} + {B.ToInfix()}";
         }
         public override string ToHtml()
         {
             if (TryNegativeForm(B, out var posNode))
-                return $"{A.ToHtml()} - {posNode.ToHtml()}";
+            {
+                string p = posNode is SymAdd || posNode is SymSub ? $"({posNode.ToHtml()})" : posNode.ToHtml();
+                return $"{A.ToHtml()} - {p}";
+            }
             return $"{A.ToHtml()} + {B.ToHtml()}";
         }
         public override string ToLatex()
         {
             if (TryNegativeForm(B, out var posNode))
-                return $"{A.ToLatex()}-{posNode.ToLatex()}";
+            {
+                string p = posNode is SymAdd || posNode is SymSub ? $"\\left({posNode.ToLatex()}\\right)" : posNode.ToLatex();
+                return $"{A.ToLatex()}-{p}";
+            }
             return $"{A.ToLatex()}+{B.ToLatex()}";
         }
         /// <summary>Detecta si <paramref name="n"/> es un término "negativo" (const negativo,
@@ -667,9 +680,9 @@ namespace Calcpad.Core.Matlab
         public SymSub(SymNode a, SymNode b) { A = a; B = b; }
         public override SymNode Diff(string var) => new SymSub(A.Diff(var), B.Diff(var)).Simplify();
         public override double Eval(Dictionary<string, double> vals) => A.Eval(vals) - B.Eval(vals);
-        public override string ToInfix() => B is SymAdd ? $"{A.ToInfix()} - ({B.ToInfix()})" : $"{A.ToInfix()} - {B.ToInfix()}";
-        public override string ToHtml() => B is SymAdd ? $"{A.ToHtml()} - ({B.ToHtml()})" : $"{A.ToHtml()} - {B.ToHtml()}";
-        public override string ToLatex() => B is SymAdd ? $"{A.ToLatex()}-\\left({B.ToLatex()}\\right)" : $"{A.ToLatex()}-{B.ToLatex()}";
+        public override string ToInfix() => (B is SymAdd || B is SymSub) ? $"{A.ToInfix()} - ({B.ToInfix()})" : $"{A.ToInfix()} - {B.ToInfix()}";
+        public override string ToHtml() => (B is SymAdd || B is SymSub) ? $"{A.ToHtml()} - ({B.ToHtml()})" : $"{A.ToHtml()} - {B.ToHtml()}";
+        public override string ToLatex() => (B is SymAdd || B is SymSub) ? $"{A.ToLatex()}-\\left({B.ToLatex()}\\right)" : $"{A.ToLatex()}-{B.ToLatex()}";
         public override SymNode Subs(string var, SymNode val) => new SymSub(A.Subs(var, val), B.Subs(var, val)).Simplify();
         public override SymNode Simplify()
         {

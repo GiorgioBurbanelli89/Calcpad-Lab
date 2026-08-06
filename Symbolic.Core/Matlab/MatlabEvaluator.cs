@@ -2021,7 +2021,10 @@ namespace Calcpad.Core.Matlab
                 }
                 bool wantLine = false, wantMarker = false;
                 string specColor = null, symbol = "circle", dash = "solid";
-                if (rest < a.Length && a[rest].IsString) {
+                // Sólo consumir a[rest] como linespec si LO ES (no un nombre de propiedad
+                // como 'LineWidth'): antes 'LineWidth' se parseaba como spec ('d'→diamante,
+                // 'h'→hexágono) → salían marcadores negros en vez de línea de color.
+                if (rest < a.Length && a[rest].IsString && IsLineSpec(a[rest].StringValue)) {
                     ParseLineSpec(a[rest].StringValue, out wantLine, out wantMarker, out specColor, out symbol, out dash);
                     rest++;
                 }
@@ -2453,6 +2456,7 @@ namespace Calcpad.Core.Matlab
                 if (!string.IsNullOrEmpty(prev)) _htmlOut?.Invoke(prev);
                 _htmlOut?.Invoke("<div class=\"matlab-figure-break\" style=\"height:0;margin:.5em 0\"></div>\n");
                 _subplotGrid = null;
+                _colorCycleIdx = 0;   // figura nueva → reinicia el ciclo de ColorOrder (como MATLAB)
                 return new MValue(0);
             };
             _builtins["patch"] = a => {
@@ -5421,17 +5425,29 @@ namespace Calcpad.Core.Matlab
                 if (result is SymConst sc) return new MValue(sc.Value);
                 return MValue.NewSymbolic(result);
             };
-            _builtins["simplify"] = a => {
-                if (!a[0].IsSymbolic) return a[0];
-                // PUENTE giac (como MATLAB→MuPAD): simplify(...) → giac. Fallback: motor propio.
+            // Simplifica UN nodo simbólico: puente giac (como MATLAB→MuPAD). Fallback motor propio.
+            static SymNode SimplifyOneNode(SymNode node)
+            {
                 if (GiacRunner.IsAvailable())
                 {
-                    var (ok, res) = GiacRunner.Eval($"simplify({a[0].Symbolic.ToInfix()})");
-                    if (ok) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(res)).Simplify()); } catch { } }
+                    var (ok, res) = GiacRunner.Eval($"simplify({node.ToInfix()})");
+                    if (ok) { try { return GiacRunner.ParseToSym(GiacRunner.ToMatlab(res)).Simplify(); } catch { } }
                 }
-                var r = a[0].Symbolic.Simplify();
-                r = TrigRules.SimplifyTrig(r);   // aplica reducciones trig
-                return MValue.NewSymbolic(r);
+                return TrigRules.SimplifyTrig(node.Simplify());
+            }
+            _builtins["simplify"] = a => {
+                // Matriz/vector simbólico: simplificar CADA celda (p.ej. simplify([N1-.., N2-..])).
+                if (a[0].IsSymMatrix)
+                {
+                    int rs = a[0].SymCells.GetLength(0), cs = a[0].SymCells.GetLength(1);
+                    var nc = new SymNode[rs, cs];
+                    for (int i = 0; i < rs; i++)
+                        for (int j = 0; j < cs; j++)
+                            nc[i, j] = SimplifyOneNode(a[0].SymCells[i, j]);
+                    return MValue.NewSymMatrix(nc);
+                }
+                if (!a[0].IsSymbolic) return a[0];
+                return MValue.NewSymbolic(SimplifyOneNode(a[0].Symbolic));
             };
             _builtins["expand"] = a => {
                 if (a.Length == 0) throw new MatlabRuntimeException("expand(symExpr)");
@@ -5699,6 +5715,41 @@ namespace Calcpad.Core.Matlab
                     else throw new MatlabRuntimeException("solve: sistema requiere lista de variables");
                     return SolveSystem(eqs, varNames);
                 }
+                // Sistema como VECTOR/MATRIZ simbólico: solve([e1==.., e2==..], [v1 v2])
+                // El [...] de MATLAB construye un SymMatrix de ecuaciones (cada una ya en
+                // forma lhs-rhs). Es lo que devuelve, p.ej., ec = [subs(v,s,0)==v_i, ...].
+                if (a[0].IsSymMatrix)
+                {
+                    var eqs = new List<SymNode>();
+                    var cells = a[0].SymCells;
+                    for (int i = 0; i < cells.GetLength(0); i++)
+                        for (int j = 0; j < cells.GetLength(1); j++)
+                            if (cells[i, j] != null) eqs.Add(cells[i, j]);
+                    var varNames = new List<string>();
+                    if (a.Length >= 2)
+                    {
+                        if (a[1].IsSymMatrix)
+                        {
+                            var vc = a[1].SymCells;
+                            for (int i = 0; i < vc.GetLength(0); i++)
+                                for (int j = 0; j < vc.GetLength(1); j++)
+                                    if (vc[i, j] is SymVar vv) varNames.Add(vv.Name);
+                        }
+                        else if (a[1].IsCell)
+                        {
+                            var vc = a[1].CellData;
+                            for (int i = 0; i < vc.GetLength(0); i++)
+                                for (int j = 0; j < vc.GetLength(1); j++)
+                                {
+                                    if (vc[i, j].IsString) varNames.Add(vc[i, j].StringValue);
+                                    else if (vc[i, j].IsSymbolic && vc[i, j].Symbolic is SymVar vv) varNames.Add(vv.Name);
+                                }
+                        }
+                        else if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv1) varNames.Add(sv1.Name);
+                    }
+                    if (varNames.Count == 0) throw new MatlabRuntimeException("solve: sistema requiere lista de variables");
+                    return SolveSystem(eqs, varNames);
+                }
                 if (!a[0].IsSymbolic) throw new MatlabRuntimeException("solve: expresión simbólica esperada");
                 string varName = "x";
                 if (a.Length >= 2)
@@ -5770,66 +5821,176 @@ namespace Calcpad.Core.Matlab
                 catch { return true; }
             }
 
+            // giac no acepta identificadores no-ASCII (subíndices unicode como vᵢ, tⱼ).
+            // Mapea cada nombre con no-ASCII a un alias ASCII (Z0,Z1,...) y llena
+            // aliasToOrig para des-mapear luego la respuesta con Subs.
+            static string GiacAsciiSanitize(string infix, Dictionary<string, string> aliasToOrig)
+            {
+                var origToAlias = new Dictionary<string, string>();
+                foreach (var kv in aliasToOrig) origToAlias[kv.Value] = kv.Key;
+                var sb = new System.Text.StringBuilder();
+                int i = 0, k = aliasToOrig.Count;
+                bool IsIdChar(char c) => char.IsLetter(c) || char.IsDigit(c) || char.IsNumber(c) || c == '_';
+                while (i < infix.Length)
+                {
+                    char c = infix[i];
+                    if (IsIdChar(c))
+                    {
+                        int start = i;
+                        while (i < infix.Length && IsIdChar(infix[i])) i++;
+                        var tok = infix.Substring(start, i - start);
+                        bool nonAscii = false; foreach (var ch in tok) if (ch > 127) { nonAscii = true; break; }
+                        if (nonAscii)
+                        {
+                            if (!origToAlias.TryGetValue(tok, out var al))
+                            { al = "Z" + (k++); origToAlias[tok] = al; aliasToOrig[al] = tok; }
+                            sb.Append(al);
+                        }
+                        else sb.Append(tok);
+                    }
+                    else { sb.Append(c); i++; }
+                }
+                return sb.ToString();
+            }
+            // Divide una lista giac por comas de NIVEL SUPERIOR (respeta () y []).
+            static List<string> SplitTopLevel(string s)
+            {
+                var parts = new List<string>(); int depth = 0, start = 0;
+                for (int i = 0; i < s.Length; i++)
+                {
+                    char c = s[i];
+                    if (c == '(' || c == '[') depth++;
+                    else if (c == ')' || c == ']') depth--;
+                    else if (c == ',' && depth == 0) { parts.Add(s.Substring(start, i - start).Trim()); start = i + 1; }
+                }
+                parts.Add(s.Substring(start).Trim());
+                return parts;
+            }
+            // Parsea el vector solución de giac solve([...],[...]) → n componentes.
+            // giac devuelve [[c0,c1,...]] (lista de soluciones, cada una lista); tomar la 1ª.
+            static bool TryParseGiacVector(string res, int n, out string[] comps)
+            {
+                comps = null;
+                var s = (res ?? "").Trim();
+                // giac puede prefijar la lista con un identificador: "list[[...]]". Quitarlo.
+                int lb = s.IndexOf('[');
+                if (lb > 0 && s.Substring(0, lb).TrimEnd().All(char.IsLetter)) s = s.Substring(lb).Trim();
+                for (int guard = 0; guard < 5 && s.Length >= 2 && s[0] == '[' && s[^1] == ']'; guard++)
+                {
+                    var inner = s.Substring(1, s.Length - 2).Trim();
+                    var top = SplitTopLevel(inner);
+                    if (top.Count == n && !top.TrueForAll(t => t.StartsWith("["))) { comps = top.ToArray(); return true; }
+                    if (top.Count >= 1 && top[0].StartsWith("[")) { s = top[0]; continue; } // 1ª solución
+                    if (top.Count == n) { comps = top.ToArray(); return true; }
+                    break;
+                }
+                return false;
+            }
+
             MValue SolveSystem(List<SymNode> eqs, List<string> vars)
             {
                 int n = vars.Count;
                 if (eqs.Count != n) throw new MatlabRuntimeException($"solve: {eqs.Count} ecs vs {n} vars");
-                // Estrategia: si lineal, extraer matriz A y vector b → linsolve.
-                // Detección: cada ecuación expr_i, intentar coeffs lineales.
-                var A = new double[n, n];
-                var b = new double[n];
+                // Estrategia: si lineal, extraer coeficientes. Si TODOS son numéricos →
+                // linsolve rápido (comportamiento previo). Si hay parámetros simbólicos
+                // libres (L, v_i, ...) → resolver SIMBÓLICAMENTE (Cramer) para dar la
+                // solución en forma cerrada, como el Symbolic Toolbox de MATLAB.
+                var Asym = new SymNode[n, n];
+                var bsym = new SymNode[n];
                 bool isLinear = true;
+                bool allNumeric = true;
                 for (int i = 0; i < n && isLinear; i++)
                 {
                     var eq = eqs[i].Simplify();
-                    // Verificar que TODAS las segundas derivadas ∂²eq/∂xi∂xj = 0 (linealidad)
+                    // Linealidad: TODAS las segundas derivadas ∂²eq/∂xp∂xq deben ser 0.
+                    // Chequeo SIMBÓLICO (no Eval, que lanza con parámetros libres L, v_i…).
                     for (int p = 0; p < n && isLinear; p++)
                         for (int q = p; q < n && isLinear; q++)
                         {
                             try
                             {
                                 var d2 = eq.Diff(vars[p]).Diff(vars[q]).Simplify();
-                                // Eval en varios puntos para asegurar es la const 0
-                                var subs1 = new Dictionary<string, double>();
-                                var subs2 = new Dictionary<string, double>();
-                                for (int k = 0; k < n; k++) { subs1[vars[k]] = 0; subs2[vars[k]] = 1; }
-                                if (Math.Abs(d2.Eval(subs1)) > 1e-10 || Math.Abs(d2.Eval(subs2)) > 1e-10)
+                                if (!(d2 is SymConst dc) || Math.Abs(dc.Value) > 1e-12)
                                     isLinear = false;
                             }
                             catch { isLinear = false; }
                         }
                     if (!isLinear) break;
-                    double constTerm;
+                    // Término constante: eq con todas las incógnitas = 0 → b = -const.
+                    var atZero = eq;
                     try
                     {
-                        var atZero = eq;
-                        foreach (var v in vars) atZero = atZero.Subs(v, new SymConst(0)).Simplify();
-                        if (atZero is SymConst c) constTerm = c.Value;
-                        else { isLinear = false; break; }
+                        foreach (var v in vars) atZero = atZero.Subs(v, new SymConst(0));
+                        atZero = atZero.Simplify();
                     }
                     catch { isLinear = false; break; }
-                    b[i] = -constTerm;
+                    bsym[i] = new SymMul(new SymConst(-1), atZero).Simplify();
+                    if (!(bsym[i] is SymConst)) allNumeric = false;
+                    // Coeficientes: ∂eq/∂var_j (con las demás incógnitas = 0).
                     for (int j = 0; j < n; j++)
                     {
                         try
                         {
                             var partial = eq.Diff(vars[j]).Simplify();
-                            foreach (var v in vars) partial = partial.Subs(v, new SymConst(0)).Simplify();
-                            if (partial is SymConst cc) A[i, j] = cc.Value;
-                            else { isLinear = false; break; }
+                            foreach (var v in vars) partial = partial.Subs(v, new SymConst(0));
+                            Asym[i, j] = partial.Simplify();
+                            if (!(Asym[i, j] is SymConst)) allNumeric = false;
                         }
                         catch { isLinear = false; break; }
                     }
                 }
-                if (isLinear)
+                if (isLinear && allNumeric)
                 {
+                    // Camino numérico rápido: sistema sin parámetros simbólicos.
                     var Am = new MValue(n, n);
                     var bm = new MValue(n, 1);
-                    for (int i = 0; i < n; i++) { for (int j = 0; j < n; j++) Am.Set(i, j, A[i, j]); bm.Set(i, 0, b[i]); }
+                    for (int i = 0; i < n; i++)
+                    {
+                        for (int j = 0; j < n; j++) Am.Set(i, j, ((SymConst)Asym[i, j]).Value);
+                        bm.Set(i, 0, ((SymConst)bsym[i]).Value);
+                    }
                     var x = MatlabLinAlg.Linsolve(Am, bm);
-                    // Devolver struct con cada var = valor
                     var st = MValue.NewStruct();
                     for (int i = 0; i < n; i++) st.Fields[vars[i]] = new MValue(x.At(i, 0));
+                    return st;
+                }
+                if (isLinear)
+                {
+                    // Camino SIMBÓLICO: A·x = b con coeficientes en parámetros libres.
+                    // Preferir giac (CAS, como MuPAD en MATLAB) → forma cerrada REDUCIDA.
+                    // Cramer propio deja cocientes de determinantes sin cancelar.
+                    if (GiacRunner.IsAvailable())
+                    {
+                        try
+                        {
+                            var aliasToOrig = new Dictionary<string, string>();
+                            var cmd = new System.Text.StringBuilder("solve([");
+                            for (int i = 0; i < n; i++) { if (i > 0) cmd.Append(','); cmd.Append(GiacAsciiSanitize(eqs[i].Simplify().ToInfix(), aliasToOrig)); }
+                            cmd.Append("],[");
+                            for (int i = 0; i < n; i++) { if (i > 0) cmd.Append(','); cmd.Append(GiacAsciiSanitize(vars[i], aliasToOrig)); }
+                            cmd.Append("])");
+                            var (okg, resg) = GiacRunner.Eval(cmd.ToString());
+                            if (okg && TryParseGiacVector(resg, n, out var comps))
+                            {
+                                var stg = MValue.NewStruct();
+                                for (int i = 0; i < n; i++)
+                                {
+                                    var node = GiacRunner.ParseToSym(GiacRunner.ToMatlab(comps[i]));
+                                    // des-aliasar: Z0 → vᵢ (Subs por nombre de SymVar).
+                                    foreach (var kv in aliasToOrig) node = node.Subs(kv.Key, new SymVar(kv.Value));
+                                    stg.Fields[vars[i]] = MValue.NewSymbolic(node.Simplify());
+                                }
+                                return stg;
+                            }
+                        }
+                        catch { /* cae a Cramer propio */ }
+                    }
+                    // Fallback: Cramer simbólico → cada incógnita como Det(Ai)/Det(A).
+                    var Bcol = new SymNode[n, 1];
+                    for (int i = 0; i < n; i++) Bcol[i, 0] = bsym[i];
+                    var X = SymMatOps.Solve(Asym, Bcol);
+                    var st = MValue.NewStruct();
+                    for (int i = 0; i < n; i++) st.Fields[vars[i]] = MValue.NewSymbolic(X[i, 0].Simplify());
                     return st;
                 }
                 // Sistema no-lineal: Newton multi-var con guess inicial 1 (evita Jacobiano singular en 0)
@@ -7971,6 +8132,16 @@ namespace Calcpad.Core.Matlab
                 case "displayname": case "handlevisibility": return true;
                 default: return false;
             }
+        }
+        /// <summary>¿El string es un LineSpec ('--','ro','o','-.') y NO un nombre de
+        /// propiedad ('LineWidth','Color','Marker')? Un linespec sólo contiene chars del
+        /// alfabeto de estilo/marcador/color; cualquier otra letra ⇒ es una propiedad.</summary>
+        private static bool IsLineSpec(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            const string allowed = "-:.o+*xsd^v><phrgbcmykw ";
+            foreach (char c in s) if (allowed.IndexOf(c) < 0) return false;
+            return true;
         }
         private static void ParseLineSpec(string spec, out bool wantLine, out bool wantMarker,
                                            out string color, out string symbol, out string dash)
@@ -11989,6 +12160,30 @@ namespace Calcpad.Core.Matlab
                 var A = CoerceToSymMatrix(l, aR, aC);
                 var Bm = CoerceToSymMatrix(r, bR, bC);
                 return MValue.NewSymMatrix(SymMatOps.Solve(A, Bm));
+            }
+            // mrdivide '/': matriz/escalar = división por elemento (MATLAB); matriz/matriz = (B'\A')'.
+            if (op == "/")
+            {
+                bool rScalarD = r.IsScalar || r.IsSymbolic;
+                if (rScalarD && l.IsSymMatrix)
+                {
+                    SymNode s = r.IsSymbolic ? r.Symbolic : new SymConst(r.Scalar);
+                    int rr = l.SymCells.GetLength(0), cc = l.SymCells.GetLength(1);
+                    var Z = new SymNode[rr, cc];
+                    for (int i = 0; i < rr; i++)
+                        for (int j = 0; j < cc; j++)
+                            Z[i, j] = new SymDiv(l.SymCells[i, j], s).Simplify();
+                    return MValue.NewSymMatrix(Z);
+                }
+                // matriz/matriz → (B' \ A')'
+                int aR2 = l.IsSymMatrix ? l.SymCells.GetLength(0) : l.Rows;
+                int aC2 = l.IsSymMatrix ? l.SymCells.GetLength(1) : l.Cols;
+                int bR2 = r.IsSymMatrix ? r.SymCells.GetLength(0) : r.Rows;
+                int bC2 = r.IsSymMatrix ? r.SymCells.GetLength(1) : r.Cols;
+                var Am2 = CoerceToSymMatrix(l, aR2, aC2);
+                var Bm2 = CoerceToSymMatrix(r, bR2, bC2);
+                var Xt = SymMatOps.Solve(SymMatOps.Transpose(Bm2), SymMatOps.Transpose(Am2));
+                return MValue.NewSymMatrix(SymMatOps.Transpose(Xt));
             }
             // Element-wise: +, -, .*, ./, .^
             // Determinar shape común
