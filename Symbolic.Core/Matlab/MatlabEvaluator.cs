@@ -7422,6 +7422,22 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["kron"] = a => {
                 if (a.Length < 2) throw new MatlabRuntimeException("kron(A, B)");
+                if (a[0].IsSymMatrix || a[1].IsSymMatrix || a[0].IsSymbolic || a[1].IsSymbolic)
+                {
+                    int rA = a[0].IsSymMatrix ? a[0].SymCells.GetLength(0) : (a[0].IsSymbolic ? 1 : a[0].Rows);
+                    int cA = a[0].IsSymMatrix ? a[0].SymCells.GetLength(1) : (a[0].IsSymbolic ? 1 : a[0].Cols);
+                    int rB = a[1].IsSymMatrix ? a[1].SymCells.GetLength(0) : (a[1].IsSymbolic ? 1 : a[1].Rows);
+                    int cB = a[1].IsSymMatrix ? a[1].SymCells.GetLength(1) : (a[1].IsSymbolic ? 1 : a[1].Cols);
+                    var Am = CoerceToSymMatrix(a[0], rA, cA);
+                    var Bm = CoerceToSymMatrix(a[1], rB, cB);
+                    var K = new SymNode[rA * rB, cA * cB];
+                    for (int i = 0; i < rA; i++)
+                        for (int j = 0; j < cA; j++)
+                            for (int p = 0; p < rB; p++)
+                                for (int q = 0; q < cB; q++)
+                                    K[i * rB + p, j * cB + q] = new SymMul(Am[i, j], Bm[p, q]).Simplify();
+                    return MValue.NewSymMatrix(K);
+                }
                 var A = a[0]; var B = a[1];
                 int mA = A.Rows, nA = A.Cols, mB = B.Rows, nB = B.Cols;
                 var r = new MValue(mA * mB, nA * nB);
