@@ -144,7 +144,8 @@ namespace Calcpad.Core.Matlab
                     pos++; var arg = ParseExpr(s, ref pos); SkipWs(s, ref pos); if (pos < s.Length && s[pos] == ')') pos++;
                     return new SymFunc(name, arg);
                 }
-                if (name == "pi") return new SymConst(System.Math.PI);
+                // pi se mantiene SIMBOLICO (SymVar) para renderizar como π; Eval lo
+                // auto-bindea a Math.PI, asi que double()/subs numerico siguen bien.
                 return new SymVar(name);
             }
             throw new System.Exception("giac parse: caracter inesperado en pos " + pos + " de '" + s + "'");

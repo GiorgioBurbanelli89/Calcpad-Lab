@@ -230,7 +230,10 @@ namespace Calcpad.Core.Matlab
         public SymVar(string n) { Name = n; }
         public override SymNode Diff(string var) => Name == var ? (SymNode)new SymConst(1) : new SymConst(0);
         public override double Eval(Dictionary<string, double> vals) =>
-            vals.TryGetValue(Name, out var v) ? v : throw new MatlabRuntimeException($"Symbolic var '{Name}' not bound");
+            vals.TryGetValue(Name, out var v) ? v
+            : Name == "pi" ? Math.PI            // constantes simbolicas: pi -> π (display) y valor
+            : Name == "e" ? Math.E
+            : throw new MatlabRuntimeException($"Symbolic var '{Name}' not bound");
         public override string ToInfix() => Name;
         public override string ToLatex() => Name;
 
@@ -1499,8 +1502,8 @@ namespace Calcpad.Core.Matlab
             {
                 case NumberLit num: return new SymConst(num.Value);
                 case IdentRef id:
-                    if (id.Name == "pi") return new SymConst(Math.PI);
-                    if (id.Name == "e") return new SymConst(Math.E);
+                    // pi y e se mantienen SIMBOLICOS (SymVar) para renderizar como π / e
+                    // y que giac los trate como constantes; Eval las auto-bindea a su valor.
                     return new SymVar(id.Name);
                 case UnaryOp u when u.Op == "-": return new SymSub(new SymConst(0), FromAst(u.Operand, symVars));
                 case UnaryOp u when u.Op == "+": return FromAst(u.Operand, symVars);
