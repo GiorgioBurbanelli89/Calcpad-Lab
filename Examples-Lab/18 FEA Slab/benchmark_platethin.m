@@ -27,8 +27,27 @@ fprintf('--- Placa simply-supported, carga uniforme q = %g kN/m^2 ---\n', q);
 
 %% Funciones de forma — Hermite cúbicas en [0,1] (forma expandida)
 syms xi L
-%-- Forma expandida: el engine simbolico MVP no acepta productos en display/int.
-%-- Matematicamente identicas a las del .cpd:
+%' ### Deduccion simbolica de las funciones de forma (BFS = Hermite cubicas)
+%' No se escriben: se DEDUCEN. Cada funcion de forma es la unica cubica que vale
+%' 1 en UN grado de libertad de extremo (desplazamiento w o giro theta) y 0 en los
+%' otros tres. Se impone eso a una cubica generica y se resuelve.
+sym_s = sym('s'); syms As Bs Cs Ds real
+w_gen = As + Bs*sym_s + Cs*sym_s^2 + Ds*sym_s^3;   dw_gen = diff(w_gen, sym_s);
+BC = [1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 1];   % una fila por grado de libertad
+Nsym = sym(zeros(1, 4));
+for k = 1 : 4
+    sol_k = solve([subs(w_gen, sym_s, 0) == BC(k, 1), subs(dw_gen, sym_s, 0) == BC(k, 2), ...
+                   subs(w_gen, sym_s, 1) == BC(k, 3), subs(dw_gen, sym_s, 1) == BC(k, 4)], [As Bs Cs Ds]);
+    Nsym(k) = simplify(subs(w_gen, {As, Bs, Cs, Ds}, {sol_k.As, sol_k.Bs, sol_k.Cs, sol_k.Ds}));
+end
+disp('Funciones de Hermite deducidas  N = [N_1  N_2  N_3  N_4]:'), disp(Nsym)
+ddNsym = diff(Nsym, sym_s, 2);
+disp('Curvaturas  N_i'''' :'), disp(ddNsym)
+%' La matriz de rigidez de viga 1D sale de integrar las curvaturas (simbolico REAL):
+K1D_sym = int(ddNsym.' * ddNsym, sym_s, 0, 1);
+disp('K_1D = int N_i'''' N_j'''' ds  (rigidez de viga Euler-Bernoulli):'), disp(K1D_sym)
+%' El elemento de placa BFS es el PRODUCTO TENSORIAL de estas funciones en x e y.
+%-- Forma expandida usada abajo para el calculo numerico. Identicas a las del .cpd:
 %--   Phi1 = 1 - xi^2*(3 - 2*xi) = 1 - 3*xi^2 + 2*xi^3
 %--   Phi2 = xi*L*(1 - xi*(2 - xi)) = xi*L - 2*L*xi^2 + L*xi^3
 %--   Phi3 = xi^2*(3 - 2*xi) = 3*xi^2 - 2*xi^3
