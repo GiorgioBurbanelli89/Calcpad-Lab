@@ -883,7 +883,13 @@ namespace Calcpad.Core.Matlab
         public override double Eval(Dictionary<string, double> vals) => Math.Pow(Base.Eval(vals), Exp.Eval(vals));
         public override string ToInfix()
         {
-            string sb = Base is SymAdd || Base is SymSub || Base is SymMul || Base is SymDiv ? $"({Base.ToInfix()})" : Base.ToInfix();
+            // La base se parentiza si es suma/resta/producto/division O si es OTRA
+            // potencia: `(a^2)^2` debe ir "(a^2)^2", NO "a^2^2" — porque `^` es
+            // asociativo por la DERECHA en giac/CAS (a^2^2 = a^(2^2)), lo que corrompe
+            // el exponente (con mas anidamiento a^2^2^2 = a^16, no a^8) y da resultados
+            // numericamente ERRONEOS al simplificar. Mismo motivo para el exponente.
+            string sb = Base is SymAdd || Base is SymSub || Base is SymMul || Base is SymDiv || Base is SymPow
+                ? $"({Base.ToInfix()})" : Base.ToInfix();
             string se = Exp is SymConst ? Exp.ToInfix() : $"({Exp.ToInfix()})";
             return $"{sb}^{se}";
         }
