@@ -42,6 +42,30 @@ n_dof = 6 * n_j;                   % 240 DOFs
 fprintf('Nodos = %d, DOFs = %d, Elementos shell = %d, Frames = %d\n', ...
     n_j, n_dof, n_m^2, 4 + 4*n_m);
 
+%% ── Teoria: de donde sale la constante de torsion (Saint-Venant / Prandtl) ──
+%' ### Deduccion simbolica de la constante de torsion
+%'
+%' La rigidez torsional de una seccion maciza viene de la teoria de Saint-Venant.
+%' Se introduce la FUNCION DE TENSION DE PRANDTL phi, que se anula en el contorno y
+%' cumple la ecuacion de Poisson  lap(phi) = -2*G*theta. Lo deduzco simbolico para
+%' una seccion ELIPTICA de semiejes p, q (el caso con solucion cerrada exacta).
+syms xs ys p q Gs ths ms real
+phi_s = ms*(xs^2/p^2 + ys^2/q^2 - 1);            % se anula en (x/p)^2 + (y/q)^2 = 1
+lap_s = simplify(diff(phi_s, xs, 2) + diff(phi_s, ys, 2));
+disp('Ecuacion de Poisson  lap(phi) ='), disp(lap_s)
+m_s = simplify(solve(lap_s == -2*Gs*ths, ms));  % imponer Poisson -> constante m
+disp('Constante  m ='), disp(m_s)
+%' El torque es T = 2*(integral de phi sobre el area). Con los momentos de area de
+%' la elipse (int x^2 dA = pi p^3 q/4,  int y^2 dA = pi p q^3/4,  int dA = pi p q),
+%' y J = T/(G*theta), en UN solo simplify para que G y theta cancelen:
+Pi_s = sym('pi');
+IntPhi_s = m_s*(Pi_s*p^3*q/4/p^2 + Pi_s*p*q^3/4/q^2 - Pi_s*p*q);
+J_elipse = simplify( 2*IntPhi_s / (Gs*ths) );
+disp('Constante de torsion de la elipse  J = pi p^3 q^3 / (p^2 + q^2):'), disp(J_elipse)
+%' Para una seccion RECTANGULAR la solucion exacta es una serie de Fourier; por eso
+%' en ingenieria se usa la aproximacion  J = beta*b*h^3  con beta(h/b) — la que se
+%' aplica abajo a las columnas y vigas del portico.
+
 %% ── PARTE II: PROPIEDADES DE SECCION ────────────────────────────────────
 
 %  Columna C40x40
