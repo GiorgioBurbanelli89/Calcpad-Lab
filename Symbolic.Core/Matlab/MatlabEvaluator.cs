@@ -5350,7 +5350,28 @@ namespace Calcpad.Core.Matlab
                 // subs(expr, var, value) — single
                 // subs(expr, [v1, v2, ...], [val1, val2, ...]) — multi (sym matrix de vars + vector de vals)
                 // subs(expr, vars_cell, vals_cell) — multi via cells
-                if (a.Length < 3 || !a[0].IsSymbolic)
+                if (a.Length < 3)
+                    throw new MatlabRuntimeException("subs(symExpr, var, value)");
+                // MATRIZ simbólica: en MATLAB subs se aplica CELDA A CELDA. Antes
+                // la guarda de arriba la rechazaba, así que un subs(K, RZ, 0)
+                // sobre una matriz de rigidez 4x4 moría — justo la comprobación
+                // de que con RZ=0 la rigidez no cambia. `expand` y `simplify`,
+                // aquí al lado, ya recorrían las celdas; subs era el que faltaba.
+                if (a[0].IsSymMatrix)
+                {
+                    int rs0 = a[0].SymCells.GetLength(0), cs0 = a[0].SymCells.GetLength(1);
+                    var outCells = new SymNode[rs0, cs0];
+                    for (int i = 0; i < rs0; i++)
+                        for (int j = 0; j < cs0; j++)
+                        {
+                            var one = _builtins["subs"](new[] {
+                                MValue.NewSymbolic(a[0].SymCells[i, j]), a[1], a[2] });
+                            // una celda totalmente sustituida vuelve como número
+                            outCells[i, j] = one.IsSymbolic ? one.Symbolic : new SymConst(one.Scalar);
+                        }
+                    return MValue.NewSymMatrix(outCells);
+                }
+                if (!a[0].IsSymbolic)
                     throw new MatlabRuntimeException("subs(symExpr, var, value)");
                 var result = a[0].Symbolic;
                 // Detectar multi-var
@@ -10822,8 +10843,12 @@ namespace Calcpad.Core.Matlab
                     return new StatementResult(targetId.Name, val, asg.Suppressed);
                 }
                 // Indexed assignment: A(i, j) = val
-                if (!scope.TryGet(targetId.Name, out var existing))
-                    existing = new MValue(0);
+                // Variable INDEFINIDA → 0×0 vacío (como MATLAB), NO 1×1 escalar. Así
+                // `M(i,:) = fila` en un loop adopta el ancho del RHS y auto-crece
+                // (patrón clásico de ensamblar matrices fila-a-fila). Con 1×1, el `:`
+                // daba 1 columna → "shape mismatch LHS 1×1, RHS 1×N".
+                if (!scope.TryGet(targetId.Name, out var existing) || existing == null)
+                    existing = new MValue(0, 0);
                 // containers.Map: m(key) = val
                 if (existing.IsMap)
                 {
@@ -10904,8 +10929,9 @@ namespace Calcpad.Core.Matlab
                     scope.Set(id.Name, val);
                     return;
                 case CallOrIndex idx when idx.Target is IdentRef tId:
+                    // Indefinida → 0×0 (como MATLAB), para que M(i,:)=fila auto-crezca.
                     if (!scope.TryGet(tId.Name, out var existing) || existing == null)
-                        existing = new MValue(0);
+                        existing = new MValue(0, 0);
                     scope.Set(tId.Name, IndexedAssign(existing, idx.Args, val, scope));
                     return;
                 case FieldAccess fa:

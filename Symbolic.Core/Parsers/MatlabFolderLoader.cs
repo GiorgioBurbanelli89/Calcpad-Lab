@@ -63,12 +63,31 @@ namespace Calcpad.Core
             // addpath(genpath(...))). Recursar metia librerias foraneas alojadas en
             // subcarpetas (p.ej. emdlab-win64) ANTEPUESTAS al script -> cientos de
             // errores ajenos antes del contenido real. TopDirectoryOnly lo corrige.
-            string[] mFiles;
-            try { mFiles = Directory.GetFiles(folder, "*.m", SearchOption.TopDirectoryOnly); }
+            var fileList = new List<string>();
+            try { fileList.AddRange(Directory.GetFiles(folder, "*.m", SearchOption.TopDirectoryOnly)); }
             catch { return mainScript; }
 
+            // MATLAB: `addpath('dispatch', 'frame', ...)` pone esas carpetas en el path,
+            // así que sus function-files quedan disponibles. Escaneamos las carpetas que el
+            // script pide EXPLÍCITAMENTE por addpath (relativas a la del script) y sumamos
+            // sus .m. Solo las addpath'd — no todo el subárbol — para no arrastrar librerías
+            // foráneas. `addpath(genpath('x'))` → recursivo.
+            foreach (var (dir, recursive) in ExtractAddpathFolders(mainScript, folder))
+            {
+                if (!Directory.Exists(dir)) continue;
+                var opt = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                try { fileList.AddRange(Directory.GetFiles(dir, "*.m", opt)); } catch { }
+            }
+            // Dedupe por ruta completa (una carpeta addpath'd podría repetir la del script).
+            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var mFiles = new List<string>();
+            foreach (var p in fileList)
+            {
+                string full; try { full = Path.GetFullPath(p); } catch { full = p; }
+                if (seenPaths.Add(full)) mFiles.Add(full);
+            }
             // Ordenar para reproducibilidad
-            Array.Sort(mFiles, StringComparer.OrdinalIgnoreCase);
+            mFiles.Sort(StringComparer.OrdinalIgnoreCase);
 
             var sb = new StringBuilder();
             var includedFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -277,6 +296,56 @@ namespace Calcpad.Core
 
         private static bool IsIdentChar(char c) =>
             char.IsLetterOrDigit(c) || c == '_';
+
+        /// <summary>Extrae las carpetas pedidas por `addpath('a','b',...)` en el script
+        /// (relativas a <paramref name="baseFolder"/>). `addpath(genpath('x'))` → recursivo.
+        /// Solo mira líneas con el token `addpath`; extrae los string-literals de esa línea.</summary>
+        private static List<(string dir, bool recursive)> ExtractAddpathFolders(string script, string baseFolder)
+        {
+            var result = new List<(string, bool)>();
+            if (string.IsNullOrEmpty(script)) return result;
+            foreach (var rawLine in script.Replace("\r\n", "\n").Split('\n'))
+            {
+                var line = rawLine.TrimStart();
+                if (line.Length == 0 || line[0] == '%') continue;
+                int idx = line.IndexOf("addpath", StringComparison.Ordinal);
+                if (idx < 0) continue;
+                if (idx > 0 && IsIdentChar(line[idx - 1])) continue;         // boundary izq
+                int after = idx + 7;
+                if (after < line.Length && IsIdentChar(line[after])) continue; // boundary der
+                line = StripInlineComment(line);
+                bool recursive = line.IndexOf("genpath", StringComparison.Ordinal) >= 0;
+                foreach (var s in ExtractStringLiterals(line))
+                {
+                    if (string.IsNullOrWhiteSpace(s)) continue;
+                    string dir;
+                    try { dir = Path.IsPathRooted(s) ? s : Path.Combine(baseFolder, s); }
+                    catch { continue; }
+                    result.Add((dir, recursive));
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Devuelve el contenido de todos los literales de string ('...' o "...") de una línea.</summary>
+        private static List<string> ExtractStringLiterals(string line)
+        {
+            var outp = new List<string>();
+            int i = 0, n = line.Length;
+            while (i < n)
+            {
+                char c = line[i];
+                if (c == '\'' || c == '"')
+                {
+                    char q = c; int start = ++i;
+                    while (i < n && line[i] != q) i++;
+                    if (i <= n) outp.Add(line.Substring(start, System.Math.Min(i, n) - start));
+                    i++;
+                }
+                else i++;
+            }
+            return outp;
+        }
 
         /// <summary>Nombre de archivo → sufijo seguro (solo [A-Za-z0-9_]).</summary>
         private static string SanitizeStem(string stem)
