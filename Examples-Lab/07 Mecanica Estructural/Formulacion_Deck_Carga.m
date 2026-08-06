@@ -48,6 +48,14 @@
 syms xi eta a b q real
 N = [ (1-xi)*(1-eta); (1+xi)*(1-eta); (1+xi)*(1+eta); (1-xi)*(1+eta) ] / 4;
 
+%' Propiedad clave — PARTICION DE UNIDAD: las 4 funciones suman 1 en TODO el
+%' elemento, por eso reproducen exactamente un campo constante. Se comprueba solo:
+disp('particion de unidad  sum(N_i) = (debe dar 1):')
+disp(simplify(sum(N)))
+%' Sus derivadas respecto de las coords naturales (lo que arma la matriz B):
+disp('dN/dxi  ='), disp(diff(N, xi).')
+disp('dN/deta ='), disp(diff(N, eta).')
+
 %' Para una celda RECTANGULAR de lados a x b el jacobiano es constante,
 %' detJ = a*b/4, y la integral sale exacta:
 detJ = a*b/4;
