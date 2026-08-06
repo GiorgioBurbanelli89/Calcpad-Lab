@@ -10434,6 +10434,16 @@ namespace Calcpad.Core.Matlab
                 outs = null;
                 return false;
             }
+            catch (Exception ex) when (ex is not MatlabRuntimeException)
+            {
+                // Excepción .NET CRUDA (IndexOutOfRange, ArgumentException, NullReference…)
+                // desde código JIT-compilado = BUG de codegen del JIT (p.ej. asignación por
+                // rango b(i:j)=v mal compilada). El intérprete NUNCA lanza .NET crudo para
+                // MATLAB válido, así que es seguro bailar a él (fuente de verdad). Los errores
+                // MATLAB legítimos son MatlabRuntimeException y SÍ se propagan.
+                outs = null;
+                return false;
+            }
             return true;
         }
         private MValue[] InvokeJitMV(MatlabJit.CompiledFnMV mv, MValue[] args, HashSet<string> mutated)
