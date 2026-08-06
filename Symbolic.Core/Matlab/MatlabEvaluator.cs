@@ -5452,7 +5452,30 @@ namespace Calcpad.Core.Matlab
                 if (GiacRunner.IsAvailable())
                 {
                     var (ok, res) = GiacRunner.Eval($"simplify({node.ToInfix()})");
-                    if (ok) { try { return GiacRunner.ParseToSym(GiacRunner.ToMatlab(res)).Simplify(); } catch { } }
+                    if (ok)
+                    {
+                        try
+                        {
+                            var simp = GiacRunner.ParseToSym(GiacRunner.ToMatlab(res)).Simplify();
+                            // MATLAB se queda con la forma MAS CORTA, y por eso
+                            // simplify((L-RZ*(a+b))^4/L^4) le sale compacto. El
+                            // simplify de giac DESARROLLA: aqui salian 15 terminos
+                            // donde MATLAB 2017a devuelve (L - RZ*(a+b))^4/L^4.
+                            // Se calcula tambien la factorizada y gana la mas corta.
+                            var (okf, resf) = GiacRunner.Eval($"factor({node.ToInfix()})");
+                            if (okf)
+                            {
+                                try
+                                {
+                                    var fac = GiacRunner.ParseToSym(GiacRunner.ToMatlab(resf));
+                                    if (fac.ToInfix().Length < simp.ToInfix().Length) return fac;
+                                }
+                                catch { }
+                            }
+                            return simp;
+                        }
+                        catch { }
+                    }
                 }
                 return TrigRules.SimplifyTrig(node.Simplify());
             }
@@ -10397,7 +10420,20 @@ namespace Calcpad.Core.Matlab
             if (def.JitMV == null) return false;
             var sig = def.JitMVSig;
             for (int i = 0; i < args.Length; i++) if (sig[i] != !args[i].IsScalar) return false;
-            outs = InvokeJitMV((MatlabJit.CompiledFnMV)def.JitMV, args, GetMutatedParams(def));
+            try
+            {
+                outs = InvokeJitMV((MatlabJit.CompiledFnMV)def.JitMV, args, GetMutatedParams(def));
+            }
+            catch (MatlabRuntimeException ex) when (ex.Message.Contains("Expected scalar, got matrix"))
+            {
+                // El JIT infirió mal escalar/matriz para ESTA llamada (una función usuario
+                // que devuelve matriz se clasificó como escalar). Bailout al INTÉRPRETE, que
+                // maneja matrices correctamente. Seguro: las funciones JIT son cómputo PURO
+                // (las de gráficos bailan en compilación) y no committean estado parcial antes
+                // del final, así que re-ejecutar desde los args limpios da el resultado correcto.
+                outs = null;
+                return false;
+            }
             return true;
         }
         private MValue[] InvokeJitMV(MatlabJit.CompiledFnMV mv, MValue[] args, HashSet<string> mutated)
