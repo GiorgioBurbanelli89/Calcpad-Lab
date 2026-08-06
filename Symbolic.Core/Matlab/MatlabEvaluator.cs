@@ -8891,6 +8891,10 @@ namespace Calcpad.Core.Matlab
             if (Math.Abs(t1) < 1e-12 && Math.Abs(t2 - Math.Sin(1)) < 1e-12) fnName = "sin";
             else if (Math.Abs(t1 - 1) < 1e-12 && Math.Abs(t2 - Math.Cos(1)) < 1e-12) fnName = "cos";
             else if (Math.Abs(t1) < 1e-12 && Math.Abs(t2 - Math.Tan(1)) < 1e-12) fnName = "tan";
+            // Trig inversas: ANTES del check laxo de log (acos(1)=0 lo activaria).
+            else if (Math.Abs(t1) < 1e-12 && Math.Abs(t2 - Math.Atan(1)) < 1e-12) fnName = "atan";
+            else if (Math.Abs(t1) < 1e-12 && Math.Abs(t2 - Math.Asin(1)) < 1e-12) fnName = "asin";
+            else if (Math.Abs(t1 - Math.Acos(0)) < 1e-12 && Math.Abs(t2) < 1e-12) fnName = "acos";
             else if (Math.Abs(t1 - 1) < 1e-12 && Math.Abs(t2 - Math.E) < 1e-12) fnName = "exp";
             else if (Math.Abs(t2) < 1e-12) fnName = "log";  // log(0) undefined, log(1)=0
             else if (Math.Abs(t1) < 1e-12 && Math.Abs(t2 - 1) < 1e-12) fnName = "sqrt";

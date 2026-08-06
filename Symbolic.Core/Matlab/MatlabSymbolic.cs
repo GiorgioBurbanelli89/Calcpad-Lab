@@ -944,6 +944,10 @@ namespace Calcpad.Core.Matlab
                 "sinh" => new SymFunc("cosh", Arg),
                 "cosh" => new SymFunc("sinh", Arg),
                 "tanh" => new SymSub(new SymConst(1), new SymPow(new SymFunc("tanh", Arg), new SymConst(2))),
+                // Trig inversas:  atan' = 1/(1+x²),  asin' = 1/√(1-x²),  acos' = -1/√(1-x²)
+                "atan" => new SymDiv(new SymConst(1), new SymAdd(new SymConst(1), new SymPow(Arg, new SymConst(2)))),
+                "asin" => new SymDiv(new SymConst(1), new SymFunc("sqrt", new SymSub(new SymConst(1), new SymPow(Arg, new SymConst(2))))),
+                "acos" => new SymDiv(new SymConst(-1), new SymFunc("sqrt", new SymSub(new SymConst(1), new SymPow(Arg, new SymConst(2))))),
                 "abs" => new SymFunc("sign", Arg),
                 _ => throw new MatlabRuntimeException($"diff: function '{Name}' not supported symbolically")
             };
