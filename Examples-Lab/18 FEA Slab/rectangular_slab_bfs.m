@@ -94,16 +94,39 @@ fprintf('Mesh: %d elem (%d x %d), %d joints, %d apoyos\n', n_e, n_a, n_b, n_j, n
 D11 = E_si*t^3/(12*(1 - nu^2));
 D = D11 * [1, nu, 0; nu, 1, 0; 0, 0, (1 - nu)/2];
 
-%% Finite element formulation — Shape functions
-% Funciones base de Hermite cubicas (mismas expresiones que Calcpad VM),
-% a lo largo de cada dimension (x = xi para a, x = eta para b):
-% #noc Phi_1(x) = 1 - x^2*(3 - 2*x)
-% #noc Phi_2(x) = x*l*(1 - x*(2 - x))
-% #noc Phi_3(x) = x^2*(3 - 2*x)
-% #noc Phi_4(x) = x^2*l*(-1 + x)
-% Segundas derivadas (curvaturas):
-% #noc Phi''_1(x) = -(6/l^2)*(1 - 2*x)
-% #noc Phi''_2(x) = -(2/l)*(2 - 3*x)
+%% Finite element formulation — Shape functions (DEDUCCION SIMBOLICA)
+%' ### Deduccion simbolica de las funciones de forma de Hermite
+%'
+%' No las escribo: las DEDUZCO. Cada funcion de forma es la unica cubica que vale
+%' 1 en UN grado de libertad de extremo (desplazamiento w o giro theta) y 0 en los
+%' otros tres. Se parte de una cubica generica y se imponen las cuatro condiciones.
+sym_s = sym('s');
+syms As Bs Cs Ds real
+w_gen  = As + Bs*sym_s + Cs*sym_s^2 + Ds*sym_s^3;   % cubica generica en s = x/L
+dw_gen = diff(w_gen, sym_s);
+%' Cada fila de BC = [w(0) w'(0) w(1) w'(1)] activa un grado de libertad:
+BC = [1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 1];
+Nsym = sym(zeros(1, 4));
+for k = 1 : 4
+    sol_k = solve([subs(w_gen, sym_s, 0) == BC(k, 1), subs(dw_gen, sym_s, 0) == BC(k, 2), ...
+                   subs(w_gen, sym_s, 1) == BC(k, 3), subs(dw_gen, sym_s, 1) == BC(k, 4)], [As Bs Cs Ds]);
+    Nsym(k) = simplify(subs(w_gen, {As, Bs, Cs, Ds}, {sol_k.As, sol_k.Bs, sol_k.Cs, sol_k.Ds}));
+end
+disp('Funciones de forma deducidas  N = [N_1  N_2  N_3  N_4]:')
+disp(Nsym)
+%' Sus curvaturas (segundas derivadas) son lo que entra a la rigidez de flexion:
+ddNsym = diff(Nsym, sym_s, 2);
+disp('Curvaturas  N_i'''' :')
+disp(ddNsym)
+%' La matriz de rigidez de flexion 1D SALE de integrar el producto de curvaturas:
+% #noc K_{1D} = $Integral{N_i'' N_j'' @ s = 0 : 1}
+K1D_sym = int(ddNsym.' * ddNsym, sym_s, 0, 1);
+disp('K_1D = integral de N_i'''' N_j'''' en [0,1]  (matriz de rigidez de viga Euler-Bernoulli):')
+disp(K1D_sym)
+%' Es exactamente la matriz de rigidez de viga clasica. El elemento de placa BFS
+%' es el PRODUCTO TENSORIAL de estas funciones de Hermite en x e y (16 gdl).
+%'
+%' A continuacion se usan las mismas funciones en forma numerica para ensamblar K.
 %-- Las 4 funciones de Hermite cubicas por dimension
 syms xi eta
 syms aa bb  % parametros a_1 y b_1 simbolicos para diff (sustituidos despues)
