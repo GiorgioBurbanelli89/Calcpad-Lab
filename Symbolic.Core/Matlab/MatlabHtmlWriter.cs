@@ -906,6 +906,13 @@ namespace Calcpad.Core.Matlab
             if (double.IsPositiveInfinity(v)) return "Inf";
             if (double.IsNegativeInfinity(v)) return "-Inf";
             if (v == 0) return "0";
+            // Enteros exactos: mostrarlos COMPLETOS, sin notación científica ni redondeo
+            // de cifras significativas (200000, no 2E+05; 375, no 3.8E+02). MATLAB hace
+            // igual — un literal/valor entero es exacto y la precisión de sig-figs solo
+            // aplica a los no-enteros. Se limita a |v|<1e15 (doble exacto) para no imprimir
+            // monstruos de 20 dígitos.
+            if (v == System.Math.Floor(v) && System.Math.Abs(v) < 1e15)
+                return v.ToString("0", CultureInfo.InvariantCulture);
             var digits = SignificantDigits < 1 ? 1 : (SignificantDigits > 17 ? 17 : SignificantDigits);
             return v.ToString("G" + digits.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
         }

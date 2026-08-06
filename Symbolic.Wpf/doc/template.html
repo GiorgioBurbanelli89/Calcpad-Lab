@@ -341,9 +341,9 @@
             bottom: 0;
             left: 0;
             width: 5pt;
-            border-left: solid 1.5pt black;
-            border-top: solid 1.5pt black;
-            border-bottom: solid 1.5pt black;
+            border-left: solid 1.5pt currentColor;
+            border-top: solid 1.5pt currentColor;
+            border-bottom: solid 1.5pt currentColor;
         }
 
         /* Right bracket ] — right side + top arm + bottom arm */
@@ -354,9 +354,9 @@
             bottom: 0;
             right: 0;
             width: 5pt;
-            border-right: solid 1.5pt black;
-            border-top: solid 1.5pt black;
-            border-bottom: solid 1.5pt black;
+            border-right: solid 1.5pt currentColor;
+            border-top: solid 1.5pt currentColor;
+            border-bottom: solid 1.5pt currentColor;
         }
 
         /* Hide the literal [ ] text — pseudo-elements draw the brackets */
@@ -399,21 +399,21 @@
                 }
 
                 .matrix .td:first-child {
-                    border-left: solid 1pt black;
+                    border-left: solid 1pt currentColor;
                 }
 
                 .matrix .td:last-child {
-                    border-right: solid 1pt black;
+                    border-right: solid 1pt currentColor;
                 }
 
             .matrix .tr:first-child .td:first-child,
             .matrix .tr:first-child .td:last-child {
-                border-top: solid 1pt black;
+                border-top: solid 1pt currentColor;
             }
 
             .matrix .tr:last-child .td:first-child,
             .matrix .tr:last-child .td:last-child {
-                border-bottom: solid 1pt black;
+                border-bottom: solid 1pt currentColor;
             }
 
         .block {
@@ -736,7 +736,7 @@
 
         .dvl {
             display: block;
-            border-bottom: solid 1pt black;
+            border-bottom: solid 1pt currentColor;
             margin-top: 1pt;
             margin-bottom: 1pt;
         }

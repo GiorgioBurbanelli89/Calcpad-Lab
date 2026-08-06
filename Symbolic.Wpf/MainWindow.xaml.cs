@@ -776,8 +776,9 @@ namespace Calcpad.Wpf
                 _mustPromptUnlock = false;
                 IsWebForm = false;
                 RichTextBox.Focus();
-                WebFormButton.Visibility = Visibility.Visible;
-                MenuWebForm.Visibility = Visibility.Visible;
+                // Web Form (input form) es de Calcpad — Hekatan no lo usa: mantener oculto.
+                WebFormButton.Visibility = Visibility.Collapsed;
+                MenuWebForm.Visibility = Visibility.Collapsed;
             }
             ShowHelp();
             SaveButton.Tag = null;
@@ -863,15 +864,9 @@ namespace Calcpad.Wpf
             Inline.IsChecked = settings.Equations == 'I';
             DecimalsTextBox.Text = settings.Decimals.ToString();
             SubstituteCheckBox.IsChecked = settings.Substitute;
-            AdaptiveCheckBox.IsChecked = settings.Adaptive;
-            ShadowsCheckBox.IsChecked = settings.Shadows;
-            LightDirectionComboBox.SelectedIndex = settings.Direction;
-            ColorScaleComboBox.SelectedIndex = settings.Palette;
-            SmoothCheckBox.IsChecked = settings.Smooth;
             ExternalBrowserComboBox.SelectedIndex = settings.Browser;
             ZeroSmallMatrixElementsCheckBox.IsChecked = settings.ZeroSmallMatrixElements;
             MaxOutputCountTextBox.Text = settings.MaxOutputCount.ToString();
-            EmbedCheckBox.IsChecked = settings.Embed;
             if (settings.WindowLeft > 0) Left = settings.WindowLeft;
             if (settings.WindowTop > 0) Top = settings.WindowTop;
             if (settings.WindowWidth > 0) Width = settings.WindowWidth;
@@ -892,11 +887,6 @@ namespace Calcpad.Wpf
             plot.ImageUri = string.Empty;
             plot.VectorGraphics = false;
             plot.ScreenScaleFactor = _screenScaleFactor;
-            plot.IsAdaptive = AdaptiveCheckBox.IsChecked ?? false;
-            plot.Shadows = ShadowsCheckBox.IsChecked ?? false;
-            plot.SmoothScale = SmoothCheckBox.IsChecked ?? false;
-            plot.ColorScale = (PlotSettings.ColorScales)ColorScaleComboBox.SelectedIndex;
-            plot.LightDirection = (PlotSettings.LightDirections)LightDirectionComboBox.SelectedIndex;
         }
 
         private void ReadRecentFiles()
@@ -946,16 +936,9 @@ namespace Calcpad.Wpf
             settings.Equations = Professional.IsChecked ?? false ? 'P' : 'I';
             settings.Decimals = byte.TryParse(DecimalsTextBox.Text, out byte b) ? b : (byte)2;
             settings.Substitute = SubstituteCheckBox.IsChecked ?? false;
-            settings.Adaptive = AdaptiveCheckBox.IsChecked ?? false;
-            settings.Shadows = ShadowsCheckBox.IsChecked ?? false;
-            settings.Direction = (byte)LightDirectionComboBox.SelectedIndex;
-            settings.Direction = (byte)LightDirectionComboBox.SelectedIndex;
-            settings.Palette = (byte)ColorScaleComboBox.SelectedIndex;
-            settings.Smooth = SmoothCheckBox.IsChecked ?? false;
             settings.Browser = (byte)ExternalBrowserComboBox.SelectedIndex;
             settings.ZeroSmallMatrixElements = ZeroSmallMatrixElementsCheckBox.IsChecked ?? false;
             settings.MaxOutputCount = int.TryParse(MaxOutputCountTextBox.Text, out int i) ? i : (int)20;
-            settings.Embed = EmbedCheckBox.IsChecked ?? false;  
             settings.WindowLeft = Left;
             settings.WindowTop = Top;
             settings.WindowWidth = Width;
@@ -1328,8 +1311,9 @@ namespace Calcpad.Wpf
             }
             else
             {
-                WebFormButton.Visibility = Visibility.Visible;
-                MenuWebForm.Visibility = Visibility.Visible;
+                // Web Form es de Calcpad — Hekatan no lo usa: mantener oculto.
+                WebFormButton.Visibility = Visibility.Collapsed;
+                MenuWebForm.Visibility = Visibility.Collapsed;
                 if (hasForm)
                 {
                     if (!IsWebForm)
@@ -1422,31 +1406,13 @@ namespace Calcpad.Wpf
 
         private void GetPlotSettings()
         {
+            // Hekatan Lab grafica por MatlabPlots (imágenes base64 embebidas), NO por el
+            // $Plot nativo de Calcpad. Solo se dejan las rutas de imagen vacías para el
+            // ExpressionParser que tipografía las directivas #noc/#val. Los controles de
+            // render de Calcpad (paleta/sombras/luz/adaptativo) se eliminaron.
             var plotSettings = _parser.Settings.Plot;
-            plotSettings.ColorScale = (PlotSettings.ColorScales)ColorScaleComboBox.SelectedIndex;
-            plotSettings.Shadows = ShadowsCheckBox.IsChecked ?? false;
-            plotSettings.SmoothScale = SmoothCheckBox.IsChecked ?? false;
-            plotSettings.LightDirection = (PlotSettings.LightDirections)LightDirectionComboBox.SelectedIndex;
-            if (EmbedCheckBox.IsChecked ?? false)
-            {
-                plotSettings.ImagePath = string.Empty;
-                plotSettings.ImageUri = string.Empty;
-            }
-            else
-            {
-                string imagePath;
-                if (string.IsNullOrEmpty(_cfn))
-                    imagePath = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-                else
-                    imagePath = Path.GetDirectoryName(_cfn);
-
-                imagePath += "\\Calcpad Plots\\" + _tempDir;
-                if (Directory.Exists(imagePath))
-                    ClearTempFolder(imagePath);
-
-                plotSettings.ImagePath = imagePath;
-                plotSettings.ImageUri = "file:///" + imagePath.Replace('\\', '/');
-            }
+            plotSettings.ImagePath = string.Empty;
+            plotSettings.ImageUri = string.Empty;
         }
 
         private static void ClearTempFolder(string path)
@@ -3545,6 +3511,16 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
 
         private void StartControlServer()
         {
+            // Modo control: forzar ventana a tamaño NORMAL (no minimizada) para que
+            // CaptureWindowNative/PrintWindow capture bien (una minimizada da PNG minúsculo).
+            try
+            {
+                this.WindowState = System.Windows.WindowState.Normal;
+                if (this.Width < 1200) this.Width = 1400;
+                if (this.Height < 700) this.Height = 900;
+                this.Activate();
+            }
+            catch { }
             try { System.IO.Directory.CreateDirectory(_ctlDir); } catch { }
             try { System.IO.File.WriteAllText(System.IO.Path.Combine(_ctlDir, "ready.txt"), System.Environment.ProcessId.ToString()); } catch { }
             _ctlTimer = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromMilliseconds(150) };
@@ -4625,25 +4601,6 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             };
         }
 
-        // Palette / LightDirection / Shadows / Smooth / Embed son controles del $Plot NATIVO de
-        // Calcpad. El motor MATLAB (surf/plot3) NO los lee — usa su propio colormap() del código.
-        // Antes recalculaban TODO el documento para nada; ahora son no-op (no recalculan).
-        // (La paleta real de una gráfica MATLAB se cambia con colormap('jet') en el código.)
-        private void ColorScaleComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
-
-        private void LightDirectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
-
-        private void ShadowsCheckBox_Click(object sender, RoutedEventArgs e) { }
-
-        private void SmoothCheckBox_Click(object sender, RoutedEventArgs e) { }
-
-        private void EmbedCheckBox_Click(object sender, RoutedEventArgs e) { }
-
-        private void AdaptiveCheckBox_Click(object sender, RoutedEventArgs e)
-        {
-            _parser.Settings.Plot.IsAdaptive = AdaptiveCheckBox.IsChecked ?? false;
-            ClearOutput();
-        }
 
         // ── Modo "solo WebView" (F11): maximiza las gráficas/reporte ocultando el editor y el
         //    splitter, y maximiza la ventana. F11 o Escape vuelve a la vista normal. ──

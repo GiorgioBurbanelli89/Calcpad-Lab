@@ -707,7 +707,9 @@
                 <MenuItem.Header>
                     <TextBlock Text="{x:Static wpf:MainWindowResources.Output}" Foreground="{DynamicResource ThemeText}"/>
                 </MenuItem.Header>
-                <MenuItem x:Name="MenuWebForm" Command="{StaticResource WebFormCommand}" 
+                <!-- "Input Form" (Web Form) es una función de Calcpad (formulario de entrada con
+                     campos ?). Hekatan Lab es MATLAB y NO usa input fields → oculto. -->
+                <MenuItem x:Name="MenuWebForm" Command="{StaticResource WebFormCommand}" Visibility="Collapsed"
                           Header="{x:Static wpf:MainWindowResources.InputForm}" InputGestureText="F4"/>
                 <MenuItem x:Name="MenuCalculate" Command="{StaticResource CalculateCommand}" 
                           Header="{x:Static wpf:MainWindowResources.Calculate}" InputGestureText="F5"/>
@@ -919,9 +921,10 @@
             </ToggleButton.Template>
         </ToggleButton>
         <Canvas Grid.Row="0" Margin="0,24,0,0" HorizontalAlignment="Center" Width="184" Height="24" VerticalAlignment="Top">
-            <Button Click="WebFormButton_Click" x:Name="WebFormButton" Tag="F" Height="24"  Width="24" 
+            <Button Click="WebFormButton_Click" x:Name="WebFormButton" Tag="F" Height="24"  Width="24"
+                Visibility="Collapsed"
                 VerticalAlignment="Center" HorizontalAlignment="Left"
-                Focusable="false" IsTabStop="false" 
+                Focusable="false" IsTabStop="false"
                 Background="{x:Null}" BorderBrush="{x:Null}" Canvas.Left="53"
                 ToolTip="{x:Static wpf:MainWindowResources.Compile_to_input_form_F4}">
                 <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -1136,161 +1139,6 @@
                       Padding="2,0,0,0"
                       TabIndex="14" 
                       Click="SubstituteCheckBox_Click"/>
-            <!-- Controles de gráficas del $Plot NATIVO de Calcpad — NO aplican a Hekatan Lab (MATLAB
-                 usa colormap() del código). Ocultos para no confundir. -->
-            <TextBlock Text="{x:Static wpf:MainWindowResources.Plot}" Visibility="Collapsed"
-                       Height="18"
-                       FontSize="11"
-                       VerticalAlignment="Center"
-                       HorizontalAlignment="Left"/>
-            <CheckBox x:Name="AdaptiveCheckBox" Visibility="Collapsed"
-                      Content="{x:Static wpf:MainWindowResources.Adaptive}" 
-                      ToolTip="{x:Static wpf:MainWindowResources.AdaptiveTooltip}" 
-                      IsChecked="True" 
-                      Height="16"
-                      VerticalAlignment="Center"
-                      HorizontalAlignment="Center" 
-                      TabIndex="15" 
-                      Click="AdaptiveCheckBox_Click" FontSize="11"/>
-            <CheckBox x:Name="ShadowsCheckBox" Visibility="Collapsed"
-                      Content="{x:Static wpf:MainWindowResources.Shadows}"
-                      ToolTip="{x:Static wpf:MainWindowResources.ShadowsTooltip}" 
-                      Height="16" 
-                      VerticalAlignment="Top"
-                      HorizontalAlignment="Right" 
-                      Margin="2,0,0,0"
-                      TabIndex="16" 
-                      Click="ShadowsCheckBox_Click" FontSize="11" />
-            <ComboBox x:Name="LightDirectionComboBox" Visibility="Collapsed"
-                      ToolTip="{x:Static wpf:MainWindowResources.LightDirection}"
-                      Height="22"
-                      Width="105" 
-                      VerticalAlignment="Center" 
-                      HorizontalAlignment="Center" 
-                      TabIndex="17" 
-                      FontFamily="Segoe UI Semibold"
-                      SelectionChanged="LightDirectionComboBox_SelectionChanged" FontSize="11" >
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.North}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.NorthEast}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.East}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.SouthEast}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.South}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.SouthWest}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.West}"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.NorthWest}" IsSelected="True"/>
-            </ComboBox>
-            <TextBlock Text="{x:Static wpf:MainWindowResources.Palette}" Visibility="Collapsed"
-                       Height="18"
-                       VerticalAlignment="Center"
-                       HorizontalAlignment="Left"
-                       Margin="4,0,0,0" FontSize="11"/>
-            <ComboBox x:Name="ColorScaleComboBox" Visibility="Collapsed"
-                      ToolTip="{x:Static wpf:MainWindowResources.PaletteTooltip}"
-                      Height="22"
-                      Width="100" 
-                      VerticalAlignment="Top" 
-                      HorizontalAlignment="Right" 
-                      TabIndex="18" 
-                      FontFamily="Segoe UI Semibold"
-                      SelectionChanged="ColorScaleComboBox_SelectionChanged" FontSize="11" >
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.None}" HorizontalAlignment="Left" Width="100" Margin="0,0,-2,0"/>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.Gray}" HorizontalAlignment="Left" Width="100" Margin="0,0,-2,0">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" MappingMode="RelativeToBoundingBox" StartPoint="1,0.5">
-                            <GradientStop Color="#FFFFFFFF"/>
-                            <GradientStop Color="#FF464646" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.Rainbow}" HorizontalAlignment="Left" Width="100" IsSelected="True">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFFF0000" Offset="0"/>
-                            <GradientStop Color="#FFFFFF00" Offset="0.275"/>
-                            <GradientStop Color="#FF00ee00" Offset="0.5"/>
-                            <GradientStop Color="#FF00FFFF" Offset="0.725"/>
-                            <GradientStop Color="#FF4060FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.Terrain}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFFF7F00" Offset="0"/>
-                            <GradientStop Color="#FFFFFF00" Offset="0.333"/>
-                            <GradientStop Color="#FF00FF00" Offset="0.666"/>
-                            <GradientStop Color="#FF007F7F" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.VioletYellow}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFffff00" Offset="0"/>
-                            <GradientStop Color="#FFa93bd4" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.GreenYellow}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFffff20" Offset="0"/>
-                            <GradientStop Color="#FF409070" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.Blues}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FF60ffff" Offset="0"/>
-                            <GradientStop Color="#FF4060FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.BlueYellow}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFFFFC20" Offset="0"/>
-                            <GradientStop Color="#FF00FF40" Offset="0.25"/>
-                            <GradientStop Color="#FF20A0C0" Offset="0.5"/>
-                            <GradientStop Color="#FF4060FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.BlueRed}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFFF6000" Offset="0"/>
-                            <GradientStop Color="#FFDDFFDD" Offset="0.5"/>
-                            <GradientStop Color="#FF4060FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-                <ComboBoxItem Content="{x:Static wpf:MainWindowResources.PurpleYellow}" HorizontalAlignment="Left" Width="100">
-                    <ComboBoxItem.Background>
-                        <LinearGradientBrush EndPoint="0,0.5" StartPoint="1,0.5">
-                            <GradientStop Color="#FFFFFC20" Offset="0"/>
-                            <GradientStop Color="#FFFF8080" Offset="0.25"/>
-                            <GradientStop Color="#FFEA40FF" Offset="0.5"/>
-                            <GradientStop Color="#FF4020FA" Offset="1"/>
-                        </LinearGradientBrush>
-                    </ComboBoxItem.Background>
-                </ComboBoxItem>
-            </ComboBox>
-            <CheckBox x:Name="SmoothCheckBox" Visibility="Collapsed"
-                    Content="{x:Static wpf:MainWindowResources.Smooth}"
-                    ToolTip="{x:Static wpf:MainWindowResources.SmoothTooltip}" 
-                    Height="16" Margin="4,0,0,0" TabIndex="19" 
-                    VerticalAlignment="Top" HorizontalAlignment="Right" 
-                    Click="SmoothCheckBox_Click" FontSize="11"/>
-            <CheckBox x:Name="EmbedCheckBox" Visibility="Collapsed"
-                    Content="{x:Static wpf:MainWindowResources.Embed}"
-                    ToolTip="{x:Static wpf:MainWindowResources.EmbedPlotsInsideTheHtmlAsBase64EncodedImagesSaveToFilesIfUnchecked}" 
-                    Height="16" 
-                    VerticalAlignment="Top" HorizontalAlignment="Right" 
-                    Margin="4,0,0,0"
-                    TabIndex="20"  IsChecked="True" 
-                    Click="EmbedCheckBox_Click" FontSize="11"/>
             <TextBlock Height="18" 
                        TextWrapping="Wrap" 
                        VerticalAlignment="Top" 
