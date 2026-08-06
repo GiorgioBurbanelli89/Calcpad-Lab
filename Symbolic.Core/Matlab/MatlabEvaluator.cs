@@ -7706,25 +7706,66 @@ namespace Calcpad.Core.Matlab
                 foreach (var x in sv) { if (x > mx) mx = x; if (x < mn) mn = x; }
                 return new MValue(mn <= 0 ? double.PositiveInfinity : mx / mn);
             };
+            // Aplana un MValue (vector numerico o simbolico) a SymNode[] fila-a-fila.
+            static SymNode[] SymFlatten(MValue v)
+            {
+                if (v.IsSymMatrix)
+                {
+                    var c = v.SymCells; int r = c.GetLength(0), cc = c.GetLength(1);
+                    var o = new SymNode[r * cc]; int k = 0;
+                    for (int i = 0; i < r; i++) for (int j = 0; j < cc; j++) o[k++] = c[i, j] ?? new SymConst(0);
+                    return o;
+                }
+                if (v.IsSymbolic) return new[] { v.Symbolic };
+                var d = v.Data ?? System.Array.Empty<double>();
+                var os = new SymNode[d.Length];
+                for (int i = 0; i < d.Length; i++) os[i] = new SymConst(d[i]);
+                return os;
+            }
             _builtins["dot"] = a => {
+                if (a[0].IsSymMatrix || a[1].IsSymMatrix || a[0].IsSymbolic || a[1].IsSymbolic)
+                {
+                    var u = SymFlatten(a[0]); var v = SymFlatten(a[1]);
+                    if (u.Length != v.Length) throw new MatlabRuntimeException("dot: length mismatch");
+                    SymNode s = new SymConst(0);
+                    for (int i = 0; i < u.Length; i++) s = new SymAdd(s, new SymMul(u[i], v[i]));
+                    return MValue.NewSymbolic(s.Simplify());
+                }
                 if (a[0].Data.Length != a[1].Data.Length) throw new MatlabRuntimeException("dot: length mismatch");
-                double s = 0;
-                for (int i = 0; i < a[0].Data.Length; i++) s += a[0].Data[i] * a[1].Data[i];
-                return new MValue(s);
+                double sd = 0;
+                for (int i = 0; i < a[0].Data.Length; i++) sd += a[0].Data[i] * a[1].Data[i];
+                return new MValue(sd);
             };
             _builtins["cross"] = a => {
+                if (a[0].IsSymMatrix || a[1].IsSymMatrix || a[0].IsSymbolic || a[1].IsSymbolic)
+                {
+                    var u = SymFlatten(a[0]); var v = SymFlatten(a[1]);
+                    if (u.Length != 3 || v.Length != 3) throw new MatlabRuntimeException("cross: requires 3-vectors");
+                    var r = new SymNode[3, 1];
+                    r[0, 0] = new SymSub(new SymMul(u[1], v[2]), new SymMul(u[2], v[1])).Simplify();
+                    r[1, 0] = new SymSub(new SymMul(u[2], v[0]), new SymMul(u[0], v[2])).Simplify();
+                    r[2, 0] = new SymSub(new SymMul(u[0], v[1]), new SymMul(u[1], v[0])).Simplify();
+                    return MValue.NewSymMatrix(r);
+                }
                 if (a[0].Data.Length != 3 || a[1].Data.Length != 3) throw new MatlabRuntimeException("cross: requires 3-vectors");
-                var u = a[0].Data; var v = a[1].Data;
+                var un = a[0].Data; var vn = a[1].Data;
                 return new MValue(1, 3, new[] {
-                    u[1]*v[2] - u[2]*v[1],
-                    u[2]*v[0] - u[0]*v[2],
-                    u[0]*v[1] - u[1]*v[0]
+                    un[1]*vn[2] - un[2]*vn[1],
+                    un[2]*vn[0] - un[0]*vn[2],
+                    un[0]*vn[1] - un[1]*vn[0]
                 });
             };
             _builtins["trace"] = a => {
-                var m = a[0]; double s = 0;
-                for (int i = 0, n = Math.Min(m.Rows, m.Cols); i < n; i++) s += m.At(i, i);
-                return new MValue(s);
+                if (a[0].IsSymMatrix)
+                {
+                    var c = a[0].SymCells; int nn = Math.Min(c.GetLength(0), c.GetLength(1));
+                    SymNode s = new SymConst(0);
+                    for (int i = 0; i < nn; i++) s = new SymAdd(s, c[i, i] ?? new SymConst(0));
+                    return MValue.NewSymbolic(s.Simplify());
+                }
+                var m = a[0]; double sd = 0;
+                for (int i = 0, n = Math.Min(m.Rows, m.Cols); i < n; i++) sd += m.At(i, i);
+                return new MValue(sd);
             };
             // diag(v)  -> matriz cuadrada con v en la diagonal (vector -> matriz)
             // diag(A)  -> vector columna con la diagonal de A (matriz -> vector)
@@ -10190,6 +10231,32 @@ namespace Calcpad.Core.Matlab
                 int li = (int)idx.Data[k] - 1;
                 if (li < 0 || li >= nd.Length) throw new MatlabRuntimeException($"Scatter index {li + 1} out of bounds (1..{nd.Length})");
                 nd[li] += add.Data[k];
+            }
+            return dst;
+        }
+        /// <summary>Scatter-add 2D IN-PLACE: dst(ri,ci) += add. Es EL patron de
+        /// ensamblaje FEM: K(g,g) = K(g,g) + ke. El JIT solo tenia la version de UN
+        /// indice vectorial; con DOS caia a la rama que espera un RHS escalar, esa
+        /// devolvia null y el bucle ENTERO se rendia al interprete. Medido en un
+        /// bucle de 2e4 elementos: sin el ensamblaje el JIT iba 2.6x mas rapido,
+        /// con el 2.4x mas LENTO.</summary>
+        public static MValue JitScatterAdd2InPlace(MValue dst, MValue ri, MValue ci, MValue add)
+        {
+            int nr = ri.Rows * ri.Cols, nc = ci.Rows * ci.Cols;
+            if (add.Rows * add.Cols != nr * nc)
+                throw new MatlabRuntimeException($"Scatter 2D: el bloque es {add.Rows}x{add.Cols} y los indices piden {nr}x{nc}");
+            var nd = dst.Data; int dc = dst.Cols, dn = nd.Length;
+            for (int r = 0; r < nr; r++)
+            {
+                int gr = (int)ri.Data[r] - 1;
+                for (int c = 0; c < nc; c++)
+                {
+                    int gc = (int)ci.Data[c] - 1;
+                    int li = gr * dc + gc;
+                    if (gr < 0 || gc < 0 || gc >= dc || li < 0 || li >= dn)
+                        throw new MatlabRuntimeException($"Scatter 2D fuera de rango: ({gr + 1},{gc + 1})");
+                    nd[li] += add.Data[r * nc + c];
+                }
             }
             return dst;
         }
