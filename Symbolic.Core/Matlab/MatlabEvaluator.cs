@@ -12261,8 +12261,15 @@ namespace Calcpad.Core.Matlab
             // Symbolic propagation: si alguno es simbólico, construir SymNode
             if (l.IsSymbolic || r.IsSymbolic)
             {
-                SymNode L = l.IsSymbolic ? l.Symbolic : new SymConst(l.Scalar);
-                SymNode R = r.IsSymbolic ? r.Symbolic : new SymConst(r.Scalar);
+                // Al mezclar numero con simbolico, reconocer π y e (como MATLAB sym()): asi el
+                // despeje queda EXACTO -> solve(pi*r^2 - A, r) = √(A/π), no √(A/3.1416). Un
+                // numero cualquiera va como SymConst normal.
+                static SymNode NumToSym(double v) =>
+                    System.Math.Abs(v - System.Math.PI) < 1e-12 ? new SymVar("pi")
+                    : System.Math.Abs(v - System.Math.E) < 1e-12 ? new SymVar("e")
+                    : new SymConst(v);
+                SymNode L = l.IsSymbolic ? l.Symbolic : NumToSym(l.Scalar);
+                SymNode R = r.IsSymbolic ? r.Symbolic : NumToSym(r.Scalar);
                 SymNode result = b.Op switch
                 {
                     "+" => new SymAdd(L, R),
