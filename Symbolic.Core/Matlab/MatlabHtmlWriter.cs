@@ -592,19 +592,22 @@ namespace Calcpad.Core.Matlab
         // tenga el carácter combinante). Ver bar (overline aparte).
         // Acento centrado ARRIBA. El translateX(.09em) compensa la itálica de <var> (la cima de
         // la letra queda a la derecha del centro de la caja → sin esto el acento sale corrido a la izq).
-        private static string Over(string acc, string inner) =>
+        private static string Over(string acc, string inner) => Over(acc, inner, "-.22em");
+        // `top` por-glifo: caron/breve/tilde se dibujan mas arriba en su caja -> top menos negativo
+        // (mas abajo); ^, punto, flecha usan el default. Asi TODOS quedan pegados a la letra.
+        private static string Over(string acc, string inner, string top) =>
             $"<span style=\"display:inline-block;position:relative;text-align:center;\">{inner}"
-          + $"<span style=\"position:absolute;left:0;right:0;top:-.22em;font-size:.72em;font-style:normal;font-weight:400;line-height:1;transform:translateX(.09em);\">{acc}</span></span>";
+          + $"<span style=\"position:absolute;left:0;right:0;top:{top};font-size:.72em;font-style:normal;font-weight:400;line-height:1;transform:translateX(.09em);\">{acc}</span></span>";
         // token de decoracion-sufijo -> función que envuelve el inner ya renderizado.
         private static readonly (string tok, System.Func<string, string> wrap)[] _decos =
         {
-            ("ddot", inner => Over("&#183;&#183;", inner)),   // ẍ  (doble punto)
-            ("dot",  inner => Over("&#183;", inner)),          // ẋ  (punto)
-            ("hat",  inner => Over("^", inner)),               // x̂
-            ("check",inner => Over("&#711;", inner)),          // x̌  (caron)
-            ("breve",inner => Over("&#728;", inner)),          // x̆  (breve)
-            ("tilde",inner => Over("~", inner)),               // x̃
-            ("vec",  inner => Over("&#8594;", inner)),          // x⃗  (flecha → arriba)
+            ("ddot", inner => Over("&#183;&#183;", inner, "-.30em")), // ẍ  (doble punto, glifo bajo -> subir)
+            ("dot",  inner => Over("&#183;", inner, "-.30em")),        // ẋ  (punto, glifo bajo -> subir)
+            ("hat",  inner => Over("^", inner, "-.14em")),             // x̂
+            ("check",inner => Over("&#711;", inner, "-.02em")),        // x̌  (caron, glifo alto -> bajar)
+            ("breve",inner => Over("&#728;", inner, "-.02em")),        // x̆  (breve, glifo alto -> bajar)
+            ("tilde",inner => Over("~", inner, "-.10em")),             // x̃
+            ("vec",  inner => Over("&#8594;", inner, "-.18em")),        // x⃗  (flecha → arriba)
             ("bar",  inner => $"<span style=\"display:inline-block;border-top:.08em solid currentColor;line-height:1.05;padding:.02em .06em 0 .02em;\">{inner}</span>"), // x̄ overline
         };
         private static string DecorateBase(string b)
