@@ -559,9 +559,10 @@ namespace Calcpad.Core.Matlab
                             // Marcadores de comentario visible + FORMATO DE TEXTO (esquema Jorge):
                             //   %"  Titulo   -> TITULO centrado (negrita, acento)
                             //   %'-----      -> LINEA divisoria (SOLO guiones/iguales >=2)
-                            //   %'< texto    -> izquierda      %'> texto -> derecha
-                            //   %'| texto    -> centrado       %'* texto -> negrita   %'/ texto -> italica
-                            //   %'  texto    -> texto normal (izquierda)   (combinables: %'>* = derecha+negrita)
+                            //   %'< texto  -> izquierda   %'| texto -> centrado   %'> texto -> derecha
+                            //   %'* texto  -> negrita     %'/ texto -> italica    %'_ texto -> subrayado
+                            //   %'\ texto  -> ESCAPE (literal, para usar < > | * / _ o ----- como texto)
+                            //   %'  texto  -> texto normal (izquierda)   (combinables: %'>* = derecha+negrita)
                             // El apostrofo/comilla inicial NO se muestra (marcador, como en Calcpad).
                             var capRaw = csCap.Text.TrimStart();
                             char marker = capRaw[0];                       // ' o "
@@ -604,6 +605,7 @@ namespace Calcpad.Core.Matlab
                                         case '|': style += "text-align:center;"; break;
                                         case '*': style += "font-weight:600;"; break;
                                         case '/': style += "font-style:italic;"; break;
+                                        case '_': style += "text-decoration:underline;"; break;
                                         default: more = false; break;
                                     }
                                     if (more) t = t.Substring(1);
