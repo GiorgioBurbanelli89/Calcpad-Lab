@@ -976,6 +976,9 @@ namespace Calcpad.Core.Matlab
             var lname = Name.ToLowerInvariant();
             if (lname == "sqrt" || lname == "sqr")
                 return $"&ensp;&hairsp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{Arg.ToHtml()}</span>";
+            // exp(x) → e^x (la exponencial es e elevado al argumento, no texto "exp(...)")
+            if (lname == "exp")
+                return $"<span style=\"font-style:italic;font-family:'Cambria Math','Times New Roman',serif\">e</span><sup>{Arg.ToHtml()}</sup>";
             return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{System.Net.WebUtility.HtmlEncode(Name)}</span>({Arg.ToHtml()})";
         }
         public override string ToLatex() => $"\\{Name}\\left({Arg.ToLatex()}\\right)";   // \sin(x), \cos(x), etc.

@@ -440,6 +440,7 @@ namespace Calcpad.Core.Matlab
                 return id.Name is "diff" or "int" or "expand" or "factor"
                     or "simplify" or "solve" or "taylor" or "limit" or "subs"
                     or "dsolve" or "laplace" or "fourier" or "trigsimplify"
+                    or "ilaplace" or "ifourier" or "ztrans" or "iztrans"
                     or "collect" or "coeffs" or "symsum" or "symprod";
             }
             return false;
@@ -784,6 +785,14 @@ namespace Calcpad.Core.Matlab
                     var expStr = RenderExpression(b.Right);
                     return $"{baseStr}<sup>{expStr}</sup>";
                 }
+                if (b.Op == "\\" || b.Op == ".\\")
+                {
+                    // División por la izquierda A\b = resolver A·x = b  →  se muestra como A⁻¹·b
+                    // (expresión matemática del sistema de varias incógnitas, no "A/b" ni "A\b").
+                    string A = b.Left is BinaryOp ? ParenWrap(RenderExpression(b.Left)) : RenderExpression(b.Left);
+                    string rhs = b.Right is BinaryOp ? ParenWrap(RenderExpression(b.Right)) : RenderExpression(b.Right);
+                    return $"{A}<sup>&minus;1</sup>&middot;{rhs}";
+                }
             }
             // Default: estilo plano con paréntesis por precedencia
             int myPrec = OpPrecedence(b.Op);
@@ -1029,7 +1038,31 @@ namespace Calcpad.Core.Matlab
                     if (string.IsNullOrEmpty(orderHtml) && c.Args.Count >= 4)
                         orderHtml = RenderExpression(c.Args[3]);
                     string sub = string.IsNullOrEmpty(orderHtml) ? "" : $"<sub>{orderHtml}</sub>";
-                    return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;color:#7c2bb2\">T</span>{sub}({fExpr})";
+                    return $"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:italic;font-weight:600;color:#7c2bb2\">T</span>{sub}({fExpr})";
+                }
+                // Transformadas integrales: notación de operador con letra caligráfica + llaves,
+                // como en un libro (no texto plano "laplace(...)"):
+                //   laplace(f)→ℒ{f}, ilaplace(F)→ℒ⁻¹{F}, fourier(f)→ℱ{f}, ifourier→ℱ⁻¹,
+                //   ztrans→𝒵{f}, iztrans→𝒵⁻¹.
+                {
+                    string top = fname switch
+                    {
+                        "laplace" => "&#8466;", "ilaplace" => "&#8466;<sup>-1</sup>",   // ℒ
+                        "fourier" => "&#8497;", "ifourier" => "&#8497;<sup>-1</sup>",   // ℱ
+                        "ztrans"  => "&#119894;", "iztrans" => "&#119894;<sup>-1</sup>",// 𝒵
+                        _ => null
+                    };
+                    if (top != null && c.Args.Count >= 1)
+                    {
+                        var fExpr = RenderExpression(c.Args[0]);
+                        // Llaves que ESCALAN si el contenido es una fracción (igual que ParenWrap).
+                        bool tall = fExpr.Contains("class=\"dvc\"");
+                        string Br(string ch) => tall
+                            ? $"<span style=\"display:inline-block;transform:scaleY(1.7);vertical-align:middle;font-size:1.15em\">{ch}</span>"
+                            : $"<span style=\"font-size:1.15em\">{ch}</span>";
+                        return $"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:normal;font-size:1.15em;color:#7c2bb2\">{top}</span>" +
+                               Br("&#123;") + fExpr + Br("&#125;");
+                    }
                 }
                 // subs(f, x, val) -> f|_{x=val}
                 if (fname == "subs" && c.Args.Count >= 3)
@@ -1073,6 +1106,8 @@ namespace Calcpad.Core.Matlab
                     var inner = RenderExpression(c.Args[0]);
                     return $"<b class=\"b0\">|</b>&hairsp;{inner}&hairsp;<b class=\"b0\">|</b>";
                 }
+                if (pid.Name == "exp")
+                    return $"<span style=\"font-style:italic;font-family:'Cambria Math','Times New Roman',serif\">e</span><sup>{RenderExpression(c.Args[0])}</sup>";
             }
             // Pretty: nthroot(x, n) → ⁿ√x
             if (PrettyMath && c.Target is IdentRef pid2 && pid2.Name == "nthroot" && c.Args.Count == 2)
