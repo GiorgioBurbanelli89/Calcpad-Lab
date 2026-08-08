@@ -794,6 +794,10 @@ namespace Calcpad.Core.Matlab
                         }
                         else vName = RenderExpression(c.Args[1]);
                     }
+                    // Espaciado IDENTICO a FormatNary de Calcpad: &emsp; antes del sup, &nbsp;
+                    // tras el sub -> empujan los limites en diagonal alrededor del ∫ inclinado.
+                    if (!string.IsNullOrEmpty(sup)) sup = "&emsp; " + sup;
+                    if (!string.IsNullOrEmpty(sub)) sub = sub + "&nbsp;";
                     return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\"><em>∫</em></span><small>{sub}</small></span>{fExpr} d<var>{vName}</var>";
                 }
                 // integral(fun, a, b) NUMERICA -> ∫_a^b fun dx. IDENTICO a $Integral/$Area de
