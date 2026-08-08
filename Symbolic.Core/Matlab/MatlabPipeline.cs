@@ -310,8 +310,16 @@ namespace Calcpad.Core.Matlab
             };
             bool IsVoidStatement(MatlabNode s)
             {
-                if (s is ExprStmt es && es.Expr is CallOrIndex ci && ci.Target is IdentRef ir)
-                    return voidFuncs.Contains(ir.Name);
+                if (s is ExprStmt es)
+                {
+                    if (es.Expr is CallOrIndex ci && ci.Target is IdentRef ir)
+                        return voidFuncs.Contains(ir.Name);
+                    // Sintaxis de comando (sin parentesis): `tic`, `hold`, `clf`, `grid`… se
+                    // parsean como IdentRef pelado. En MATLAB no muestran nada -> tambien void.
+                    // (una variable suelta `x` NO esta en voidFuncs, asi que sigue mostrandose.)
+                    if (es.Expr is IdentRef ir2)
+                        return voidFuncs.Contains(ir2.Name);
+                }
                 return false;
             }
 
