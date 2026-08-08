@@ -608,7 +608,16 @@ namespace Calcpad.Core.Matlab
                             var capText = capRaw.Length > 1 ? capRaw.Substring(1) : "";
                             var capTrim = capText.Trim();
                             var t0 = capText.TrimStart();
-                            if (t0.StartsWith("{") && t0.Contains("}"))
+                            if (t0.StartsWith("<") && t0.Contains(">"))
+                            {
+                                // HTML CRUDO: %'<table>…</table>, %'<svg>…, %'<b>…  -> se renderiza
+                                // tal cual (tablas, figuras, etc.). Va dentro de un comentario, asi
+                                // que MATLAB lo ignora y el .m no da error de char-array.
+                                sb.Append(t0);
+                                sb.Append('\n');
+                                lastEmittedPLine = stmtLine;
+                            }
+                            else if (t0.StartsWith("{") && t0.Contains("}"))
                             {
                                 // BLOQUE DE ATRIBUTOS: %'{color,align,estilo} texto  (y %"{...}).
                                 // El "codigo dentro de %" para pedir todo el formato facil.
