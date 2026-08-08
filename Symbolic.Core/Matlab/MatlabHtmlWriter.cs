@@ -69,6 +69,15 @@ namespace Calcpad.Core.Matlab
                             // (2) Solo valor (evita duplicacion polinomica)
                             sb.Append(RenderValue(result.Value));
                         }
+                        else if (asg.Rhs is CallOrIndex && PrettyMath && IsPrettyMathCall(asg.Rhs))
+                        {
+                            // (3a') RHS = función MATEMÁTICA con notación pretty (√, ∑, ∏, ‖·‖,
+                            // |·|, ⁻¹, ᵀ, ∛): SÍ mostrar la fórmula seguida del valor — igual que
+                            // Calcpad muestra `a = √2 = 1.41`. Es la info útil (qué se calculó).
+                            sb.Append(RenderExpression(asg.Rhs));
+                            sb.Append(" = ");
+                            sb.Append(RenderValue(result.Value));
+                        }
                         else if (asg.Rhs is CallOrIndex)
                         {
                             // (3b) RHS = LLAMADA o INDEXADO (v(2), K(1,1), double(L), isUnit(x)…):
@@ -422,6 +431,22 @@ namespace Calcpad.Core.Matlab
                     or "simplify" or "solve" or "taylor" or "limit" or "subs"
                     or "dsolve" or "laplace" or "fourier" or "trigsimplify"
                     or "collect" or "coeffs";
+            }
+            return false;
+        }
+        /// <summary>True si el RHS es una llamada a función MATEMÁTICA que RenderCall dibuja
+        /// como SÍMBOLO pretty (√, ∑, ∏, ‖·‖, |·|, ⁻¹, ᵀ, ⁿ√, ·, ×). Para éstas SÍ mostramos
+        /// `fórmula = valor` (como Calcpad); para indexado/llamadas ordinarias, solo el valor.
+        /// Lista alineada 1:1 con las ramas pretty de RenderCall (gated por PrettyMath).</summary>
+        private static bool IsPrettyMathCall(MatlabNode n)
+        {
+            if (n is CallOrIndex c && c.Target is IdentRef id && c.Args != null)
+            {
+                if (c.Args.Count == 1)
+                    return id.Name is "sqrt" or "abs" or "norm" or "det" or "inv"
+                        or "transpose" or "sum" or "prod";
+                if (c.Args.Count == 2)
+                    return id.Name is "nthroot" or "dot" or "cross";
             }
             return false;
         }
@@ -831,6 +856,12 @@ namespace Calcpad.Core.Matlab
                     return $"{RenderExpression(c.Args[0])}<sup>−1</sup>";
                 if (laId.Name == "transpose" && c.Args.Count == 1)
                     return $"{RenderExpression(c.Args[0])}<sup>T</sup>";
+                // sum(v)→∑v  prod(v)→∏v: símbolo n-ario INLINE (font-size mayor, sin la clase
+                // 'nary' que es para ∫ con límites y flotaba). Solo 1 arg (sum(A,dim) → call).
+                if (laId.Name == "sum" && c.Args.Count == 1)
+                    return $"<span style=\"font-size:1.35em;vertical-align:-.18em;font-family:'Cambria Math',serif\">∑</span>&hairsp;{RenderExpression(c.Args[0])}";
+                if (laId.Name == "prod" && c.Args.Count == 1)
+                    return $"<span style=\"font-size:1.35em;vertical-align:-.18em;font-family:'Cambria Math',serif\">∏</span>&hairsp;{RenderExpression(c.Args[0])}";
             }
             var sb = new StringBuilder();
             // Funciones builtin: sans-serif bold morado para diferenciacion clara
