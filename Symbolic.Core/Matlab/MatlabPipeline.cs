@@ -556,10 +556,12 @@ namespace Calcpad.Core.Matlab
                         if (stmt is CommentStmt csCap && !csCap.IsHeading && !isInlineComment
                             && (csCap.Text.TrimStart().StartsWith("'") || csCap.Text.TrimStart().StartsWith("\"")))
                         {
-                            // Marcadores de comentario visible (esquema pedido por Jorge):
-                            //   %"  Titulo        -> TITULO centrado (negrita, color acento)
-                            //   %'  ----- (solo guiones/iguales >=2) -> LINEA divisoria
-                            //   %'  texto         -> texto normal (aunque empiece con guiones+texto)
+                            // Marcadores de comentario visible + FORMATO DE TEXTO (esquema Jorge):
+                            //   %"  Titulo   -> TITULO centrado (negrita, acento)
+                            //   %'-----      -> LINEA divisoria (SOLO guiones/iguales >=2)
+                            //   %'< texto    -> izquierda      %'> texto -> derecha
+                            //   %'| texto    -> centrado       %'* texto -> negrita   %'/ texto -> italica
+                            //   %'  texto    -> texto normal (izquierda)   (combinables: %'>* = derecha+negrita)
                             // El apostrofo/comilla inicial NO se muestra (marcador, como en Calcpad).
                             var capRaw = csCap.Text.TrimStart();
                             char marker = capRaw[0];                       // ' o "
@@ -572,6 +574,15 @@ namespace Calcpad.Core.Matlab
                                 sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;margin:3px 0;\">{title}</span></p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
+                            else if (capText.TrimStart().StartsWith("\\"))
+                            {
+                                // ESCAPE: `%'\...` -> mostrar el resto LITERAL, sin interpretar
+                                // formato ni linea. Para usar < > | * / o ----- como texto.
+                                var lit = capText.TrimStart().Substring(1);
+                                var enc = System.Net.WebUtility.HtmlEncode(lit);
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{enc}</span></p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
                             else if (System.Text.RegularExpressions.Regex.IsMatch(capTrim, @"^[-=]{2,}$"))
                             {
                                 // LINEA: %'-----  (SOLO guiones/iguales) -> divisor a lo ancho.
@@ -580,9 +591,35 @@ namespace Calcpad.Core.Matlab
                             }
                             else
                             {
-                                // Texto normal (incluye `%'----texto`: NO es linea).
-                                var capEnc = System.Net.WebUtility.HtmlEncode(capText);
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
+                                // FORMATO: consumir prefijos < > | * / (combinables) tras el apostrofo.
+                                var t = capText.TrimStart();
+                                string style = "";
+                                bool more = true;
+                                while (more && t.Length > 0)
+                                {
+                                    switch (t[0])
+                                    {
+                                        case '<': style += "text-align:left;"; break;
+                                        case '>': style += "text-align:right;"; break;
+                                        case '|': style += "text-align:center;"; break;
+                                        case '*': style += "font-weight:600;"; break;
+                                        case '/': style += "font-style:italic;"; break;
+                                        default: more = false; break;
+                                    }
+                                    if (more) t = t.Substring(1);
+                                }
+                                if (style.Length > 0)
+                                {
+                                    // Texto con formato (alineacion/negrita/italica). display:block para alinear.
+                                    var enc = System.Net.WebUtility.HtmlEncode(t.Trim());
+                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\" style=\"display:block;{style}\">{enc}</span></p>\n");
+                                }
+                                else
+                                {
+                                    // Texto normal (incluye `%'----texto`: NO es linea).
+                                    var capEnc = System.Net.WebUtility.HtmlEncode(capText);
+                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
+                                }
                                 lastEmittedPLine = stmtLine;
                             }
                         }
