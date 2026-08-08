@@ -1363,8 +1363,8 @@ namespace Calcpad.Core.Matlab
                     {
                         "+" => Expression.Add(L, R),
                         "-" => Expression.Subtract(L, R),
-                        ".*" => Expression.Multiply(L, R),
-                        "./" => Expression.Divide(L, R),
+                        ".*" or "*" => Expression.Multiply(L, R),   // '*' solo llega aquí con un escalar (element-wise)
+                        "./" or "/" => Expression.Divide(L, R),
                         _ => null
                     };
                 case CallOrIndex ci when ci.Target is IdentRef fn && ci.Args != null && ci.Args.Count == 1:
@@ -1414,6 +1414,98 @@ namespace Calcpad.Core.Matlab
                 return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar, Expression.Constant(name), fused);
             }
             catch { EwEmitFail++; return null; }   // cualquier problema generando el kernel → camino normal
+        }
+
+        // ─── Puente intérprete→fusión: expresiones EW de nivel superior (fuera de loops JIT) ───
+        // Antes, `C = a*2+b*3+a` o `sum(a.*b+c)` en el intérprete se evaluaban como una cadena
+        // de MapBinaryFast → un array temporal POR operación (memory-bound, ~14× más lento que
+        // MATLAB, que fusiona). Aquí se enruta el subárbol EW-puro por EwFusedRun (una sola pasada
+        // SIMD+multihilo, sin temporales), reusando GenEw. Bit-idéntico: cada elemento se computa
+        // con el MISMO árbol de ops en el MISMO orden (no hay reducción → no hay reorden).
+        private sealed class EwInterpKernel
+        {
+            public System.Collections.Generic.List<string> Leaves;
+            public Func<double[][], int, System.Numerics.Vector<double>> Vk;
+            public Func<double[][], int, double> Sk;
+        }
+        private static readonly System.Collections.Generic.Dictionary<BinaryOp, EwInterpKernel> _ewInterp = new();
+        private static readonly System.Collections.Generic.HashSet<BinaryOp> _ewInterpNo = new();
+
+        // Colecta estructural (solo AST) de una cadena EW pura +,-,.*,./ y unario +/- con hojas
+        // IdentRef y literales. Cuenta las ops binarias. NO incluye .^/sqrt (para garantizar
+        // bit-identidad exacta vs el camino normal). Devuelve false ante cualquier otro nodo.
+        private static bool CollectEwStruct(MatlabNode node, System.Collections.Generic.List<string> leaves, ref int ops)
+        {
+            switch (node)
+            {
+                case NumberLit _: return true;
+                case IdentRef ir:
+                    if (!leaves.Contains(ir.Name)) leaves.Add(ir.Name);
+                    return true;
+                case UnaryOp u when u.Op == "-" || u.Op == "+":
+                    return CollectEwStruct(u.Operand, leaves, ref ops);
+                case BinaryOp b when b.Op is "+" or "-" or ".*" or "./":
+                    ops++;
+                    return CollectEwStruct(b.Left, leaves, ref ops) && CollectEwStruct(b.Right, leaves, ref ops);
+                // '*' y '/' solo son element-wise si un operando es escalar literal (a*2, 2*a, a/2);
+                // a*b entre dos arrays sería matmul → NO se colecta (queda para el camino normal).
+                case BinaryOp b when b.Op == "*" && (b.Left is NumberLit || b.Right is NumberLit):
+                    ops++;
+                    return CollectEwStruct(b.Left, leaves, ref ops) && CollectEwStruct(b.Right, leaves, ref ops);
+                case BinaryOp b when b.Op == "/" && b.Right is NumberLit:
+                    ops++;
+                    return CollectEwStruct(b.Left, leaves, ref ops) && CollectEwStruct(b.Right, leaves, ref ops);
+                default: return false;
+            }
+        }
+
+        /// <summary>Si `b` es raíz de una cadena EW pura (≥2 ops) sobre arrays reales densos de la
+        /// MISMA forma y N grande, la evalúa fusionada (una pasada) y devuelve el MValue. Si no
+        /// aplica devuelve null → el intérprete sigue por el camino normal. Kernel cacheado por nodo.</summary>
+        public static MValue TryEwFuseInterp(BinaryOp b, MatlabScope scope)
+        {
+            EwInterpKernel k;
+            lock (_ewInterp)
+            {
+                if (_ewInterpNo.Contains(b)) return null;
+                if (!_ewInterp.TryGetValue(b, out k))
+                {
+                    var leaves = new System.Collections.Generic.List<string>();
+                    int ops = 0;
+                    if (!CollectEwStruct(b, leaves, ref ops) || leaves.Count == 0 || ops < 2)
+                    { _ewInterpNo.Add(b); return null; }
+                    try
+                    {
+                        var datasP = Expression.Parameter(typeof(double[][]), "datas");
+                        var offP = Expression.Parameter(typeof(int), "off");
+                        var vecBody = GenEw(b, leaves, datasP, offP, true);
+                        var idxP = Expression.Parameter(typeof(int), "i");
+                        var sclBody = GenEw(b, leaves, datasP, idxP, false);
+                        if (vecBody == null || sclBody == null) { _ewInterpNo.Add(b); return null; }
+                        k = new EwInterpKernel
+                        {
+                            Leaves = leaves,
+                            Vk = Expression.Lambda<Func<double[][], int, System.Numerics.Vector<double>>>(vecBody, datasP, offP).Compile(),
+                            Sk = Expression.Lambda<Func<double[][], int, double>>(sclBody, datasP, idxP).Compile()
+                        };
+                        _ewInterp[b] = k;
+                    }
+                    catch { _ewInterpNo.Add(b); return null; }
+                }
+            }
+            // Gather en runtime: todas las hojas = arrays reales densos, MISMA forma, N grande.
+            var lv = new MValue[k.Leaves.Count];
+            int rows = -1, cols = -1;
+            for (int i = 0; i < k.Leaves.Count; i++)
+            {
+                if (!scope.TryGet(k.Leaves[i], out var mv) || mv == null) return null;
+                if (mv.IsScalar || mv.IsComplex || mv.IsSparseReal || mv.IsString || mv.HasAnyUnit || mv.IsSymbolic || mv.Data == null) return null;
+                if (rows < 0) { rows = mv.Rows; cols = mv.Cols; }
+                else if (mv.Rows != rows || mv.Cols != cols) return null;   // sin broadcasting: misma forma
+                lv[i] = mv;
+            }
+            if ((long)rows * cols < 8192) return null;   // arreglo chico: no compensa el setup
+            return MatlabEvaluator.EwFusedRun(lv, null, k.Vk, k.Sk);
         }
 
         /// <summary>Condicion booleana (para if): comparaciones/AND/OR sobre escalares.</summary>

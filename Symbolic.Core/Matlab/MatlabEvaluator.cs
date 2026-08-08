@@ -12151,6 +12151,16 @@ namespace Calcpad.Core.Matlab
                 var rSC = Eval(b.Right, scope);
                 return new MValue((rSC.IsScalar && rSC.Scalar != 0) ? 1 : 0);
             }
+            // FUSIÓN element-wise (nivel superior): si el subárbol es una cadena EW pura
+            // (+,-,.*,./) sobre arrays grandes de la misma forma con ≥2 ops, evaluarlo en UNA
+            // sola pasada SIMD+multihilo (EwFusedRun) sin arrays temporales — cierra el gap vs
+            // MATLAB (a*2+b*3+a, sum(a.*b+c)…). Bit-idéntico (mismo árbol por elemento, sin
+            // reorden) y sin efectos secundarios (solo lee variables). null → camino normal.
+            if (MatlabJit.Enabled && (b.Op == "+" || b.Op == "-" || b.Op == ".*" || b.Op == "./"))
+            {
+                var fused = MatlabJit.TryEwFuseInterp(b, scope);
+                if (fused != null) return fused;
+            }
             var l = Eval(b.Left, scope);
             var r = Eval(b.Right, scope);
             // ── Unidades (symunit) ──────────────────────────────────────────
