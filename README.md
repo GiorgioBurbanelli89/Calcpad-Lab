@@ -1,246 +1,164 @@
-# Calcpad Lab
+# Hekatan Lab
 
-**MATLAB-syntax scientific worksheets** — same WPF + CLI experience as
-[Calcpad](https://calcpad.eu/) but the parser reads pure `.m` files instead
-of `.cpd`. Native MATLAB engine in C#, **no MATLAB installation required**.
+[![Versión](https://img.shields.io/badge/versi%C3%B3n-1.1.0-blue)](https://github.com/GiorgioBurbanelli89/hekatan-lab/releases)
+[![Descargar](https://img.shields.io/badge/%E2%AC%87%20Descargar-Instalador%20Windows-success)](https://github.com/GiorgioBurbanelli89/hekatan-lab/releases/latest)
+[![Licencia](https://img.shields.io/badge/licencia-MIT-green)](#licencia)
+[![MATLAB 2017a](https://img.shields.io/badge/compatible-MATLAB%202017a-orange)](#compatibilidad-con-matlab-2017a)
 
-> Up to **3× faster than MATLAB R2017a** on equivalent FEM scripts.
-> Same renderized HTML/PDF/DOCX output as Calcpad, same auto-run-on-save,
-> same template — only the input syntax is MATLAB.
+**Hekatan Lab** es una calculadora científica programable con **sintaxis MATLAB**: escribís
+archivos `.m` de MATLAB puro y obtenés un **reporte HTML tipo libro** (memoria de cálculo),
+exportable a PDF y Word. El motor —parser, evaluador, JIT, álgebra numérica (MKL) y cálculo
+simbólico— está escrito en C# y corre **in-process**: **no necesitás tener MATLAB instalado**.
 
-📥 **Download v1.0.55:** [Calcpad-Lab-Setup-1.0.55.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/latest) (self-contained, no .NET required)
-🎬 **Video demo:** https://youtu.be/-Xcyc2SsG7s
-📁 **130+ ejemplos `.m` (puro MATLAB)** en 18 categorías bundleadas con el installer.
+> El **mismo archivo `.m` corre idéntico en Hekatan Lab y en MATLAB 2017a**. Todo el formato
+> del reporte vive en comentarios `%`, que MATLAB ignora — así nunca se rompe la compatibilidad.
 
----
-
-## Novedades — v1.0.55: muro de corte con grieta + hover (2026-07-02)
-
-- **Nuevo ejemplo `muro_de_corte.m`** (14 Sismo y Dinámica): FEM de un muro de corte de hormigón con
-  **Daño Plástico del Hormigón (CDP)** — reproduce la grieta diagonal de cortante validada contra
-  Abaqus (**divergencia < 9%**), con la malla deformada, colorbar y la paleta de Abaqus.
-- **Hover interactivo** (canvas embebido, sin JS externo): al pasar el cursor por el muro muestra
-  σ, τ, ε, γ y el daño en cada punto. El motor agrega `hoverdata`, `imagesc`/`patch` con
-  `FaceVertexCData`, `print -dpng` (PNG embebido), y los builtins `repelem`/`jet`; arreglado
-  `mean(A,dim)` y `line(ax,…)`.
-- **Un solo `.m` idéntico corre en Calcpad Lab y en MATLAB 2017a**: `hoverdata` es builtin en Lab y
-  función local (datacursor) en MATLAB — el mismo archivo, sin ramas ni dependencias externas.
-- **Ejemplos = puro `.m`**: se limpiaron las salidas generadas (`.html`/`.png`/…); quedan solo scripts.
+> ⚙️ **Instalación en un paso:** el instalador es *self-contained* (**trae el runtime .NET 10
+> embebido**, no hace falta instalar .NET aparte). Windows 10/11 de 64 bits.
 
 ---
 
-## Novedades — v1.0.50: compatibilidad Octave (2026-06-29)
+## Novedades — v1.1.0
 
-Modo Octave opt-in en el motor MATLAB nativo: cuando un script usa sintaxis de Octave, se aceptan
-construcciones que MATLAB estricto no tiene, sin dejar de correr el `.m` estándar:
-
-- **Builtins de Octave:** `printf` (= `fprintf(1, …)` a stdout), `puts`/`fputs`, `fdisp`, `fflush`
-  (no-op), y `columns(x)`/`rows(x)` (= `size(x,2)`/`size(x,1)`).
-- **Operadores de Octave:** `!` como alias de `~` (negación), incremento/decremento `++x`/`--x`
-  (prefijo) y `x++`/`x--` (postfijo), y asignación compuesta `a += b`, `-=`, `*=`, `/=`.
-- **Bucle `do … until COND`** (ejecuta el cuerpo al menos una vez).
-
-Cambios en `Symbolic.Core/Matlab/` (`MatlabTokenizer.cs`, `MatlabParser.cs`, `MatlabEvaluator.cs`,
-`MatlabPipeline.cs`).
-
----
-
-## Why Calcpad Lab?
-
-Calcpad oficial is excellent for engineering math with its native equation
-rendering, but its `.cpd` syntax has a steep learning curve for engineers
-coming from MATLAB / Python / Julia. **Calcpad Lab keeps all the visual
-strengths of Calcpad (rendered formulas, auto-run, PDF/Word export, plots
-inline)** and replaces the input syntax with **standard MATLAB**.
-
-You write:
-
-```matlab
-%% Datos
-a = 6
-b = 4
-t = 0.1
-E = 35e6
-nu = 0.15
-
-%% FEM
-D11 = E*t^3/(12*(1-nu^2))
-D = D11 * [1, nu, 0; nu, 1, 0; 0, 0, (1-nu)/2]
-```
-
-And you get the same beautifully-rendered HTML/PDF as Calcpad.
+- **Cálculo simbólico exacto** como MATLAB: `diff`, `int`, `limit` (punto numérico **y simbólico**),
+  `taylor`, `symsum` (incluida la **suma de Riemann** → integral), `solve`, `dsolve`, transformadas
+  de Laplace/Fourier. Racionales exactos (`symsum(1/i^2,1,4)=205/144`, no decimal).
+- **Render matemático tipo libro**: fracciones, raíces, `∑`/`∏`/`∫`, `lim` con la condición debajo,
+  `ℒ{}`/`ℱ{}` para transformadas, `exp(x)→eˣ`, sistema `K\F → K⁻¹·F`, derivada parcial `∂`.
+- **Formato de documento en `%`** (ver *[El lenguaje](#el-lenguaje)*): ecuaciones numeradas,
+  columnas, centrado, saltos de página, márgenes, **bibliografía `[N]`**, pies de figura/tabla
+  auto-numerados, notas al pie y referencias cruzadas — todo dentro de comentarios `%`.
+- **Motor rápido**: JIT propio + oneMKL embebido (matmul a la par de MATLAB; cálculo simbólico
+  in-process **mucho más rápido** que el MuPAD de MATLAB 2017a).
 
 ---
 
-## Highlights
+## Características principales
 
-- **Native MATLAB parser** in C# — no transpiler, no `octave-cli`, no MATLAB
-  subprocess. Open `.m` files directly.
-- **12,000+ lines of code** in `Symbolic.Core/Matlab/` — pure tokenizer +
-  parser + evaluator + HTML writer.
-- **500+ MATLAB builtins**: `zeros`, `eye`, `inv`, `solve` (`A\b`), `det`,
-  `transpose`, `eig`, `sin/cos/exp/log`, `min/max/sum/prod`, `plot`, `surf`,
-  `patch`, `trisurf`, `mesh`, `imagesc`, `contour`, …
-- **Full control flow**: `for`/`while`/`if-elseif-else`/`switch`/`break`/
-  `continue`/`function ... end`.
-- **OOP**: `classdef` with properties, methods, constructors, multiple
-  return values.
-- **Symbolic algebra** via AngouriMath: `syms`, `simplify`, `expand`,
-  `solve`, `diff`, `int`, `subs`, `dsolve` (ODEs).
-- **Cell arrays + string arrays + structs**.
-- **Inline plotting** with MATLAB-style `figure` / `plot` / `surf` that
-  saves PNG/SVG to the auto-rendered HTML.
-- **Auto-run on save** — like Calcpad, HTML updates instantly as you type.
+- Sintaxis **MATLAB** completa: escalares, vectores, matrices, funciones `f(x,y,…)`, control de
+  flujo (`if`/`for`/`while`), funciones anónimas `@(x)`, `classdef`.
+- **Números reales y complejos**, con formato fijo y redondeo inteligente.
+- **Álgebra lineal numérica** sobre oneMKL: `*`, `inv`, `det`, factorizaciones (Cholesky, LU, QR,
+  SVD), `eig`, sistemas lineales `A\b`, matrices dispersas.
+- **Cálculo simbólico** (motor propio + puente Giac): derivadas, integrales, límites, series,
+  sumatorias, despejes, EDOs, transformadas — exacto.
+- **Gráficas** (`plot`, `surf`, `contourf`, `patch`, …) con hover interactivo, embebidas en el
+  reporte sin dependencias externas.
+- **Reporte HTML profesional** con render matemático, exportable a **PDF** y **Word (.docx)**.
+- **CLI** (`CalcpadLabCli.exe`) para generar reportes headless.
 
 ---
 
-## Quick start (Windows installer)
+## Instalación
 
-1. Descargar **[Calcpad-Lab-Setup-1.0.50.exe](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases/latest)** desde
-   [Releases](https://github.com/GiorgioBurbanelli89/Calcpad-Lab/releases).
-2. Doble-click → aceptar UAC → seguir el wizard (acepta asociación `.m` para abrir scripts con doble-click).
-3. Al primer arranque, los **107 ejemplos** se copian a `Documents\Calcpad-Lab\Examples\`.
-4. Abrir cualquier `.m` (`Ctrl+O`) o crear uno nuevo (`Ctrl+N`) y `F9` para ejecutar.
-
-**No requiere .NET Desktop Runtime** — el runtime .NET 10 viaja dentro del installer (self-contained).
-
-CLI usage:
-
-```bash
-CalcpadLabCli.exe my_script.m html -s   # generate HTML output
-CalcpadLabCli.exe my_script.m pdf       # generate PDF
-```
-
-## Build from source
-
-Requires **.NET 10 SDK**.
-
-```bash
-git clone https://github.com/GiorgioBurbanelli89/Calcpad-Lab.git
-cd Calcpad-Lab
-dotnet build Symbolic.Wpf/Symbolic.Wpf.csproj -c Release
-dotnet build Symbolic.Cli/Symbolic.Cli.csproj -c Release
-```
-
-Self-contained portable (Windows x64):
-
-```bash
-dotnet publish Symbolic.Wpf/Symbolic.Wpf.csproj \
-  -c Release -r win-x64 --self-contained true \
-  -o ./publish/CalcpadLab
-```
+Descargá el instalador desde **[Releases](https://github.com/GiorgioBurbanelli89/hekatan-lab/releases)**
+y ejecutalo. Es *self-contained* (incluye el runtime .NET 10, no hace falta instalar .NET aparte).
+Instala la app de escritorio (WPF) **+ el CLI** y asocia los archivos `.m`.
 
 ---
 
-## Repository structure
+## Cómo funciona
 
-```
-Symbolic.Core/
-├── Matlab/              ← native MATLAB parser + evaluator (12 kLoC)
-│   ├── MatlabTokenizer.cs
-│   ├── MatlabParser.cs
-│   ├── MatlabEvaluator.cs
-│   ├── MatlabHtmlWriter.cs
-│   └── MatlabPipeline.cs
-└── ...                  ← Calcpad-Symbolic core (math + plotting)
+1. **Escribí** código MATLAB y comentarios en el panel **Code** (izquierda).
+2. Presioná **F5** (o *AutoRun*) para calcular. El resultado aparece en **Output** (derecha)
+   como un reporte HTML tipo libro.
+3. **Exportá** a HTML, PDF o Word, o imprimí.
 
-Symbolic.Wpf/            ← WPF GUI (WebView2 hot reload)
-Symbolic.Cli/            ← command-line interface
-Symbolic.Api/PyCalcpad/  ← Python bindings (optional)
-
-Examples/
-├── Algebra Lineal/      ← vectors, matrices, eigenvalues, SVD
-├── FEM/                 ← Kirchhoff Q4-BFS, MITC4, DSE, Batoz DKQ
-├── Cálculo/             ← derivatives, integrals, ODEs
-└── Demos/               ← OOP, dynamic systems, control
-```
+El mismo `.m` se puede abrir en MATLAB 2017a y correr sin cambios.
 
 ---
 
-## FEM benchmarks
+## El lenguaje
 
-Calcpad Lab is the validation engine for
-[Hekatan Struct](https://github.com/GiorgioBurbanelli89/hekatan-struct), a
-browser-based structural analysis platform. Cross-validated against
-SAP 2000 v24 via OAPI:
+Hekatan Lab lee **MATLAB puro**. Todo lo que va fuera de `%` se **ejecuta y se renderiza**; todo lo
+que va en `%` es comentario (MATLAB lo ignora) y en Hekatan Lab da **formato al reporte**.
 
-| Element | vs SAP 2000 |
+### 1) Código real (fuera de `%`) — se ejecuta y se renderiza
+
+| Escribís | Se ve |
 |---|---|
-| **Batoz DKQ** vs Plate-Thin | **0.00 % exact match** |
-| **MITC4** (Dvorkin-Bathe 1985) vs Plate-Thick | -0.56 % deflection, +2.6 % Mxy |
-| **BFS Q4** (16-DOF Bogner-Fox-Schmit 1965) | matches analytical Navier within 0.1 % |
+| `x = 2 + 3` | x = 5 |
+| `syms x; F = k*u` | F = k·u |
+| `sqrt(b^2-4*a*c)` | √(b²−4·a·c) |
+| `exp(-3*t)` | e⁻³ᵗ |
+| `symsum(1/i^2,i,1,4)` | ∑ … = 205/144 |
+| `int(f,x)` · `diff(f,x)` · `limit(...)` | ∫ f dx · d/dx · lim |
+| `laplace(f)` · `ilaplace(F)` | ℒ{f} · ℒ⁻¹{F} |
+| `solve(a*x^2+b*x+c, x)` | a·x²+b·x+c = 0 ⟹ x |
+| `K\F` · `inv(K)*F` | K⁻¹·F |
 
-See [hekatan-struct/validacion](https://github.com/GiorgioBurbanelli89/hekatan-struct/tree/main/validacion)
-for the full cross-language benchmark (Python / Julia / C++ WASM / SAP API).
+**Tokens en nombres de variable** (válidos en MATLAB): `sigma_max`→σ_max · `xsup2`→x² ·
+`a__b`→fracción a/b · `fprime_c`→f′c · `sqrt`/`bar`/`hat`/`vec`/`dot`/`tilde` → √/x̄/x̂/F⃗/ẋ/x̃ ·
+griegas por nombre (`nu`→ν).
 
----
+### 2) `%` inline — anota la línea de código
 
-## ¿Por qué Calcpad-Lab para validar Hekatan Struct?
-
-Hekatan Struct es la plataforma de análisis estructural en navegador. Su
-validación numérica se hace contra **cuatro lenguajes en paralelo** — cada
-uno entendido nativamente por ingenieros y por modelos de IA:
-
-| Lenguaje | Rol en la validación |
+| Escribís | Efecto |
 |---|---|
-| **MATLAB** (Calcpad-Lab) | Memoria de cálculo legible, render simbólico, comparación celda-por-celda |
-| **Python** (NumPy / SciPy) | Scripts batch, integración con notebooks Jupyter |
-| **Julia** | Solver rápido para FEM no lineal, tipos paramétricos |
-| **C++ / WASM** (Eigen 3) | Solver de producción que corre en el browser |
+| `F = k*u    %@@(2.1)` | número **(2.1)** a la derecha de la ecuación real |
+| `x = 2+3    %' resultado` | anotación de texto visible |
+| `x = 2+3    %texto` | comentario oculto (código) |
 
-La idea: si el mismo benchmark da el mismo resultado en los cuatro
-lenguajes, la implementación es correcta. **La IA entiende cada uno de
-estos lenguajes con fluidez**, lo que permite generar, revisar y debuggear
-validaciones cruzadas mucho más rápido que con DSLs propietarios.
+### 3) `%` en línea propia — texto con formato
 
-Calcpad-Lab es la pieza que cierra el ciclo MATLAB: te permite escribir
-una memoria de cálculo legible (con prosa intercalada con ecuaciones
-simbólicas renderizadas como en Calcpad) que sirve **al mismo tiempo como
-documento técnico publicable y como caso de validación numérico**.
+`%"Título` · `%'texto` · `%'-----` línea · `%'<` / `%'|` / `%'>` alinear ·
+`%'*` / `%'/` / `%'_` negrita/itálica/subrayado · `%'{rojo,centro,negrita} texto` bloque de
+atributos · `%'\ …` escape · `%'<table>…</table>` HTML crudo.
 
----
+### 4) `%` directivas de una línea — elementos de libro
 
-## What's new in v1.0.19
+| Directiva | Efecto |
+|---|---|
+| `%#deq sigma = P/A_g @@(2.2)` | ecuación numerada (math + número a la derecha) |
+| `%#col a ; b ; c`  (o `%#inl`) | columnas iguales (`'`=texto, sin `'`=ecuación) |
+| `%#cen texto/ecuación` | centrado |
+| `%#pgb` | salto de página |
+| `%#cita McCormac (2011)…` | bibliografía **[N]** auto-numerada |
+| `%#fig Descripción` · `%#tab Descripción` | **Figura N.** / **Tabla N.** auto-numerado |
+| `%#nota Aclaración` | nota al pie |
+| `%#ref Ec. (2.1), pág. 34` | referencia cruzada "(ver …)" |
+| `%#img <ruta o data-uri>` | imagen incrustada |
 
-### FEM y ejemplos
-- **Nuevo:** `Examples-Lab/18 FEA Slab/rectangular_slab_bfs.m` — placa Kirchhoff
-  con elemento Q4-BFS (16 GDL/elem, splines Hermíticas cúbicas). 6×4 m con SS
-  en 4 bordes valida contra Calcpad oficial y SAP 2000 a 4-6 decimales.
-- **6.2× más rápido que Octave 10.1** en ensamblaje FEM (1000 elem × 8 DOF:
-  34 ms vs 211 ms) sin código GPL — ver [PERFORMANCE_VS_OCTAVE.md](./PERFORMANCE_VS_OCTAVE.md).
+### 5) `%` bloques — abrir … cerrar
 
-### Sintaxis MATLAB (incrementos)
-- **`symfun` estilo MATLAB** (`f(x) = expr` reconocido como función simbólica) — v1.0.18.
-- **Multi-statement en una línea**: `a = 1; b = 2; c = 3;` con display compacto — v1.0.17.
-- **Comentarios standalone sin `%` al frente** — v1.0.16.
-- **Factorización polinómica Fase 1** (factor común) — v1.0.15.
-- **Captions inline en misma línea** (`%`-less después de `;`) — v1.0.12-14.
+| Abre | Cierra | Efecto |
+|---|---|---|
+| `%#deq` | `%#endeq` | bloque de ecuaciones: la **variable real** adentro se numera/renderiza |
+| `%#margen 25` | `%#endmargen` | bloque justificado con márgenes de N mm |
+| `%#md` | `%#endmd` | bloque Markdown |
+| `%#hide` | `%#show` | ejecuta pero no muestra el render |
+| `%#plain` | `%#render` | texto de `disp`/`fprintf` plano ↔ renderizado |
+| `%#nogreek` | `%#greek` | nombres literales ↔ símbolo griego |
+| `%% Sección` | — | sección MATLAB oculta |
 
-### Render simbólico (heredado de v1.0.5)
-- `char(M_max)` dentro de `fprintf` sale con fracciones apiladas, variables azules,
-  subíndices (`R_A`, `sigma_adm`), superíndices (`x²`, `L⁴`) y unidades verdes
-  (`kN·m`, `MPa`, `cm³`). HTML+CSS puro, sin MathJax/KaTeX.
-- Texto plano descriptivo (`'M_max = q*L^2/8 kN*m'`) se beautifica solo.
-- Escape `''` y concatenación `['a' 'b']` arreglados.
-
-### Performance (kernel C++ `matlab_helpers.dll`, 670 KB sin dependencias)
-- `polyval` 500k pts: **2 ms** (10× más rápido que Octave)
-- `solve A\b` 200×200: **3 ms** (4.3× más rápido que Octave)
-- `ml_assemble_K` 1000 elem × 8 DOF: **34 ms** (6.2× más rápido que Octave)
-
-### Installer
-- **Self-contained** — no requiere .NET Desktop Runtime preinstalado.
-- 107 ejemplos `.m` bundleados en 18 categorías.
+Ejemplos completos en la carpeta [`_ejemplos_render/`](_ejemplos_render) y el
+[manual de formato](_ejemplos_render/MANUAL_FORMATO_HEKATAN_LAB.md).
 
 ---
 
-## Acknowledgments
+## Compatibilidad con MATLAB 2017a
 
-- Built on top of [Calcpad Symbolic](https://github.com/Proektsoftbg/Calcpad)
-  (Ned Tomov, MIT license) — same renderer, same math engine.
-- AngouriMath — symbolic algebra backend.
-- Eigen 3 compiled to WASM for plate solvers (in hekatan-fem sister repo).
+Todo `.m` de Hekatan Lab está pensado para **correr idéntico en MATLAB R2017a**:
 
-## License
+- El código real es MATLAB estándar.
+- Todo el formato del reporte vive en comentarios `%` → MATLAB los ignora.
+- Los resultados numéricos y simbólicos se verifican contra MATLAB 2017a (mismos valores).
 
-MIT — same as upstream Calcpad.
+---
+
+## Créditos
+
+Hekatan Lab hereda la **base de render e interfaz** (plantilla HTML del reporte, panel WPF +
+WebView2, estilos de math) del proyecto **[Calcpad](https://codeberg.org/proektsoft/Calcpad)** de
+**Nedelcho Ganchovski / PROEKTSOFT EOOD** (licencia MIT) — el crédito de esa base es suyo.
+
+El resto es desarrollo propio de **Hekatan Engineers**: el **intérprete de MATLAB** (tokenizer,
+parser, evaluador), el **JIT**, el **álgebra numérica sobre oneMKL**, el **motor de cálculo
+simbólico** y las **directivas de formato tipo libro** descritas arriba.
+
+---
+
+## Licencia
+
+Distribuido bajo licencia **MIT**. Ver el archivo `LICENSE`. El crédito de la base de render/UI
+corresponde a PROEKTSOFT EOOD® (Calcpad, MIT).
