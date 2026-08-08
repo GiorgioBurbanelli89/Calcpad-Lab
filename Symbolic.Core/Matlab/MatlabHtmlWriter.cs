@@ -440,7 +440,7 @@ namespace Calcpad.Core.Matlab
                 return id.Name is "diff" or "int" or "expand" or "factor"
                     or "simplify" or "solve" or "taylor" or "limit" or "subs"
                     or "dsolve" or "laplace" or "fourier" or "trigsimplify"
-                    or "collect" or "coeffs";
+                    or "collect" or "coeffs" or "symsum" or "symprod";
             }
             return false;
         }
@@ -828,6 +828,18 @@ namespace Calcpad.Core.Matlab
                 //   {f}&thinsp;<var>d{x}</var>
                 // El diferencial va dentro de <var>...</var> para que se rendea italica como
                 // las demas variables (Georgia Pro italic via .eq var en template.html).
+                // symsum(f, k, a, b) -> ∑_{k=a}^{b} f  (suma simbolica con limites, IDENTICO a
+                // $Sum de Calcpad: FormatNary(∑, sub="k=a", sup="b", expr=f)). symprod -> ∏.
+                if ((fname == "symsum" || fname == "symprod") && c.Args.Count >= 4)
+                {
+                    var sym = fname == "symprod" ? "∏" : "∑";
+                    var body = RenderExpression(c.Args[0]);
+                    var kk = RenderExpression(c.Args[1]);
+                    var lo = RenderExpression(c.Args[2]);
+                    var hi = RenderExpression(c.Args[3]);
+                    return $"<span class=\"dvr\"><small>{hi}</small><span class=\"nary\">{sym}</span>"
+                         + $"<small>{kk}=&hairsp;{lo}</small></span>{body}";
+                }
                 if (fname == "int" && c.Args.Count >= 1)
                 {
                     var fExpr = RenderExpression(c.Args[0]);
