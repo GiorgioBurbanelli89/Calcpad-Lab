@@ -442,11 +442,15 @@ namespace Calcpad.Core.Matlab
         {
             if (n is CallOrIndex c && c.Target is IdentRef id && c.Args != null)
             {
-                if (c.Args.Count == 1)
-                    return id.Name is "sqrt" or "abs" or "norm" or "det" or "inv"
+                var nm = id.Name; int k = c.Args.Count;
+                // ∫/Δ/∇ numericas: cualquier aridad valida -> siempre formula = valor
+                if (nm is "integral" or "trapz" or "gradient") return true;
+                if (nm == "diff" && k == 1) return true;   // Δv (diff >=2 args = simbolico d/dx)
+                if (k == 1)
+                    return nm is "sqrt" or "abs" or "norm" or "det" or "inv"
                         or "transpose" or "sum" or "prod";
-                if (c.Args.Count == 2)
-                    return id.Name is "nthroot" or "dot" or "cross";
+                if (k == 2)
+                    return nm is "nthroot" or "dot" or "cross";
             }
             return false;
         }
@@ -776,6 +780,30 @@ namespace Calcpad.Core.Matlab
                     }
                     return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\"><em>∫</em></span><small>{sub}</small></span>{fExpr} d<var>{vName}</var>";
                 }
+                // integral(fun, a, b) NUMERICA -> ∫_a^b fun dx (equivale a $area/$integral de
+                // Calcpad; MATLAB: function handle + limites). Mismo glifo ∫ que int simbolico.
+                if (fname == "integral" && c.Args.Count >= 1)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    string isub = c.Args.Count >= 2 ? RenderExpression(c.Args[1]) : "";
+                    string isup = c.Args.Count >= 3 ? RenderExpression(c.Args[2]) : "";
+                    return $"<span class=\"dvr\"><small>{isup}</small><span class=\"nary\"><em>∫</em></span><small>{isub}</small></span>{fExpr}&thinsp;d<var>x</var>";
+                }
+                // trapz(y) o trapz(x,y) -> ∫ y dx (trapezoidal, sin limites explicitos). El
+                // operando integrado es el ULTIMO arg; trapz(x,y) integra y respecto de x.
+                if (fname == "trapz" && c.Args.Count >= 1)
+                {
+                    var ty = RenderExpression(c.Args[c.Args.Count - 1]);
+                    string tdvar = c.Args.Count >= 2 ? RenderExpression(c.Args[0]) : "x";
+                    return $"<span class=\"dvr\"><small></small><span class=\"nary\"><em>∫</em></span><small></small></span>{ty}&thinsp;d<var>{tdvar}</var>";
+                }
+                // diff(v) NUMERICA de 1 arg -> Δv (diferencia discreta de MATLAB). diff con
+                // >=2 args es la derivada simbolica d/dx (bloque de arriba).
+                if (fname == "diff" && c.Args.Count == 1)
+                    return $"<span style=\"font-family:'Cambria Math',serif;font-style:normal;font-size:1.05em\">Δ</span>&hairsp;{RenderExpression(c.Args[0])}";
+                // gradient(F[,h]) -> ∇F (gradiente numerico). El operando es arg[0].
+                if (fname == "gradient" && c.Args.Count >= 1)
+                    return $"<span style=\"font-family:'Cambria Math',serif;font-style:normal;font-size:1.05em\">∇</span>&hairsp;{RenderExpression(c.Args[0])}";
                 // limit(f, x, c)
                 if (fname == "limit" && c.Args.Count >= 3)
                 {
