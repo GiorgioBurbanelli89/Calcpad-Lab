@@ -585,15 +585,22 @@ namespace Calcpad.Core.Matlab
                 // como texto literal. Se respeta el toggle GreekAutoRender
                 // (% #nogreek … % #greek): si está OFF, el nombre queda literal.
                 string greek = GreekAutoRender ? GreekLetterMap(name) : null;
-                return $"<var>{(greek ?? HttpUtility.HtmlEncode(name))}</var>";
+                return $"<var>{(greek ?? Superscriptify(HttpUtility.HtmlEncode(name)))}</var>";
             }
             string baseName = name.Substring(0, idx);
             string sub = name.Substring(idx + 1).Replace("_", ",");
             // Greek letters: si baseName matches greek prefix, renderizar como letra griega
             string baseRendered = (GreekAutoRender ? GreekLetterMap(baseName) : null)
-                                  ?? HttpUtility.HtmlEncode(baseName);
-            return $"<var>{baseRendered}<sub>{HttpUtility.HtmlEncode(sub)}</sub></var>";
+                                  ?? Superscriptify(HttpUtility.HtmlEncode(baseName));
+            return $"<var>{baseRendered}<sub>{Superscriptify(HttpUtility.HtmlEncode(sub))}</sub></var>";
         }
+        /// <summary>SUPERINDICE con el token `sup` (valido en MATLAB, ya que `^` no lo es en
+        /// nombres — verificado en MATLAB 2017a). `sup` + digitos -> esos digitos en superindice.
+        /// Ej: xsup2 -> x² , dsup2f -> d²f , dxsup2 -> dx². Combinable con `_` (sub) y `__` (frac):
+        /// dsup2f__dxsup2 -> d²f/dx². Se aplica sobre texto YA HTML-encodeado.</summary>
+        private static string Superscriptify(string enc) =>
+            string.IsNullOrEmpty(enc) ? enc
+            : System.Text.RegularExpressions.Regex.Replace(enc, "sup([0-9]+)", "<sup>$1</sup>");
         /// <summary>Transliteración de nombres griegos → símbolo Unicode en el OUTPUT.
         /// Por defecto ACTIVADA (los nombres ASCII `nu`, `phi`, `xi`… se muestran ν, φ, ξ,
         /// manteniendo el código MATLAB-válido). Se apaga/enciende por bloque con las
