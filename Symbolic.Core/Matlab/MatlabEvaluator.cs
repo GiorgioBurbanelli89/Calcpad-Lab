@@ -1410,16 +1410,33 @@ namespace Calcpad.Core.Matlab
             _builtins["reshape"] = a => {
                 var v = a[0];
                 int nElem = v.Data.Length;
-                // MATLAB: una dimension puede ser [] -> se infiere del total. Ej:
-                // reshape(x, 1, []) -> 1 x n ;  reshape(x, [], 1) -> n x 1.
-                bool rEmpty = a[1].Rows * a[1].Cols == 0;
-                bool cEmpty = a.Length > 2 && a[2].Rows * a[2].Cols == 0;
                 int rows, cols;
-                if (rEmpty && cEmpty)
-                    throw new MatlabRuntimeException("reshape: solo una dimension puede ser []");
-                else if (rEmpty) { cols = (int)a[2].Scalar; rows = cols == 0 ? 0 : nElem / cols; }
-                else if (cEmpty) { rows = (int)a[1].Scalar; cols = rows == 0 ? 0 : nElem / rows; }
-                else { rows = (int)a[1].Scalar; cols = (int)a[2].Scalar; }
+                if (a.Length == 2)
+                {
+                    // MATLAB: reshape(A, sizeVector) -> el 2o argumento es el vector de
+                    // tamaño [m n] (p.ej. reshape(A, size(T))). Antes se tomaba solo su
+                    // 1er elemento y se buscaba a[2] inexistente -> "index out of bounds".
+                    int nsz = a[1].Rows * a[1].Cols;
+                    if (nsz < 2)
+                        throw new MatlabRuntimeException("reshape: el vector de tamaño debe tener al menos 2 elementos");
+                    var sz = a[1].Data;
+                    for (int i = 2; i < nsz; i++)
+                        if ((int)sz[i] != 1)
+                            throw new MatlabRuntimeException("reshape: solo se soportan matrices 2D");
+                    rows = (int)sz[0]; cols = (int)sz[1];
+                }
+                else
+                {
+                    // reshape(A, m, n): una dimension puede ser [] -> se infiere del total.
+                    // Ej: reshape(x, 1, []) -> 1 x n ;  reshape(x, [], 1) -> n x 1.
+                    bool rEmpty = a[1].Rows * a[1].Cols == 0;
+                    bool cEmpty = a[2].Rows * a[2].Cols == 0;
+                    if (rEmpty && cEmpty)
+                        throw new MatlabRuntimeException("reshape: solo una dimension puede ser []");
+                    else if (rEmpty) { cols = (int)a[2].Scalar; rows = cols == 0 ? 0 : nElem / cols; }
+                    else if (cEmpty) { rows = (int)a[1].Scalar; cols = rows == 0 ? 0 : nElem / rows; }
+                    else { rows = (int)a[1].Scalar; cols = (int)a[2].Scalar; }
+                }
                 if (rows * cols != v.Data.Length)
                     throw new MatlabRuntimeException($"reshape: size mismatch {v.Data.Length} ≠ {rows}×{cols}");
                 // MATLAB usa orden column-major: la lectura linear del source y la
@@ -10916,6 +10933,72 @@ namespace Calcpad.Core.Matlab
                 return new StatementResult(delId.Name, res, asg.Suppressed);
             }
             // ──────────────────────────────────────────────────────────────
+            // MATLAB: `A(filas,:) = []` BORRA filas ; `A(:,cols) = []` BORRA
+            // columnas. Regla de MATLAB: sólo UN índice puede ser distinto de ':'.
+            // El frente de avance (AFT) y muchísimo código FE lo usan para quitar
+            // aristas/nodos de una tabla. Sin esto: "Assign shape mismatch ... RHS 0×0".
+            // ──────────────────────────────────────────────────────────────
+            if (tgt is CallOrIndex del2 && del2.Target is IdentRef del2Id &&
+                del2.Args.Count == 2 && IsEmptyMatrixLiteral(asg.Rhs) &&
+                scope.TryGet(del2Id.Name, out var del2Src) && !del2Src.IsString &&
+                !del2Src.IsSymMatrix && !del2Src.Is3D)
+            {
+                bool rowColon = del2.Args[0] is ColonAll;
+                bool colColon = del2.Args[1] is ColonAll;
+                if (rowColon == colColon)
+                    throw new MatlabRuntimeException(
+                        "Una asignación nula (= []) sólo admite un índice distinto de ':'");
+                MValue res;
+                if (colColon)   // A(filas,:) = []  → borrar filas
+                {
+                    int[] rowsDel;
+                    _endCtx.Push((del2Src, 0, 2));
+                    try { rowsDel = ResolveIndexArg(del2.Args[0], del2Src, 0, 2, scope); }
+                    finally { _endCtx.Pop(); }
+                    var drop = new bool[del2Src.Rows];
+                    foreach (var r in rowsDel)
+                    {
+                        if (r < 0 || r >= del2Src.Rows)
+                            throw new MatlabRuntimeException($"Index exceeds matrix dimensions: {del2Id.Name} fila {r + 1}");
+                        drop[r] = true;
+                    }
+                    int keepR = 0; for (int r = 0; r < del2Src.Rows; r++) if (!drop[r]) keepR++;
+                    res = new MValue(keepR, del2Src.Cols);
+                    int rr = 0;
+                    for (int r = 0; r < del2Src.Rows; r++)
+                    {
+                        if (drop[r]) continue;
+                        for (int c = 0; c < del2Src.Cols; c++) res.Set(rr, c, del2Src.At(r, c));
+                        rr++;
+                    }
+                }
+                else            // A(:,cols) = []  → borrar columnas
+                {
+                    int[] colsDel;
+                    _endCtx.Push((del2Src, 1, 2));
+                    try { colsDel = ResolveIndexArg(del2.Args[1], del2Src, 1, 2, scope); }
+                    finally { _endCtx.Pop(); }
+                    var drop = new bool[del2Src.Cols];
+                    foreach (var c in colsDel)
+                    {
+                        if (c < 0 || c >= del2Src.Cols)
+                            throw new MatlabRuntimeException($"Index exceeds matrix dimensions: {del2Id.Name} col {c + 1}");
+                        drop[c] = true;
+                    }
+                    int keepC = 0; for (int c = 0; c < del2Src.Cols; c++) if (!drop[c]) keepC++;
+                    res = new MValue(del2Src.Rows, keepC);
+                    int cc = 0;
+                    for (int c = 0; c < del2Src.Cols; c++)
+                    {
+                        if (drop[c]) continue;
+                        for (int r = 0; r < del2Src.Rows; r++) res.Set(r, cc, del2Src.At(r, c));
+                        cc++;
+                    }
+                }
+                scope.Set(del2Id.Name, res);
+                return new StatementResult(del2Id.Name, res, asg.Suppressed);
+            }
+            // ──────────────────────────────────────────────────────────────
             // FAST-PATH: K(rows, cols) = K(rows, cols) + expr   (FEM hot loop)
             // Detecta patrón: target(args) = target(args) +/- expr (mismo target, mismos args)
             // Y aplica IN-PLACE en lugar de leer submatrix + sumar + escribir.
@@ -13465,10 +13548,12 @@ namespace Calcpad.Core.Matlab
         private static MValue HorzConcat(List<MValue> pieces)
         {
             if (pieces.Count == 1) return pieces[0];
-            // Filtrar empty (0×0): MATLAB ignora vacíos en concatenación
+            // Filtrar vacíos (0 elementos): MATLAB ignora CUALQUIER operando vacío en
+            // la concatenación, no solo 0×0. Un 0×1 (p.ej. setdiff que no encontró nada)
+            // o 1×0 debe descartarse igual, si no [fila, 0×1] rompía por "row mismatch".
             var filtered = new List<MValue>(pieces.Count);
             foreach (var p in pieces)
-                if (p.Rows != 0 || p.Cols != 0) filtered.Add(p);
+                if (p.Rows != 0 && p.Cols != 0) filtered.Add(p);
             if (filtered.Count == 0) return new MValue(0, 0);
             if (filtered.Count == 1) return filtered[0];
             int rows = filtered[0].Rows;
@@ -13492,10 +13577,11 @@ namespace Calcpad.Core.Matlab
         private static MValue VertConcat(List<MValue> pieces)
         {
             if (pieces.Count == 1) return pieces[0];
-            // Filtrar empty (0×0): MATLAB ignora vacíos en concatenación
+            // Filtrar vacíos (0 elementos): MATLAB ignora CUALQUIER operando vacío, no solo
+            // 0×0. Un 1×0 o 0×1 debe descartarse igual, si no [col; 1×0] rompía por mismatch.
             var filtered = new List<MValue>(pieces.Count);
             foreach (var p in pieces)
-                if (p.Rows != 0 || p.Cols != 0) filtered.Add(p);
+                if (p.Rows != 0 && p.Cols != 0) filtered.Add(p);
             if (filtered.Count == 0) return new MValue(0, 0);
             if (filtered.Count == 1) return filtered[0];
             int cols = filtered[0].Cols;

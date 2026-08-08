@@ -47,6 +47,8 @@ namespace Calcpad.Core.Matlab
             public double LevLo, LevStep;        // rejilla de niveles "redondos" (como MATLAB)
             public bool Curvi;                   // malla curvilínea (deformada): Xs/Ys = X,Y completos
             public double[] GX, GY;              // coords de nodo completas (curvilínea): ny*nx cada una
+            public float[] VertVals;             // valor NORMALIZADO [0,1] por vértice (para mapear valor->color
+                                                 // por-píxel via shader de colormap = matplotlib, bandas nítidas).
             public string[] VertCols;            // FaceColor='interp': color "r,g,b" POR VÉRTICE (Gouraud real,
                                                  // como MATLAB) — el canvas interpola dentro del triángulo en vez
                                                  // de subdividirlo. null = relleno plano (FaceColor).
@@ -328,6 +330,10 @@ namespace Calcpad.Core.Matlab
         // se guarda aqui (JSON Plotly compacto + filas RGB para el canvas). null = sin custom.
         private static string _customColorscaleJson;
         private static float[][] _customCmapRgb;
+        // Mapeo dato->pixel del ÚLTIMO PNG rasterizado (coords lógicas), para alinear el hover
+        // interactivo que dibuja ese mismo PNG de fondo: px = _pmOX + (x-_pmX0)*_pmSX ;
+        // py = _pmH - _pmOY - (y-_pmY0)*_pmSY.
+        private static double _pmOX, _pmOY, _pmSX, _pmSY, _pmX0, _pmY0, _pmH;
         private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
 
         /// <summary>Registra un colormap a partir de una matriz Nx3 (filas RGB 0..1), como
@@ -727,14 +733,14 @@ return {make:make};
             if (PngExportMode)
             {
                 if (RetainedActive) BuildRetainedFaces();
-                try { var _png = RasterizeFigurePng(560, 420); if (_png != null && _png.Length > 0) ExportedPngs.Add(_png); }
+                try { var _png = RasterizeFigurePng(560, 420, 2); if (_png != null && _png.Length > 0) ExportedPngs.Add(_png); }   // ss=2: PNG nítido (1120×840), layout lógico 560×420 (paridad MATLAB)
                 catch { /* figura no rasterizable (p.ej. 3D webgl) → se omite */ }
             }
             // Malla 2D CON valor por-cara (patch FaceVertexCData) → CANVAS interactivo con hover.
             if (RetainedActive) BuildRetainedFaces();   // figura FINAL desde el estado retenido (última mutación de set)
             if (!_figIs3D && HasFaceValues())
             {
-                string iv = RenderInteractiveMesh(760, 560);
+                string iv = RenderInteractiveMesh(560, 420);   // mismas dims que el export estático -> hover idéntico
                 if (iv != null) { ResetRetainedMesh(); return iv; }
             }
             // contourf (fieldfill): render CANVAS PNG (idéntico al del CLI, alineado a MATLAB),
@@ -758,8 +764,14 @@ return {make:make};
             }
             // DIBUJO 2D estructural (malla: patches/texto/markers) → SVG inline (nítido,
             // numeración fiable). Plotly se reserva para resultados (surf/contour/datos).
+            // OJO: los markers NO disparan esta ruta por si solos. Un plot(x,y,'o')
+            // es una grafica de DATOS normal, y mandarla al SVG estructural le
+            // quitaba la leyenda entera (el SVG no la dibuja) y el tamano del
+            // marcador. Bastaba un solo marcador para perder el legend() de toda
+            // la figura. Con patches o texto SI: eso es un dibujo de malla, que es
+            // para lo que se hizo esta ruta; ahi los markers siguen yendo con ella.
             if (!_figIs3D && _figPrims != null &&
-                _figPrims.Exists(p => p.Kind == "patch2d" || p.Kind == "text2d" || p.Kind == "markers2d"))
+                _figPrims.Exists(p => p.Kind == "patch2d" || p.Kind == "text2d"))
             {
                 string svgInner = ExportSvg(760, 580);
                 _figTraces = null; _figAnnotations = null; _figPrims = null;
@@ -1714,7 +1726,7 @@ return {make:make};
             return (Math.Floor(min / step) * step, Math.Ceiling(max / step) * step);
         }
 
-        private static SKBitmap BuildFigureBitmap(int width, int height)
+        private static SKBitmap BuildFigureBitmap(int width, int height, int ss = 1)
         {
             if (_figPrims == null || _figPrims.Count == 0) return null;
             double xmin = double.MaxValue, xmax = double.MinValue, ymin = double.MaxValue, ymax = double.MinValue;
@@ -1787,6 +1799,8 @@ return {make:make};
             }
             float TX(double x) => (float)(mL + offX + (x - axXmin) * sx);
             float TY(double y) => (float)(height - mB - offY - (y - axYmin) * sy);
+            _pmOX = mL + offX; _pmOY = mB + offY; _pmSX = sx; _pmSY = sy;
+            _pmX0 = axXmin; _pmY0 = axYmin; _pmH = height;   // mapeo para el hover interactivo
             float plotL = (float)(mL + offX), plotR = (float)(width - mR - offX);
             float plotT = (float)(mT + offY), plotB = (float)(height - mB - offY);
             // Con axis-equal la caja puede quedar mucho mas angosta/baja que la figura
@@ -1800,10 +1814,15 @@ return {make:make};
                 ticksY = NiceTicks(axYmin, axYmax, tY2);
             }
 
-            var bmp = new SKBitmap(width, height);
+            // Supersampling: rasterizar a ss× y escalar TODO el dibujo (fuentes, líneas, campo
+            // Gouraud) por ss -> PNG más NÍTIDO. El layout sigue en coords lógicas (width×height),
+            // así que ticks/márgenes/paridad con MATLAB no cambian, solo la densidad de píxeles.
+            if (ss < 1) ss = 1;
+            var bmp = new SKBitmap(width * ss, height * ss);
             using (var canvas = new SKCanvas(bmp))
             {
                 canvas.Clear(SKColors.White);
+                if (ss != 1) canvas.Scale(ss, ss);
                 using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
                 using var stroke = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke };
                 // MATLAB usa Helvetica; Arial es el equivalente mas cercano (vs Segoe UI default).
@@ -1816,6 +1835,20 @@ return {make:make};
                 using var font = new SKFont(tface, fTick);
                 using var txt = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = SKColors.Black };
                 var axisCol = new SKColor(0x26, 0x26, 0x26);
+                // Textura 1D del colormap ACTIVO (256×1) + shader: para mapear VALOR->COLOR por-píxel
+                // en el campo (como matplotlib). DrawVertices interpola la coord de textura (=valor
+                // normalizado) y el shader samplea el colormap -> bandas nítidas, sin costuras.
+                using var cmapBmp = new SKBitmap(256, 1);
+                for (int ci = 0; ci < 256; ci++)
+                {
+                    var crgb = CmapF(_figCmapName, ci / 255.0);
+                    cmapBmp.SetPixel(ci, 0, new SKColor(
+                        (byte)Math.Round(255 * Math.Max(0, Math.Min(1, crgb[0]))),
+                        (byte)Math.Round(255 * Math.Max(0, Math.Min(1, crgb[1]))),
+                        (byte)Math.Round(255 * Math.Max(0, Math.Min(1, crgb[2])))));
+                }
+                using var cmapShader = SKShader.CreateBitmap(cmapBmp, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
+                using var cmapPaint = new SKPaint { Shader = cmapShader, IsAntialias = true };
                 // ── GRID (gris claro punteado, como MATLAB con grid on) ──
                 if (_figGrid)
                 {
@@ -1955,10 +1988,55 @@ return {make:make};
                         if (p.Kind == "patch2d")
                         {
                             path.Close();
-                            // Color por VALOR (colormap) para mallas FEM; si no, FaceColor fijo.
-                            var fc = !double.IsNaN(p.Val) ? ValColor(p.Val) : ParseColor(p.FaceColor);
-                            if (fc.Alpha > 0) { fill.Color = fc.WithAlpha((byte)(255 * p.FaceAlpha)); canvas.DrawPath(path, fill); }
-                            stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke);
+                            bool edgeOn = !string.IsNullOrEmpty(p.EdgeColor) && p.EdgeColor != "none";
+                            if (p.VertVals != null && p.VertVals.Length == 3 && p.Xs.Length >= 3)
+                            {
+                                // VALOR->COLOR POR-PÍXEL (como matplotlib tripcolor gouraud): la coord de
+                                // textura = valor normalizado [0..1]*255; DrawVertices INTERPOLA esa coord
+                                // linealmente por el triangulo y el shader del colormap la samplea -> el
+                                // color se calcula por-pixel desde el VALOR, no mezclando RGB entre vertices.
+                                // Resultado: bandas nitidas (misma nitidez que matplotlib), sin costuras.
+                                var pts = new[] {
+                                    new SKPoint(TX(p.Xs[0]), TY(p.Ys[0])),
+                                    new SKPoint(TX(p.Xs[1]), TY(p.Ys[1])),
+                                    new SKPoint(TX(p.Xs[2]), TY(p.Ys[2])) };
+                                var texs = new[] {
+                                    new SKPoint(Math.Max(0f, Math.Min(255.99f, p.VertVals[0] * 255.99f)), 0.5f),
+                                    new SKPoint(Math.Max(0f, Math.Min(255.99f, p.VertVals[1] * 255.99f)), 0.5f),
+                                    new SKPoint(Math.Max(0f, Math.Min(255.99f, p.VertVals[2] * 255.99f)), 0.5f) };
+                                canvas.DrawVertices(SKVertexMode.Triangles, pts, texs, null, cmapPaint);
+                                if (edgeOn) { stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke); }
+                            }
+                            else if (p.VertCols != null && p.VertCols.Length == 3 && p.Xs.Length >= 3)
+                            {
+                                // Gouraud REAL (FaceColor='interp' de MATLAB): color interpolado por-pixel
+                                // entre los 3 vertices via DrawVertices. SIN anti-alias -> triangulos
+                                // adyacentes abutan exacto, sin costuras (antes: relleno plano -> malla visible).
+                                var pts = new[] {
+                                    new SKPoint(TX(p.Xs[0]), TY(p.Ys[0])),
+                                    new SKPoint(TX(p.Xs[1]), TY(p.Ys[1])),
+                                    new SKPoint(TX(p.Xs[2]), TY(p.Ys[2])) };
+                                var cols = new SKColor[3];
+                                for (int vi = 0; vi < 3; vi++)
+                                {
+                                    var q = p.VertCols[vi].Split(',');
+                                    cols[vi] = new SKColor((byte)int.Parse(q[0].Trim()), (byte)int.Parse(q[1].Trim()), (byte)int.Parse(q[2].Trim()));
+                                }
+                                // DrawVertices MODULA el color del paint con los del vertice; con paint
+                                // negro daba todo negro -> ponerlo BLANCO (blanco*color = color).
+                                bool prevAA = fill.IsAntialias; var prevCol = fill.Color;
+                                fill.IsAntialias = false; fill.Color = SKColors.White;
+                                canvas.DrawVertices(SKVertexMode.Triangles, pts, cols, fill);
+                                fill.IsAntialias = prevAA; fill.Color = prevCol;
+                                if (edgeOn) { stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke); }
+                            }
+                            else
+                            {
+                                // Color por VALOR (colormap) para mallas FEM; si no, FaceColor fijo.
+                                var fc = !double.IsNaN(p.Val) ? ValColor(p.Val) : ParseColor(p.FaceColor);
+                                if (fc.Alpha > 0) { fill.Color = fc.WithAlpha((byte)(255 * p.FaceAlpha)); canvas.DrawPath(path, fill); }
+                                stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke);
+                            }
                         }
                         else
                         {
@@ -2164,9 +2242,9 @@ return {make:make};
             }
         }
         /// <summary>Rasteriza la figura 2D a PNG (bytes). SIN JS — para embeber como &lt;img&gt; en WebView2.</summary>
-        public static byte[] RasterizeFigurePng(int width, int height)
+        public static byte[] RasterizeFigurePng(int width, int height, int ss = 1)
         {
-            var bmp = BuildFigureBitmap(width, height);
+            var bmp = BuildFigureBitmap(width, height, ss);
             if (bmp == null) return null;
             using (bmp)
             using (var img = SKImage.FromBitmap(bmp))
@@ -2303,18 +2381,33 @@ if(window.THREE&&THREE.OrbitControls){go();}else{var s1=document.createElement("
                 lj.Append("],\"").Append(p.Color ?? "#555").Append("\"]");
             }
             lj.Append(']');
+            // El CAMPO del hover = el MISMO PNG del estático (SkiaSharp, Gouraud real por DrawVertices,
+            // nítido 2×) dibujado de FONDO; encima solo el crosshair+valor. Antes el canvas usaba un
+            // Gouraud aproximado en JS (colorbar jet, etiquetas hardcodeadas) que NO se veía igual al
+            // estático. RasterizeFigurePng también fija el mapeo dato->pixel (_pmOX...) para alinear.
+            // ss=2: PNG a 2× (supersampled = texto/campo nítidos). En JS se muestra a tamaño 1:1
+            // FÍSICO (naturalWidth/devicePixelRatio) para que el WebView2 NO lo re-escale (borroso).
+            string fieldB64 = "";
+            try { var _pb = RasterizeFigurePng(width, height, 2); if (_pb != null && _pb.Length > 0) fieldB64 = System.Convert.ToBase64String(_pb); } catch { }
+            double mOX=_pmOX, mOY=_pmOY, mSX=_pmSX, mSY=_pmSY, mX0=_pmX0, mY0=_pmY0, mH=_pmH;
             // Hover SOLO si el script lo pidió con hoverdata() — igual que MATLAB, donde un
             // patch NO tiene hover salvo que se active WindowButtonMotionFcn/datacursormode.
             // Sin hoverdata: sin tooltip, sin listener, cursor normal. Mismo script, mismo
             // comportamiento (el Lab ya NO inventa hover en mallas coloreadas).
-            bool hoverOn = _hoverVals != null;
+            bool hoverOn = _hoverVals != null || faces.Count > 0;   // malla coloreada -> hover automático (antes exigía hoverdata())
             var sb = new StringBuilder();
-            sb.Append("<div style=\"position:relative;display:inline-block;font-family:sans-serif\">");
+            sb.Append("<div style=\"display:inline-block;font-family:sans-serif\">");
             sb.Append($"<div style=\"text-align:center;font-size:14px;margin:3px\">{EscapeXml(_figTitle)}</div>");
-            sb.Append($"<canvas id=\"cv{id}\" width=\"{width}\" height=\"{height}\" style=\"border:1px solid #ccc;background:#fff;cursor:{(hoverOn ? "crosshair" : "default")}\"></canvas>");
+            // El CAMPO = el MISMO PNG del estático (SkiaSharp, Gouraud real, nítido 2×) como <img>
+            // NATIVO -> idéntico al estático, sin re-render en JS. El canvas va TRANSPARENTE encima,
+            // solo para el crosshair del cursor. Antes el canvas re-dibujaba un Gouraud aproximado
+            // (colorbar jet, etiquetas hardcodeadas) que no se parecía al estático.
+            sb.Append($"<div style=\"position:relative;width:{width}px;height:{height}px\">");
+            sb.Append($"<img src=\"data:image/png;base64,{fieldB64}\" style=\"width:{width}px;height:{height}px;display:block;border:1px solid #ccc\"/>");
+            sb.Append($"<canvas id=\"cv{id}\" width=\"{width * 2}\" height=\"{height * 2}\" style=\"position:absolute;top:0;left:0;width:{width}px;height:{height}px;cursor:{(hoverOn ? "crosshair" : "default")}\"></canvas>");
             if (hoverOn)
                 sb.Append($"<div id=\"tt{id}\" style=\"position:absolute;pointer-events:none;display:none;background:rgba(15,15,22,.92);color:#fff;font:11px monospace;padding:5px 8px;border-radius:4px;white-space:pre;z-index:20\"></div>");
-            sb.Append("</div>\n<script>(function(){\n");
+            sb.Append("</div></div>\n<script>(function(){\n");
             double cmin, cmax;
             if (!TryGetCAxis(out cmin, out cmax))
             {
@@ -2324,11 +2417,12 @@ if(window.THREE&&THREE.OrbitControls){go();}else{var s1=document.createElement("
             }
             sb.Append($"var P={pj},VC={vcb},L={lj},HL={hlJs},SHOWMESH={(_figBandN > 0 ? "false" : "true")},bb=[{xmin.ToString("0.##", Inv)},{ymin.ToString("0.##", Inv)},{xmax.ToString("0.##", Inv)},{ymax.ToString("0.##", Inv)}],cmin={cmin.ToString("0.####", Inv)},cmax={cmax.ToString("0.####", Inv)};\n");
             sb.Append($"var cv=document.getElementById('cv{id}'),ctx=cv.getContext('2d'),tt=document.getElementById('tt{id}');\n");
-            sb.Append(@"var W=cv.width,H=cv.height,padL=58,padR=98,padT=10,padB=42;
-var pw=W-padL-padR,ph=H-padT-padB;
-var s=Math.min(pw/(bb[2]-bb[0]),ph/(bb[3]-bb[1]));
-var ox=padL+(pw-s*(bb[2]-bb[0]))/2, oyt=padT+(ph-s*(bb[3]-bb[1]))/2;
-function TX(x){return ox+(x-bb[0])*s;}function TY(y){return oyt+(bb[3]-y)*s;}
+            sb.Append("ctx.setTransform(2,0,0,2,0,0);\n");   // high-DPI: backing 2×, contexto escalado -> dibujo en coords lógicas sale nítido
+            sb.Append($"var W={width},H={height};\n");
+            // Mapeo dato->pixel EXACTO del PNG (para alinear crosshair y lectura de valor con el campo).
+            sb.Append($"var FB='data:image/png;base64,{fieldB64}';\n");
+            sb.Append($"var MOX={mOX.ToString("0.###", Inv)},MOY={mOY.ToString("0.###", Inv)},MSX={mSX.ToString("0.#####", Inv)},MSY={mSY.ToString("0.#####", Inv)},MX0={mX0.ToString("0.#####", Inv)},MY0={mY0.ToString("0.#####", Inv)},MH={mH.ToString("0.###", Inv)};\n");
+            sb.Append(@"function TX(x){return MOX+(x-MX0)*MSX;}function TY(y){return MH-MOY-(y-MY0)*MSY;}
 function jet(t){t=Math.max(0,Math.min(1,t));var r=Math.min(4*t-1.5,-4*t+4.5),g=Math.min(4*t-0.5,-4*t+3.5),b=Math.min(4*t+0.5,-4*t+2.5);return 'rgb('+((255*Math.max(0,Math.min(1,r)))|0)+','+((255*Math.max(0,Math.min(1,g)))|0)+','+((255*Math.max(0,Math.min(1,b)))|0)+')';}
 function ticks(lo,hi){var r=(hi-lo)/6,p=Math.pow(10,Math.floor(Math.log(r)/Math.LN10)),n=r/p,st=(n<1.5?1:n<3?2:n<7?5:10)*p,t=[],v=Math.ceil(lo/st-1e-9)*st;for(;v<=hi+1e-9;v+=st)t.push(v);return t;}
 // Gouraud REAL por triangulo (FaceColor='interp' de MATLAB): color interpolado por
@@ -2349,45 +2443,21 @@ function gour(p,vc){
  vgrad(x1,y1,vc[1],x2,y2,x0,y0,mnx,mny,mw,mh);
  vgrad(x2,y2,vc[2],x0,y0,x1,y1,mnx,mny,mw,mh);
  ctx.globalCompositeOperation=pc;ctx.restore();}
-function draw(){ctx.clearRect(0,0,W,H);
- for(var k=0;k<P.length;k++){var p=P[k][0];
-  if(VC&&VC[k]&&p.length>=6){gour(p,VC[k]);}
-  else{ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.closePath();
-   ctx.fillStyle=P[k][1];ctx.fill();
-   // trazo del MISMO color = tapa las costuras anti-alias entre polígonos de banda (bandas limpias)
-   ctx.strokeStyle=P[k][1];ctx.lineWidth=.7;ctx.stroke();}
-  if(SHOWMESH){ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.closePath();
-  ctx.strokeStyle='rgba(0,0,0,.13)';ctx.lineWidth=.3;ctx.stroke();}}
- for(var k=0;k<L.length;k++){var p=L[k][0];ctx.beginPath();ctx.moveTo(TX(p[0]),TY(p[1]));
-  for(var i=2;i<p.length;i+=2)ctx.lineTo(TX(p[i]),TY(p[i+1]));ctx.strokeStyle=L[k][1];ctx.lineWidth=1.6;ctx.stroke();}
- var y0=TY(bb[1]),y1=TY(bb[3]);
- ctx.strokeStyle='#333';ctx.lineWidth=1;ctx.fillStyle='#222';ctx.font='11px sans-serif';
- ctx.beginPath();ctx.moveTo(padL,y0);ctx.lineTo(W-padR,y0);ctx.moveTo(padL,y1);ctx.lineTo(padL,y0);ctx.stroke();
- ctx.textAlign='center';ctx.textBaseline='top';
- var xt=ticks(bb[0],bb[2]);for(var i=0;i<xt.length;i++){var X=TX(xt[i]);if(X<padL-1||X>W-padR+1)continue;ctx.beginPath();ctx.moveTo(X,y0);ctx.lineTo(X,y0+4);ctx.stroke();ctx.fillText(xt[i].toFixed(0),X,y0+6);}
- ctx.fillText('x (mm)',(padL+W-padR)/2,H-15);
- ctx.textAlign='right';ctx.textBaseline='middle';
- var yt=ticks(bb[1],bb[3]);for(var i=0;i<yt.length;i++){var Y=TY(yt[i]);if(Y<padT-1||Y>y0+1)continue;ctx.beginPath();ctx.moveTo(padL-4,Y);ctx.lineTo(padL,Y);ctx.stroke();ctx.fillText(yt[i].toFixed(0),padL-6,Y);}
- ctx.save();ctx.translate(13,padT+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('y (mm)',0,0);ctx.restore();
- var cbx=W-padR+22,cbw=16,cby=padT+4,cbh=ph-8;
- for(var i=0;i<cbh;i++){ctx.fillStyle=jet(1-i/cbh);ctx.fillRect(cbx,cby+i,cbw,1);}
- ctx.strokeStyle='#333';ctx.strokeRect(cbx,cby,cbw,cbh);
- ctx.fillStyle='#222';ctx.textAlign='left';ctx.textBaseline='middle';
- var ct=ticks(cmin,cmax);for(var i=0;i<ct.length;i++){var fr=(ct[i]-cmin)/(cmax-cmin);if(fr<-1e-6||fr>1.000001)continue;var Y=cby+cbh*(1-fr);ctx.beginPath();ctx.moveTo(cbx+cbw,Y);ctx.lineTo(cbx+cbw+3,Y);ctx.stroke();ctx.fillText(ct[i].toFixed(2),cbx+cbw+5,Y);}
- ctx.save();ctx.translate(W-8,padT+ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('DAMAGET',0,0);ctx.restore();}
+function draw(cx,cy){ctx.clearRect(0,0,W,H);if(cx!=null){ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=.6;ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,H);ctx.moveTo(0,cy);ctx.lineTo(W,cy);ctx.stroke();}}
 draw();
 function pip(px,py,p){var ins=false,n=p.length/2;for(var i=0,j=n-1;i<n;j=i++){var xi=p[2*i],yi=p[2*i+1],xj=p[2*j],yj=p[2*j+1];if(((yi>py)!=(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))ins=!ins;}return ins;}
 ");
             if (hoverOn)
                 sb.Append(@"cv.addEventListener('mousemove',function(ev){var r=cv.getBoundingClientRect();var mx=ev.clientX-r.left,my=ev.clientY-r.top;
- var dx=bb[0]+(mx-ox)/s,dy=bb[3]-(my-oyt)/s,hit=-1;
+ draw(mx,my);
+ var dx=MX0+(mx-MOX)/MSX,dy=MY0+(MH-MOY-my)/MSY,hit=-1;
  for(var k=0;k<P.length;k++){if(pip(dx,dy,P[k][0])){hit=k;break;}}
  if(hit<0){tt.style.display='none';return;}
  var e=P[hit],t='x = '+dx.toFixed(0)+' mm\ny = '+dy.toFixed(0)+' mm';
  if(HL&&e.length>3){for(var q=0;q<HL.length;q++)t+='\n'+HL[q]+' = '+e[3][q].toPrecision(4);}else t+='\nvalor = '+e[2].toFixed(3);
  tt.textContent=t;
  tt.style.display='block';var tx=mx+14;if(tx+120>W)tx=mx-125;tt.style.left=tx+'px';tt.style.top=Math.max(2,my-10)+'px';});
-cv.addEventListener('mouseleave',function(){tt.style.display='none';});
+cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
 ");
             sb.Append("})();</script>\n");
             if (!keepState)
@@ -2469,7 +2539,12 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
             foreach (var m in _retList)
             {
                 if (m.Faces == null || m.Verts == null) continue;
-                bool hasC = m.CData != null && m.CData.Length >= m.Faces.Length;
+                // CData válido si es POR-VÉRTICE (length = nVerts) o POR-CARA (length = nFaces).
+                // BUG antiguo: `>= nFaces` fallaba cuando hay MÁS caras que vértices (p.ej. un T6
+                // sub-triangulado en 4 -> 1148 caras vs 815 vértices) -> se iba a NEGRO. MATLAB
+                // acepta FaceVertexCData por-vértice sin importar el nº de caras.
+                bool hasC = m.CData != null &&
+                            (m.CData.Length == m.Verts.Length || m.CData.Length == m.Faces.Length);
                 double clo = 0, chi = 1;
                 if (hasC && !TryGetCAxis(out clo, out chi))
                 {
@@ -2503,8 +2578,13 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
                             CmapRgb((cv[1]-clo)/(chi-clo)),
                             CmapRgb((cv[2]-clo)/(chi-clo))
                         };
+                        var vvals = new[] {                          // valor normalizado por vértice
+                            (float)((cv[0]-clo)/(chi-clo)),
+                            (float)((cv[1]-clo)/(chi-clo)),
+                            (float)((cv[2]-clo)/(chi-clo))
+                        };
                         double avg = (cv[0]+cv[1]+cv[2]) / 3.0;
-                        Patch2DGouraud(xs, ys, vcols, CmapCss((avg-clo)/(chi-clo)), m.Edge, m.Alpha, m.Lw, avg);
+                        Patch2DGouraud(xs, ys, vcols, vvals, CmapCss((avg-clo)/(chi-clo)), m.Edge, m.Alpha, m.Lw, avg);
                     }
                     else
                     {
@@ -2594,13 +2674,13 @@ cv.addEventListener('mouseleave',function(){tt.style.display='none';});
         /// = promedio (fallback plano para el PNG/SVG). No añade traza Plotly (287 trazas sería pesado
         /// y estas caras se dibujan por el canvas interactivo / SkiaSharp desde _figPrims).</summary>
         private static void Patch2DGouraud(double[] xs, double[] ys, string[] vertCols,
-                                           string avgColor, string edge, double alpha, double lw, double val)
+                                           float[] vertVals, string avgColor, string edge, double alpha, double lw, double val)
         {
             if (_figPrims == null) _figPrims = new System.Collections.Generic.List<FigPrim>();
             _figPrims.Add(new FigPrim {
                 Kind = "patch2d", Xs = (double[])xs.Clone(), Ys = (double[])ys.Clone(),
                 FaceColor = avgColor, EdgeColor = edge, FaceAlpha = alpha, LineWidth = lw, Val = val,
-                VertCols = vertCols
+                VertCols = vertCols, VertVals = vertVals
             });
         }
         /// <summary>Gouraud aproximado en SVG: subdivide el triangulo (a,b,c) con valores nodales

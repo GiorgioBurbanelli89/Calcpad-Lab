@@ -228,6 +228,7 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MJitScatterAdd = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAdd));
         internal static readonly MethodInfo MJitScatterAssign = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAssign));
         internal static readonly MethodInfo MJitScatterAddInPlace = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAddInPlace));
+        internal static readonly MethodInfo MJitScatterAdd2InPlace = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitScatterAdd2InPlace));
         internal static readonly MethodInfo MJitColSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitColSlice));
         internal static readonly MethodInfo MJitRowSlice   = typeof(MatlabEvaluator).GetMethod(nameof(MatlabEvaluator.JitRowSlice));
         internal static readonly ConstructorInfo CMValueScalar = typeof(MValue).GetConstructor(new[] { typeof(double) });
@@ -1095,6 +1096,32 @@ namespace Calcpad.Core.Matlab
                             var scattered = Expression.Call(JitCtx.MJitScatterAssign, dstV, idxV, valsV);
                             return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar,
                                 Expression.Constant(matIdent.Name), scattered);
+                        }
+                        // ENSAMBLAJE FEM: K(g,g) = K(g,g) + ke, con los DOS indices
+                        // vectoriales y un bloque de matriz al otro lado. Es el patron de
+                        // todo ensamblaje; sin esta rama caia al camino escalar de abajo,
+                        // que con una matriz 4x4 devuelve null y rinde el bucle entero.
+                        if (tgtCall.Args.Count == 2
+                            && InferKind(tgtCall.Args[0], cc) == TKind.Matrix
+                            && InferKind(tgtCall.Args[1], cc) == TKind.Matrix
+                            && a.Rhs is BinaryOp badd2 && badd2.Op == "+")
+                        {
+                            MatlabNode other2 = null;
+                            if (IsSameIndexed(badd2.Left, matIdent.Name, tgtCall.Args)) other2 = badd2.Right;
+                            else if (IsSameIndexed(badd2.Right, matIdent.Name, tgtCall.Args)) other2 = badd2.Left;
+                            if (other2 != null)
+                            {
+                                var riE = ConvertExprAsKind(tgtCall.Args[0], cc, TKind.Matrix);
+                                var ciE = ConvertExprAsKind(tgtCall.Args[1], cc, TKind.Matrix);
+                                var addE2 = ConvertExprAsKind(other2, cc, TKind.Matrix);
+                                if (riE != null && ciE != null && addE2 != null)
+                                {
+                                    var dst2 = Expression.Call(cc.CtxParam, JitCtx.MGetMatVar, Expression.Constant(matIdent.Name));
+                                    var acc2 = Expression.Call(JitCtx.MJitScatterAdd2InPlace, dst2, riE, ciE, addE2);
+                                    return Expression.Call(cc.CtxParam, JitCtx.MSetMatVar,
+                                        Expression.Constant(matIdent.Name), acc2);
+                                }
+                            }
                         }
                         var rhs = ConvertExprAsKind(a.Rhs, cc, TKind.Scalar);
                         if (rhs == null) return null;
