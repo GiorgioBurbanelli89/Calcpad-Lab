@@ -454,6 +454,26 @@ namespace Calcpad.Core.Matlab
             // y los renderiza como Markdown (encabezados #/##, **negrita**, *cursiva*,
             // tablas |...|, listas -). El codigo entre medias se ejecuta igual.
             bool mdMode = false;
+            bool insideDeqBlock = false;   // bloque de ecuaciones: %#deq … %#endeq
+            // Contadores para elementos tipo LIBRO (auto-numerados): citas [N], figuras, tablas, notas.
+            int refCounter = 0, figCounter = 0, tabCounter = 0, notaCounter = 0;
+            // Emite UNA ecuacion #deq (usado por la forma de una linea y por el bloque %#deq…%#endeq).
+            void EmitDeqLine(string body, int line)
+            {
+                string label = null;
+                int at = body.IndexOf("@@", System.StringComparison.Ordinal);
+                if (at >= 0)
+                {
+                    label = body[(at + 2)..].Trim();
+                    if (label.StartsWith("(") && label.EndsWith(")")) label = label[1..^1].Trim();
+                    body = body[..at].Trim();
+                }
+                var eqHtml = MatlabHtmlWriter.RenderEquation(body);
+                if (label != null)
+                    sb.Append($"<p class=\"line\" id=\"line-{line}\" style=\"display:flex;justify-content:space-between;align-items:center;margin:.45em 0\"><span class=\"eq\">{eqHtml}</span><span style=\"font-family:Georgia,serif;color:#555;margin-left:2em;white-space:nowrap\">({System.Net.WebUtility.HtmlEncode(label)})</span></p>\n");
+                else
+                    sb.Append($"<p class=\"line\" id=\"line-{line}\" style=\"text-align:center;margin:.45em 0\"><span class=\"eq\">{eqHtml}</span></p>\n");
+            }
             var mdBuf = new System.Collections.Generic.List<string>();
             void FlushMd()
             {
@@ -486,6 +506,18 @@ namespace Calcpad.Core.Matlab
                     // Bloque Markdown: #md abre (o cierra si ya estaba), #endmd cierra.
                     if (dt0 == "#md")    { if (mdMode) FlushMd(); else { mdMode = true; mdBuf.Clear(); } continue; }
                     if (dt0 == "#endmd") { FlushMd(); continue; }
+                    // Bloque de ECUACIONES: `%#deq` solo (sin ecuacion) abre; `%#endeq`/`%#end deq` cierra.
+                    // Adentro, cada linea de comentario `%ecuacion @@(n)` se renderiza como #deq.
+                    if (dt0 == "#deq") { insideDeqBlock = true; continue; }
+                    if (dt0 == "#endeq" || dt0 == "#end deq") { insideDeqBlock = false; continue; }
+                }
+
+                // Dentro del bloque de ecuaciones: cada comentario es una ecuacion (sin repetir #deq).
+                if (insideDeqBlock && stmt is CommentStmt cdeqBlk && !cdeqBlk.IsHeading)
+                {
+                    var eqLine = cdeqBlk.Text.Trim();
+                    if (eqLine.Length > 0) { EmitDeqLine(eqLine, stmtLine); lastEmittedPLine = stmtLine; }
+                    continue;
                 }
 
                 // En modo Markdown: los comentarios se acumulan; cualquier statement
@@ -586,6 +618,11 @@ namespace Calcpad.Core.Matlab
                                    || ct.StartsWith("#pgb")   // % #pgb → salto de pagina (impresion/PDF)
                                    || ct.StartsWith("#margen")// % #margen [N] / #endmargen → bloque con margenes justificado
                                    || ct.StartsWith("#endmargen")
+                                   || ct.StartsWith("#cita")  // % #cita ... → entrada de bibliografia [N] auto-numerada
+                                   || ct.StartsWith("#fig")   // % #fig ... → pie de figura "Figura N. ..."
+                                   || ct.StartsWith("#tab")   // % #tab ... → pie de tabla "Tabla N. ..."
+                                   || ct.StartsWith("#nota")  // % #nota ... → nota al pie (pequena)
+                                   || ct.StartsWith("#ref")   // % #ref ... → referencia cruzada "(ver ...)"
                                    // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
                                    // renderiza en modo #equ). Antes quedaba oculto pese a que
                                    // ParseDirective lo soporta; así funcionan con solo `% $Op{...}`.
@@ -719,20 +756,7 @@ namespace Calcpad.Core.Matlab
                         else if (stmt is CommentStmt cdeq && !cdeq.IsHeading && !isInlineComment
                             && cdeq.Text.TrimStart().StartsWith("#deq", System.StringComparison.OrdinalIgnoreCase))
                         {
-                            var body = cdeq.Text.TrimStart().Substring(4).Trim();
-                            string label = null;
-                            int at = body.IndexOf("@@", System.StringComparison.Ordinal);
-                            if (at >= 0)
-                            {
-                                label = body[(at + 2)..].Trim();
-                                if (label.StartsWith("(") && label.EndsWith(")")) label = label[1..^1].Trim();
-                                body = body[..at].Trim();
-                            }
-                            var eqHtml = MatlabHtmlWriter.RenderEquation(body);
-                            if (label != null)
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"display:flex;justify-content:space-between;align-items:center;margin:.45em 0\"><span class=\"eq\">{eqHtml}</span><span style=\"font-family:Georgia,serif;color:#555;margin-left:2em;white-space:nowrap\">({System.Net.WebUtility.HtmlEncode(label)})</span></p>\n");
-                            else
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"text-align:center;margin:.45em 0\"><span class=\"eq\">{eqHtml}</span></p>\n");
+                            EmitDeqLine(cdeq.Text.TrimStart().Substring(4).Trim(), stmtLine);
                             lastEmittedPLine = stmtLine;
                         }
                         // % #col a ; b ; c   (o #inl) → COLUMNAS: fila flex de celdas iguales
@@ -793,6 +817,50 @@ namespace Calcpad.Core.Matlab
                             var mbody = cmar.Text.TrimStart().Substring(7).Trim();
                             var mv = string.IsNullOrEmpty(mbody) ? "15" : mbody;
                             sb.Append($"<div style=\"margin:0 auto;padding:5mm {mv}mm;max-width:calc(190mm - {mv}mm - {mv}mm);text-align:justify;line-height:160%\">\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #cita TEXTO → entrada de bibliografia [N] (auto-numerada, sangria colgante).
+                        else if (stmt is CommentStmt ccita && !ccita.IsHeading && !isInlineComment
+                            && ccita.Text.TrimStart().StartsWith("#cita", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var txt = System.Net.WebUtility.HtmlEncode(ccita.Text.TrimStart().Substring(5).Trim());
+                            refCounter++;
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"text-indent:-2.2em;margin-left:2.2em;font-family:Georgia,serif;font-size:.93em;color:#333\">[{refCounter}]&ensp;{txt}</p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #fig TEXTO → pie de figura "Figura N. TEXTO" (centrado, auto-numerado).
+                        else if (stmt is CommentStmt cfig && !cfig.IsHeading && !isInlineComment
+                            && cfig.Text.TrimStart().StartsWith("#fig", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var txt = System.Net.WebUtility.HtmlEncode(cfig.Text.TrimStart().Substring(4).Trim());
+                            figCounter++;
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"text-align:center;font-size:.9em;color:#444;margin:.3em 0\"><b>Figura {figCounter}.</b>&ensp;{txt}</p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #tab TEXTO → pie de tabla "Tabla N. TEXTO" (auto-numerado).
+                        else if (stmt is CommentStmt ctab && !ctab.IsHeading && !isInlineComment
+                            && ctab.Text.TrimStart().StartsWith("#tab", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var txt = System.Net.WebUtility.HtmlEncode(ctab.Text.TrimStart().Substring(4).Trim());
+                            tabCounter++;
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"text-align:center;font-size:.9em;color:#444;margin:.3em 0\"><b>Tabla {tabCounter}.</b>&ensp;{txt}</p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #nota TEXTO → nota al pie (pequena, con marcador superindice N).
+                        else if (stmt is CommentStmt cnota && !cnota.IsHeading && !isInlineComment
+                            && cnota.Text.TrimStart().StartsWith("#nota", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var txt = System.Net.WebUtility.HtmlEncode(cnota.Text.TrimStart().Substring(5).Trim());
+                            notaCounter++;
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"font-size:.82em;color:#555;margin:.15em 0\"><sup>{notaCounter}</sup>&thinsp;{txt}</p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #ref TEXTO → referencia cruzada "(ver TEXTO)" (ej. ver Ec. (2.1), pag. 5).
+                        else if (stmt is CommentStmt cref && !cref.IsHeading && !isInlineComment
+                            && cref.Text.TrimStart().StartsWith("#ref", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var txt = System.Net.WebUtility.HtmlEncode(cref.Text.TrimStart().Substring(4).Trim());
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"font-style:italic;color:#555\">(ver {txt})</p>\n");
                             lastEmittedPLine = stmtLine;
                         }
                         else if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
