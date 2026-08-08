@@ -509,7 +509,12 @@ namespace Calcpad.Core.Matlab
                 //                       Calcpad; se muestra sin el apóstrofo).
                 // Los comentarios en su PROPIA línea no se ven afectados por esto.
                 bool inlineShown = isInlineComment
-                                   && ((CommentStmt)stmt).Text.TrimStart().StartsWith("'");
+                                   && (((CommentStmt)stmt).Text.TrimStart().StartsWith("'")
+                                       // Numeración de ecuación sobre la línea REAL:  x = k*u  %#deq@@(2.1)
+                                       // (o simplemente %@@(2.1)). La ecuación se calcula normal y el
+                                       // número se pega a la derecha, sin re-escribir la ecuación.
+                                       || ((CommentStmt)stmt).Text.TrimStart().StartsWith("#deq")
+                                       || ((CommentStmt)stmt).Text.TrimStart().StartsWith("@@"));
                 if (isInlineComment && (prevWasSuppressed || !inlineShown))
                 {
                     // Oculto: skipear sin ejecutar ni alterar el tracking
@@ -577,6 +582,10 @@ namespace Calcpad.Core.Matlab
                                    || ct.StartsWith("#img")   // % #img <data-uri|ruta> → imagen incrustada (recorte pegado)
                                    || ct.StartsWith("#deq")   // % #deq ecuacion @@(numero) → ecuacion numerada tipo libro
                                    || ct.StartsWith("#col") || ct.StartsWith("#inl")  // % #col a ; b ; c → columnas
+                                   || ct.StartsWith("#cen")   // % #cen texto/ecuacion → centrado
+                                   || ct.StartsWith("#pgb")   // % #pgb → salto de pagina (impresion/PDF)
+                                   || ct.StartsWith("#margen")// % #margen [N] / #endmargen → bloque con margenes justificado
+                                   || ct.StartsWith("#endmargen")
                                    // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
                                    // renderiza en modo #equ). Antes quedaba oculto pese a que
                                    // ParseDirective lo soporta; así funcionan con solo `% $Op{...}`.
@@ -752,6 +761,40 @@ namespace Calcpad.Core.Matlab
                             sb.Append(cb);
                             lastEmittedPLine = stmtLine;
                         }
+                        // % #cen texto/ecuacion → CENTRADO. Celda con `'` = texto; sin `'` = ecuacion.
+                        else if (stmt is CommentStmt ccen && !ccen.IsHeading && !isInlineComment
+                            && ccen.Text.TrimStart().StartsWith("#cen", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var body = ccen.Text.TrimStart().Substring(4).Trim();
+                            string inner = body.StartsWith("'")
+                                ? System.Net.WebUtility.HtmlEncode(body[1..].Trim())
+                                : $"<span class=\"eq\">{MatlabHtmlWriter.RenderEquation(body)}</span>";
+                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"text-align:center;margin:.45em 0\">{inner}</p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #pgb → SALTO DE PAGINA (para impresion / PDF).
+                        else if (stmt is CommentStmt cpgb && !cpgb.IsHeading && !isInlineComment
+                            && cpgb.Text.TrimStart().StartsWith("#pgb", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            sb.Append("<div class=\"pgb\" style=\"page-break-after:always;break-after:page;height:0\"></div>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #endmargen → cierra el bloque de margenes.
+                        else if (stmt is CommentStmt cendm && !cendm.IsHeading && !isInlineComment
+                            && cendm.Text.TrimStart().StartsWith("#endmargen", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            sb.Append("</div>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #margen [N] → abre bloque con margenes de N mm (default 15), texto justificado.
+                        else if (stmt is CommentStmt cmar && !cmar.IsHeading && !isInlineComment
+                            && cmar.Text.TrimStart().StartsWith("#margen", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var mbody = cmar.Text.TrimStart().Substring(7).Trim();
+                            var mv = string.IsNullOrEmpty(mbody) ? "15" : mbody;
+                            sb.Append($"<div style=\"margin:0 auto;padding:5mm {mv}mm;max-width:calc(190mm - {mv}mm - {mv}mm);text-align:justify;line-height:160%\">\n");
+                            lastEmittedPLine = stmtLine;
+                        }
                         else if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
                             && TryRenderCalcpadDirective(cdir.Text, stmtLine, out var directiveHtml))
                         {
@@ -774,10 +817,24 @@ namespace Calcpad.Core.Matlab
                             var csInline2 = (CommentStmt)stmt;
                             // Quitar el marcador `'` inicial (Calcpad: `'` = texto, no se muestra).
                             var inlineText = csInline2.Text.TrimStart();
+                            // NÚMERO DE ECUACIÓN inline: `x = k*u  %#deq@@(2.1)` (o `%@@(2.1)`).
+                            // La ecuación ya se calculó/renderizó; aquí solo se pega el número a
+                            // la DERECHA de esa misma línea (float:right), sin re-escribirla.
+                            var inlNum = inlineText;
+                            if (inlNum.StartsWith("#deq")) inlNum = inlNum.Substring(4).Trim();
+                            string eqNumInline = null;
+                            if (inlNum.StartsWith("@@"))
+                            {
+                                eqNumInline = inlNum.Substring(2).Trim();
+                                if (eqNumInline.StartsWith("(") && eqNumInline.EndsWith(")")) eqNumInline = eqNumInline[1..^1].Trim();
+                            }
                             if (inlineText.StartsWith("'")) inlineText = inlineText[1..];
                             var encodedText = System.Net.WebUtility.HtmlEncode(inlineText);
                             // Comentario en NEGRO como el texto `'...` de Calcpad puro (no verde).
-                            var captionSpan = $"<span style=\"margin-left:1.5em\">{encodedText}</span>";
+                            // Si es número de ecuación → span flotado a la derecha; si no → caption normal.
+                            var captionSpan = eqNumInline != null
+                                ? $"<span style=\"float:right;font-family:Georgia,serif;color:#555;margin-left:2em\">({System.Net.WebUtility.HtmlEncode(eqNumInline)})</span>"
+                                : $"<span style=\"margin-left:1.5em\">{encodedText}</span>";
                             const string closeTag = "</p>\n";
                             // Streaming mode tambien permite esta mutacion porque el chunk
                             // se difiere hasta el cambio de linea-fuente (ver loop principal):
