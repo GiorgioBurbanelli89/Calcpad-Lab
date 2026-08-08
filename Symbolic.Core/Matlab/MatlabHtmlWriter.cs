@@ -752,6 +752,17 @@ namespace Calcpad.Core.Matlab
         /// <summary>Activar/desactivar rendering pretty-print (fracciones, raíces, exponentes).</summary>
         public static bool PrettyMath = true;
 
+        /// <summary>Envuelve `inner` en paréntesis. Si el contenido es ALTO (contiene una
+        /// fracción vertical .dvc), los paréntesis se ESCALAN verticalmente para envolver toda
+        /// la fracción (como en un libro), en vez de quedar chiquitos al lado.</summary>
+        private static string ParenWrap(string inner)
+        {
+            if (!inner.Contains("class=\"dvc\"")) return "(" + inner + ")";
+            static string P(string ch) =>
+                $"<span style=\"display:inline-block;transform:scaleY(1.7);vertical-align:middle;font-weight:400\">{ch}</span>";
+            return P("(") + inner + P(")");
+        }
+
         private static string RenderBinary(BinaryOp b)
         {
             // Pretty-print: a/b → fracción vertical; a^b → superíndice; sqrt → raíz
@@ -768,7 +779,7 @@ namespace Calcpad.Core.Matlab
                 {
                     string baseStr;
                     if (b.Left is BinaryOp || (b.Left is UnaryOp u_l && u_l.IsPrefix))
-                        baseStr = "(" + RenderExpression(b.Left) + ")";
+                        baseStr = ParenWrap(RenderExpression(b.Left));
                     else baseStr = RenderExpression(b.Left);
                     var expStr = RenderExpression(b.Right);
                     return $"{baseStr}<sup>{expStr}</sup>";
@@ -784,10 +795,10 @@ namespace Calcpad.Core.Matlab
                     bool needParens = childPrec < myPrec ||
                                        (childPrec == myPrec && rightAssoc && b.Op != "^" && b.Op != ".^");
                     var s = RenderExpression(cb);
-                    return needParens ? $"({s})" : s;
+                    return needParens ? ParenWrap(s) : s;
                 }
                 if (child is UnaryOp u && u.IsPrefix && u.Op == "-" && (b.Op == "^" || b.Op == ".^"))
-                    return $"({RenderExpression(u)})";
+                    return ParenWrap(RenderExpression(u));
                 return RenderExpression(child);
             }
             var l = Render(b.Left, rightAssoc: false);
