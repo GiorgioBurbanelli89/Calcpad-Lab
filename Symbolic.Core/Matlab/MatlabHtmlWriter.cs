@@ -594,7 +594,7 @@ namespace Calcpad.Core.Matlab
         // la letra queda a la derecha del centro de la caja → sin esto el acento sale corrido a la izq).
         private static string Over(string acc, string inner) =>
             $"<span style=\"display:inline-block;position:relative;text-align:center;\">{inner}"
-          + $"<span style=\"position:absolute;left:0;right:0;top:-.60em;font-size:.72em;font-style:normal;font-weight:400;line-height:1;transform:translateX(.09em);\">{acc}</span></span>";
+          + $"<span style=\"position:absolute;left:0;right:0;top:-.42em;font-size:.72em;font-style:normal;font-weight:400;line-height:1;transform:translateX(.09em);\">{acc}</span></span>";
         // token de decoracion-sufijo -> función que envuelve el inner ya renderizado.
         private static readonly (string tok, System.Func<string, string> wrap)[] _decos =
         {
