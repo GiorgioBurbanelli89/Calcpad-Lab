@@ -925,7 +925,24 @@ namespace Calcpad.Core.Matlab
                     var valExpr = RenderExpression(c.Args[2]);
                     return $"{fExpr}<sub>|&thinsp;{vExpr}={valExpr}</sub>";
                 }
-                // solve(f, x) -> {x : f=0} o solve sin notacion especial (mantener call style)
+                // solve(expr, x) -> notacion de LIBRO (sin la palabra "solve"): muestra la
+                // ecuacion normal y una flecha ⟹ hacia la variable despejada. El " = valor" lo
+                // agrega la rama symbolicCall despues. Ej:
+                //   ρ·b·d = As  ⟹  As   (+ " = b·d·ρ")
+                //   0.85·fc·Ag + As·(fy-0.85·fc) = Pn  ⟹  Ag   (+ " = ...")
+                if (fname == "solve" && c.Args.Count >= 2)
+                {
+                    string eq;
+                    if (c.Args[0] is BinaryOp beq && beq.Op == "==")
+                        eq = $"{RenderExpression(beq.Left)} = {RenderExpression(beq.Right)}";
+                    else if (c.Args[0] is BinaryOp bsub && bsub.Op == "-")
+                        // expr = A - B = 0  ->  mostrar  A = B  (ecuacion normal del libro)
+                        eq = $"{RenderExpression(bsub.Left)} = {RenderExpression(bsub.Right)}";
+                    else
+                        eq = $"{RenderExpression(c.Args[0])} = 0";
+                    var vr = RenderExpression(c.Args[1]);
+                    return $"{eq}&emsp;<span style=\"color:#7c2bb2;font-weight:600\">⟹</span>&ensp;{vr}";
+                }
             }
             // Pretty-print de funciones especiales: sqrt → símbolo √ con vinculum
             if (PrettyMath && c.Target is IdentRef pid && c.Args.Count == 1)
