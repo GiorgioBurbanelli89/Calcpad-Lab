@@ -536,8 +536,8 @@ namespace Calcpad.Core.Matlab
                 {
                     var ct = csHide.Text.TrimStart();
                     // `%%` (SectionHeading) es como en MATLAB: comentario de sección OCULTO,
-                    // no produce salida. Para texto/título VISIBLE se usa `%' texto`.
-                    bool visible = ct.StartsWith("'")
+                    // no produce salida. Texto/línea VISIBLE = `%' …`; TÍTULO VISIBLE = `%" …`.
+                    bool visible = ct.StartsWith("'") || ct.StartsWith("\"")
                                    || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ")
                                    || ct.StartsWith("#img")   // % #img <data-uri|ruta> → imagen incrustada (recorte pegado)
                                    // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
@@ -554,35 +554,33 @@ namespace Calcpad.Core.Matlab
                         // el ExpressionParser de Calcpad-puro. MATLAB 2017a la ignora
                         // (comentario); acá enriquece el reporte sin tocar números.
                         if (stmt is CommentStmt csCap && !csCap.IsHeading && !isInlineComment
-                            && csCap.Text.TrimStart().StartsWith("'"))
+                            && (csCap.Text.TrimStart().StartsWith("'") || csCap.Text.TrimStart().StartsWith("\"")))
                         {
-                            // % 'texto en LINEA PROPIA -> texto visible, sin el apostrofo.
-                            var capText = csCap.Text.TrimStart();
-                            capText = capText.Length > 1 ? capText.Substring(1) : "";
+                            // Marcadores de comentario visible (esquema pedido por Jorge):
+                            //   %"  Titulo        -> TITULO centrado (negrita, color acento)
+                            //   %'  ----- (solo guiones/iguales >=2) -> LINEA divisoria
+                            //   %'  texto         -> texto normal (aunque empiece con guiones+texto)
+                            // El apostrofo/comilla inicial NO se muestra (marcador, como en Calcpad).
+                            var capRaw = csCap.Text.TrimStart();
+                            char marker = capRaw[0];                       // ' o "
+                            var capText = capRaw.Length > 1 ? capRaw.Substring(1) : "";
                             var capTrim = capText.Trim();
-                            // REGLA de seccion COMPONIBLE (como pidio Jorge). Se arma con lineas y
-                            // titulo por separado, p.ej.:
-                            //     %'---            -> linea divisoria (solo guiones/iguales, >=2)
-                            //     %'-- Titulo --   -> titulo centrado (negrita, acento; sin bordes)
-                            //     %'---            -> otra linea
-                            // El texto del titulo se escapa (permite ∑, ∏, ∫…).
-                            bool onlyRule = System.Text.RegularExpressions.Regex.IsMatch(capTrim, @"^[-=]{2,}$");
-                            var titleM = System.Text.RegularExpressions.Regex.Match(capTrim, @"^[-=]{2,}\s*(.+?)\s*[-=]{2,}$");
-                            if (onlyRule)
+                            if (marker == '"')
                             {
-                                // Linea divisoria a lo ancho (una "regla").
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;border-top:1.5px solid #bbb;height:0;margin:7px 0;\"></span></p>\n");
+                                // TITULO: %" texto  -> centrado, negrita, acento.
+                                var title = System.Net.WebUtility.HtmlEncode(capTrim);
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;margin:3px 0;\">{title}</span></p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
-                            else if (titleM.Success)
+                            else if (System.Text.RegularExpressions.Regex.IsMatch(capTrim, @"^[-=]{2,}$"))
                             {
-                                // Titulo centrado (sin bordes propios: las lineas van en filas aparte).
-                                var title = System.Net.WebUtility.HtmlEncode(titleM.Groups[1].Value);
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;margin:2px 0;\">{title}</span></p>\n");
+                                // LINEA: %'-----  (SOLO guiones/iguales) -> divisor a lo ancho.
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;border-top:1.5px solid #bbb;height:0;margin:7px 0;\"></span></p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
                             else
                             {
+                                // Texto normal (incluye `%'----texto`: NO es linea).
                                 var capEnc = System.Net.WebUtility.HtmlEncode(capText);
                                 sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
                                 lastEmittedPLine = stmtLine;
