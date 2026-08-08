@@ -560,15 +560,25 @@ namespace Calcpad.Core.Matlab
                             var capText = csCap.Text.TrimStart();
                             capText = capText.Length > 1 ? capText.Substring(1) : "";
                             var capTrim = capText.Trim();
-                            // REGLA / encabezado de seccion: `%' --- Titulo ---` -> divisor
-                            // centrado con lineas arriba/abajo (como una "regla" de seccion).
-                            // Tambien `%' === Titulo ===`. El texto interno se escapa (permite ∑,∏…).
-                            var ruleM = System.Text.RegularExpressions.Regex.Match(
-                                capTrim, @"^(-{2,}|={2,})\s*(.+?)\s*\1$");
-                            if (ruleM.Success)
+                            // REGLA de seccion COMPONIBLE (como pidio Jorge). Se arma con lineas y
+                            // titulo por separado, p.ej.:
+                            //     %'---            -> linea divisoria (solo guiones/iguales, >=2)
+                            //     %'-- Titulo --   -> titulo centrado (negrita, acento; sin bordes)
+                            //     %'---            -> otra linea
+                            // El texto del titulo se escapa (permite ∑, ∏, ∫…).
+                            bool onlyRule = System.Text.RegularExpressions.Regex.IsMatch(capTrim, @"^[-=]{2,}$");
+                            var titleM = System.Text.RegularExpressions.Regex.Match(capTrim, @"^[-=]{2,}\s*(.+?)\s*[-=]{2,}$");
+                            if (onlyRule)
                             {
-                                var title = System.Net.WebUtility.HtmlEncode(ruleM.Groups[2].Value);
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;border-top:1.5px solid #bbb;border-bottom:1.5px solid #bbb;padding:4px 0;margin:11px 0;letter-spacing:.3px;\">{title}</span></p>\n");
+                                // Linea divisoria a lo ancho (una "regla").
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;border-top:1.5px solid #bbb;height:0;margin:7px 0;\"></span></p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
+                            else if (titleM.Success)
+                            {
+                                // Titulo centrado (sin bordes propios: las lineas van en filas aparte).
+                                var title = System.Net.WebUtility.HtmlEncode(titleM.Groups[1].Value);
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;margin:2px 0;\">{title}</span></p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
                             else
