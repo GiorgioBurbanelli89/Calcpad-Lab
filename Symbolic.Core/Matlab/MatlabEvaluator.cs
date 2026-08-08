@@ -6103,9 +6103,34 @@ namespace Calcpad.Core.Matlab
                 if (a[2].IsScalar && a[3].IsScalar)
                 {
                     int k0 = (int)a[2].Scalar, kN = (int)a[3].Scalar;
+                    // EXACTO vía giac: racionales como MATLAB (205/144, no 1.423611).
+                    // OJO: en giac 'i','e' son reservados (i = unidad imaginaria). Si el índice
+                    // es uno de esos, se renombra a un nombre seguro antes de mandarlo a giac.
+                    if (GiacRunner.IsAvailable() && kN >= k0)
+                    {
+                        string gk = kName;
+                        SymNode gExpr = a[0].Symbolic;
+                        if (kName is "i" or "e" or "I" or "E" or "pi")
+                        {
+                            gk = "hkidx";
+                            gExpr = a[0].Symbolic.Subs(kName, new SymVar(gk));
+                        }
+                        var (okS, resS) = GiacRunner.Eval($"sum({gExpr.ToInfix()},{gk},{k0},{kN})");
+                        if (okS)
+                        {
+                            var ml = GiacRunner.ToMatlab(resS).Trim();
+                            if (long.TryParse(ml, out long iv)) return new MValue(iv);   // entero puro
+                            var rm = System.Text.RegularExpressions.Regex.Match(ml, @"^(-?\d+)/(\d+)$");
+                            if (rm.Success)  // racional p/q → fracción simbólica exacta (no double)
+                                return MValue.NewSymbolic(new SymDiv(
+                                    new SymConst(double.Parse(rm.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)),
+                                    new SymConst(double.Parse(rm.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture))));
+                            try { return MValue.NewSymbolic(GiacRunner.ParseToSym(ml)); } catch { }
+                        }
+                    }
                     if (kN - k0 > 0 && kN - k0 < 10000)
                     {
-                        // Caso const: f no depende de k → f * (kN - k0 + 1)
+                        // Fallback (sin giac): expandir y acumular. Puede colapsar a double.
                         var expr = a[0].Symbolic;
                         SymNode acc = new SymConst(0);
                         for (int k = k0; k <= kN; k++)

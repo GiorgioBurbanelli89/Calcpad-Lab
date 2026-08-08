@@ -1090,6 +1090,12 @@ namespace Calcpad.Core.Matlab
                     var vr = RenderExpression(c.Args[1]);
                     return $"{eq}&emsp;<span style=\"color:#7c2bb2;font-weight:600\">⟹</span>&ensp;{vr}";
                 }
+                // simplify/expand/factor/collect/trigsimplify: NO se escribe la palabra —
+                // se muestra solo la EXPRESIÓN, y el "= resultado" (que agrega la rama
+                // symbolicCall) da la forma simplificada. Como en un libro: expr = forma.
+                if ((fname == "simplify" || fname == "expand" || fname == "factor"
+                     || fname == "collect" || fname == "trigsimplify") && c.Args.Count >= 1)
+                    return RenderExpression(c.Args[0]);
             }
             // Pretty-print de funciones especiales: sqrt → símbolo √ con vinculum
             if (PrettyMath && c.Target is IdentRef pid && c.Args.Count == 1)
