@@ -856,12 +856,15 @@ namespace Calcpad.Core.Matlab
                     return $"{RenderExpression(c.Args[0])}<sup>−1</sup>";
                 if (laId.Name == "transpose" && c.Args.Count == 1)
                     return $"{RenderExpression(c.Args[0])}<sup>T</sup>";
-                // sum(v)→∑v  prod(v)→∏v: símbolo n-ario INLINE (font-size mayor, sin la clase
-                // 'nary' que es para ∫ con límites y flotaba). Solo 1 arg (sum(A,dim) → call).
+                // sum(v)→∑v  prod(v)→∏v: MISMA estructura n-aria de Calcpad ($Sum/$Product):
+                // <span class="dvr"><small>sup</small><span class="nary">∑</span><small>sub</small></span>expr
+                // El 'dvr' (inline-block) es el que da el layout — 'nary' solo (display:block)
+                // flotaba. sum(v) no tiene límites explícitos -> sub/sup vacíos (∑ grande a secas).
+                // Solo 1 arg (sum(A,dim) -> render de llamada normal).
                 if (laId.Name == "sum" && c.Args.Count == 1)
-                    return $"<span style=\"font-size:1.35em;vertical-align:-.18em;font-family:'Cambria Math',serif\">∑</span>&hairsp;{RenderExpression(c.Args[0])}";
+                    return $"<span class=\"dvr\"><small></small><span class=\"nary\">∑</span><small></small></span>{RenderExpression(c.Args[0])}";
                 if (laId.Name == "prod" && c.Args.Count == 1)
-                    return $"<span style=\"font-size:1.35em;vertical-align:-.18em;font-family:'Cambria Math',serif\">∏</span>&hairsp;{RenderExpression(c.Args[0])}";
+                    return $"<span class=\"dvr\"><small></small><span class=\"nary\">∏</span><small></small></span>{RenderExpression(c.Args[0])}";
             }
             var sb = new StringBuilder();
             // Funciones builtin: sans-serif bold morado para diferenciacion clara
