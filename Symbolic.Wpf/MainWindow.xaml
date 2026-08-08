@@ -1668,6 +1668,58 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
+                    <!-- Desplegable de TEXTO CON FORMATO: titulos, lineas, alineacion, color,
+                         negrita/italica/subrayado, tablas, fracciones. Todo con %'/%\" (comentarios
+                         validos en MATLAB). Ver reference_hekatan_lab_texto_con_formato. -->
+                    <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="760,0,0,0"
+                        x:Name="FmtMenuButton" Width="42" FontSize="10" FontFamily="Roboto"
+                        Click="DispMenuButton_Click" Content="fmt▾"
+                        ToolTip="Texto con formato: titulos, lineas, alineacion, color, negrita/italica, tablas, fracciones. Se escribe en comentarios %' y %&quot; (validos en MATLAB).">
+                        <Button.ContextMenu>
+                            <ContextMenu x:Name="FmtTemplatesMenu" Style="{StaticResource ThemedContextMenu}">
+                                <MenuItem Header="── Titulos y lineas ──" IsEnabled="False"/>
+                                <MenuItem Header="Titulo centrado" Click="Button_Click"
+                                          Tag="%&quot; Titulo de seccion"
+                                          ToolTip="%&quot; Titulo  → titulo centrado, negrita, color acento."/>
+                                <MenuItem Header="Titulo en color (negro)" Click="Button_Click"
+                                          Tag="%&quot;{negro} Titulo en negro"
+                                          ToolTip="%&quot;{color} Titulo  → titulo con color (negro/azul/rojo/#hex...)."/>
+                                <MenuItem Header="Linea divisoria" Click="Button_Click"
+                                          Tag="%'-----"
+                                          ToolTip="%'-----  → linea horizontal (solo guiones)."/>
+                                <MenuItem Header="── Alineacion ──" IsEnabled="False"/>
+                                <MenuItem Header="Izquierda" Click="Button_Click" Tag="%'&lt; texto a la izquierda"
+                                          ToolTip="%'&lt; texto  → alineado a la izquierda."/>
+                                <MenuItem Header="Centrado" Click="Button_Click" Tag="%'| texto centrado"
+                                          ToolTip="%'| texto  → centrado."/>
+                                <MenuItem Header="Derecha" Click="Button_Click" Tag="%'&gt; texto a la derecha"
+                                          ToolTip="%'&gt; texto  → alineado a la derecha."/>
+                                <MenuItem Header="── Estilo ──" IsEnabled="False"/>
+                                <MenuItem Header="Negrita" Click="Button_Click" Tag="%'* texto en negrita"
+                                          ToolTip="%'* texto  → negrita."/>
+                                <MenuItem Header="Italica" Click="Button_Click" Tag="%'/ texto en italica"
+                                          ToolTip="%'/ texto  → italica."/>
+                                <MenuItem Header="Subrayado" Click="Button_Click" Tag="%'_ texto subrayado"
+                                          ToolTip="%'_ texto  → subrayado."/>
+                                <MenuItem Header="Color + estilo (combinado)" Click="Button_Click"
+                                          Tag="%'{center,azul,negrita} texto centrado azul y negrita"
+                                          ToolTip="%'{color,alineacion,estilo} texto  → combina todo. Colores: rojo/azul/verde/negro/gris/naranja/morado/#hex."/>
+                                <MenuItem Header="── Avanzado ──" IsEnabled="False"/>
+                                <MenuItem Header="Tabla (HTML)" Click="Button_Click"
+                                          Tag="%'&lt;table class=&quot;bordered&quot;&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Col 1&lt;/th&gt;&lt;th&gt;Col 2&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;a&lt;/td&gt;&lt;td&gt;b&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;c&lt;/td&gt;&lt;td&gt;d&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;"
+                                          ToolTip="%'&lt;table&gt;...&lt;/table&gt;  → tabla con bordes (HTML dentro del comentario)."/>
+                                <MenuItem Header="Fraccion (a__b → a/b)" Click="Button_Click"
+                                          Tag="df__dx = diff(f, x)"
+                                          ToolTip="Un nombre con doble guion bajo se ve como fraccion: df__dx → df/dx (valido en MATLAB)."/>
+                                <MenuItem Header="Anotacion inline (unidad)" Click="Button_Click"
+                                          Tag="  %' ms"
+                                          ToolTip="Escribe  x = toc*1000  %' ms  → muestra 'ms' a la derecha del resultado."/>
+                                <MenuItem Header="Escape (simbolo literal)" Click="Button_Click"
+                                          Tag="%'\&gt; muestra el signo &gt; literal"
+                                          ToolTip="%'\ ...  → muestra el resto literal (para usar &lt; &gt; | * / _ ----- como texto)."/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                     <RichTextBox x:Name="RichTextBox" Margin="55,33,5,24"
                                  Background="{DynamicResource ThemeEditorBg}"
                                  Foreground="{DynamicResource ThemeText}"
