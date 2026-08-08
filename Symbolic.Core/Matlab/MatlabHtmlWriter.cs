@@ -201,8 +201,10 @@ namespace Calcpad.Core.Matlab
             if (v.IsString)
             {
                 if (v.IsDoubleQuoted)
+                    // string type ("...") -> MATLAB muestra CON comillas dobles.
                     return "<span style=\"color:#0a6e3a\">\"" + HttpUtility.HtmlEncode(v.StringValue ?? "") + "\"</span>";
-                return HttpUtility.HtmlEncode("'" + v.StringValue + "'");
+                // char array ('...') -> MATLAB 2017a lo muestra SIN comillas (c = hola mundo).
+                return HttpUtility.HtmlEncode(v.StringValue ?? "");
             }
             if (v.IsInstance)
             {
@@ -749,6 +751,30 @@ namespace Calcpad.Core.Matlab
             "^" or ".^" => 6,
             _ => 10
         };
+        /// <summary>Recolecta los nombres de VARIABLES distintas en una expresion (para decidir
+        /// derivada parcial ∂ vs ordinaria d). El Target de una llamada f(...) es funcion, NO
+        /// variable (no se cuenta); sus args SÍ. Asi f(x,y)→{x,y}, x^2*y→{x,y}, f(x)→{x}.</summary>
+        private static void CollectVars(MatlabNode n, System.Collections.Generic.HashSet<string> vars)
+        {
+            switch (n)
+            {
+                case IdentRef id: vars.Add(id.Name); break;
+                case BinaryOp b: CollectVars(b.Left, vars); CollectVars(b.Right, vars); break;
+                case UnaryOp u: CollectVars(u.Operand, vars); break;
+                case CallOrIndex c:
+                    // Target = nombre de funcion (no variable). Solo los argumentos son variables.
+                    if (c.Args != null) foreach (var a in c.Args) CollectVars(a, vars);
+                    break;
+                case Range r:
+                    if (r.Start != null) CollectVars(r.Start, vars);
+                    if (r.End != null) CollectVars(r.End, vars);
+                    break;
+                case MatrixLit m:
+                    foreach (var row in m.Rows) foreach (var e in row) CollectVars(e, vars);
+                    break;
+                // NumberLit / StringLit / etc. -> no aportan variables.
+            }
+        }
         private static string RenderCall(CallOrIndex c)
         {
             // ── Notacion matematica nativa Calcpad para funciones simbolicas ──
@@ -765,14 +791,21 @@ namespace Calcpad.Core.Matlab
                 {
                     var fExpr = RenderExpression(c.Args[0]);
                     var vExpr = RenderExpression(c.Args[1]);
+                    // PARCIAL vs ORDINARIA: si la funcion depende de >=2 variables, la derivada
+                    // es PARCIAL -> se dibuja con ∂ (curly d) en vez de d recta. Se cuentan las
+                    // variables distintas en el argumento f: diff(f(x,y),x) o diff(x^2*y,x) -> ∂;
+                    // diff(f(x),x) o diff(x^3+2x,x) -> d.
+                    var vars = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+                    CollectVars(c.Args[0], vars);
+                    string dd = vars.Count >= 2 ? "∂" : "d";
                     string num, den;
                     if (c.Args.Count >= 3 && c.Args[2] is NumberLit nlit && nlit.Value >= 2)
                     {
                         int n = (int)nlit.Value;
-                        num = $"d<sup>{n}</sup>";
-                        den = $"d{vExpr}<sup>{n}</sup>";
+                        num = $"{dd}<sup>{n}</sup>";
+                        den = $"{dd}{vExpr}<sup>{n}</sup>";
                     }
-                    else { num = "d"; den = $"d{vExpr}"; }
+                    else { num = dd; den = $"{dd}{vExpr}"; }
                     return $"<span class=\"dvc\"><span class=\"dvc-num\">{num}</span><span class=\"dvl\"></span><span class=\"dvc-den\">{den}</span></span>&thinsp;{fExpr}";
                 }
                 // int (indefinida o definida) — formato identico al HtmWriter de Calcpad:
