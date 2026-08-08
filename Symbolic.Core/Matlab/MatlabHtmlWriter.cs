@@ -1125,8 +1125,16 @@ namespace Calcpad.Core.Matlab
             // monstruos de 20 dígitos.
             if (v == System.Math.Floor(v) && System.Math.Abs(v) < 1e15)
                 return v.ToString("0", CultureInfo.InvariantCulture);
-            var digits = SignificantDigits < 1 ? 1 : (SignificantDigits > 17 ? 17 : SignificantDigits);
-            return v.ToString("G" + digits.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+            // Formato DECIMAL fijo (no cifras significativas): el selector "Round" = nº de
+            // DECIMALES. 490.12 se ve 490.12 (no 4.9E+02). Notación científica SOLO para
+            // muy chicos (|v|<1e-4, ej. 0.0000123 -> 1.23E-05) o muy grandes (|v|>=1e15).
+            var dec = SignificantDigits < 0 ? 0 : (SignificantDigits > 17 ? 17 : SignificantDigits);
+            double av = System.Math.Abs(v);
+            if (av < 1e-4 || av >= 1e15)
+                return v.ToString("0.#####E+00", CultureInfo.InvariantCulture);
+            var s = v.ToString("F" + dec.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+            if (s.Contains('.')) s = s.TrimEnd('0').TrimEnd('.');   // 490.10 -> 490.1 ; 5.00 -> 5
+            return s;
         }
         private static bool IsCommonBuiltin(string name) =>
             name is "sin" or "cos" or "tan" or "exp" or "log" or "log2" or "log10"
