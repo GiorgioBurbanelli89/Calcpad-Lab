@@ -92,6 +92,20 @@ namespace Calcpad.Core.Matlab
                     {
                         var tok = Consume();
                         args.Add(new StringLit { Value = tok.Text, Quote = '\'', Line = tok.Line, Column = tok.Column });
+                        // `syms y(t)` (funcion simbolica MATLAB): declara y como funcion de t.
+                        // Registramos y (ya agregado) Y sus variables independientes como syms,
+                        // asi `dsolve(diff(y,t)==rhs, y(0)==y0)` funciona (y,t son sym vars).
+                        if (fnTok.Text == "syms" && Peek().Kind == MatlabTokenKind.LParen)
+                        {
+                            Consume(); // (
+                            while (Peek().Kind == MatlabTokenKind.Identifier)
+                            {
+                                var itok = Consume();
+                                args.Add(new StringLit { Value = itok.Text, Quote = '\'', Line = itok.Line, Column = itok.Column });
+                                if (Peek().Kind == MatlabTokenKind.Comma) Consume(); else break;
+                            }
+                            if (Peek().Kind == MatlabTokenKind.RParen) Consume(); // )
+                        }
                     }
                     // string entre comillas: `cd 'C:\ruta'`, `load 'file.mat'`, `disp 'hola'`
                     else if (pk == MatlabTokenKind.String || pk == MatlabTokenKind.StringDouble)

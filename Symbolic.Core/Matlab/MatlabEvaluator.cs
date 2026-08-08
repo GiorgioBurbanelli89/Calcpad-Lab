@@ -12743,6 +12743,13 @@ namespace Calcpad.Core.Matlab
                     int dbf = def.BodyFlags ??= ComputeBodyFlags(def);
                     return CallUserFunction(def, eargs, (dbf & 8) != 0 ? ArgNames(c.Args) : null);
                 }
+                // 3b) dsolve forma MATLAB: dsolve(diff(y,t)==rhs [, y(t0)==y0]) — inspecciona
+                //     el AST (sin evaluar diff(y,t)/y(0)). Si no matchea, cae al builtin custom.
+                if (id.Name == "dsolve")
+                {
+                    var mlSol = TryDsolveMatlab(c.Args, scope);
+                    if (mlSol != null) return mlSol;
+                }
                 // 4) Builtin función
                 var args = EvalArgs(c.Args, scope);
                 if (_builtins.TryGetValue(id.Name, out var fn))
@@ -12773,6 +12780,63 @@ namespace Calcpad.Core.Matlab
                          : c.Target is CallOrIndex ? "resultado de indexado"
                          : c.Target?.GetType().Name ?? "?";
             throw new MatlabRuntimeException($"Target is not callable [{tdesc}]");
+        }
+        /// <summary>dsolve forma MATLAB: dsolve(diff(y,t) == rhs [, y(t0) == y0]). Inspecciona el
+        /// AST de los argumentos (NO evalua diff(y,t) ni y(0), que darian 0/error), extrae el rhs,
+        /// la variable dependiente y la independiente, resuelve con SolveOde1 (que ya existe) y
+        /// aplica la condicion inicial. Devuelve null si no matchea (cae al dsolve custom).</summary>
+        private MValue TryDsolveMatlab(List<MatlabNode> args, MatlabScope scope)
+        {
+            if (args == null || args.Count < 1) return null;
+            if (args[0] is not BinaryOp eq || eq.Op != "==") return null;
+            MatlabNode rhsAst;
+            string yName, tName;
+            if (IsDiffCall(eq.Left, out yName, out tName)) rhsAst = eq.Right;
+            else if (IsDiffCall(eq.Right, out yName, out tName)) rhsAst = eq.Left;
+            else return null;
+            if (yName == null || tName == null) return null;
+            var rhsMV = Eval(rhsAst, scope);
+            SymNode rhs = rhsMV.IsSymbolic ? rhsMV.Symbolic : (rhsMV.IsScalar ? new SymConst(rhsMV.Scalar) : null);
+            if (rhs == null) return null;
+            var sol = SymOps.SolveOde1(rhs, yName, tName);
+            // Condicion inicial opcional: y(t0) == y0
+            if (args.Count >= 2 && args[1] is BinaryOp cond && cond.Op == "==")
+            {
+                MatlabNode t0Ast = null, y0Ast = null;
+                if (IsFuncEval(cond.Left, yName, out t0Ast)) y0Ast = cond.Right;
+                else if (IsFuncEval(cond.Right, yName, out t0Ast)) y0Ast = cond.Left;
+                if (t0Ast != null && y0Ast != null)
+                {
+                    var t0mv = Eval(t0Ast, scope);
+                    double t0 = t0mv.IsScalar ? t0mv.Scalar : 0;
+                    var y0mv = Eval(y0Ast, scope);
+                    SymNode y0 = y0mv.IsSymbolic ? y0mv.Symbolic : new SymConst(y0mv.IsScalar ? y0mv.Scalar : 0);
+                    // Resolver la constante C: sol(t0) = y0 (lineal en C).
+                    var solAt0 = sol.Subs(tName, new SymConst(t0)).Simplify();
+                    var diffEq = new SymSub(solAt0, y0).Simplify();
+                    var diffC0 = diffEq.Subs("C", new SymConst(0)).Simplify();
+                    var diffC1 = diffEq.Subs("C", new SymConst(1)).Simplify();
+                    var coefC = new SymSub(diffC1, diffC0).Simplify();
+                    var Cval = new SymDiv(new SymMul(new SymConst(-1), diffC0), coefC).Simplify();
+                    sol = sol.Subs("C", Cval).Simplify();
+                }
+            }
+            return MValue.NewSymbolic(sol.Simplify());
+        }
+        private static bool IsDiffCall(MatlabNode n, out string yName, out string tName)
+        {
+            yName = null; tName = null;
+            if (n is CallOrIndex c && c.Target is IdentRef id && id.Name == "diff" && c.Args != null
+                && c.Args.Count >= 2 && c.Args[0] is IdentRef ya && c.Args[1] is IdentRef ta)
+            { yName = ya.Name; tName = ta.Name; return true; }
+            return false;
+        }
+        private static bool IsFuncEval(MatlabNode n, string yName, out MatlabNode arg0)
+        {
+            arg0 = null;
+            if (n is CallOrIndex c && c.Target is IdentRef id && id.Name == yName && c.Args != null && c.Args.Count == 1)
+            { arg0 = c.Args[0]; return true; }
+            return false;
         }
         /// <summary>Busca un método por nombre en una clase (y sus padres). Devuelve null si no existe.</summary>
         private FunctionDef FindMethod(ClassDef cls, string name)
