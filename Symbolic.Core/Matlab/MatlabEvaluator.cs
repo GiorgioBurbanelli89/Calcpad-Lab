@@ -5102,6 +5102,10 @@ namespace Calcpad.Core.Matlab
                 throw new MatlabRuntimeException("sym: unsupported argument");
             };
             _builtins["syms"] = a => {
+                // Pre-calienta el motor simbolico (JIT de .NET de solve/diff/dsolve) AQUI, en la
+                // declaracion — igual que MATLAB carga MuPAD en el primer `syms`. Asi la 1ª llamada
+                // real (solve/diff…) ya no paga ~35ms de JIT dentro del tic del usuario.
+                WarmSymbolic();
                 // syms x y z — declara cada nombre como variable simbólica en el scope global
                 foreach (var v in a)
                 {
@@ -12829,6 +12833,31 @@ namespace Calcpad.Core.Matlab
                 }
             }
             return MValue.NewSymbolic(sol.Simplify());
+        }
+        private bool _symWarmed = false;
+        /// <summary>Pre-JIT del motor simbolico (solve/diff/simplify/dsolve) en la 1ª declaracion
+        /// `syms`, para que el costo de JIT de .NET (~35 ms, una vez) NO caiga en el primer
+        /// solve cronometrado del usuario. Idempotente y silencioso.</summary>
+        private void WarmSymbolic()
+        {
+            if (_symWarmed) return;
+            _symWarmed = true;
+            try
+            {
+                var x = new SymVar("x");
+                var poly = new SymSub(new SymPow(x, new SymConst(2)), new SymConst(1));  // x^2 - 1 (numerico)
+                try { SymOps.SolvePoly(poly, "x"); } catch { }
+                // Cuadratica con coeficientes SIMBOLICOS (formula general) — el camino real de la
+                // 1ª llamada del usuario; el mas pesado de JIT-ear.
+                var a = new SymVar("a"); var b = new SymVar("b"); var cc = new SymVar("c");
+                var qpoly = new SymAdd(new SymAdd(new SymMul(a, new SymPow(x, new SymConst(2))), new SymMul(b, x)), cc);
+                try { SymOps.SolvePoly(qpoly, "x"); } catch { }
+                // Lineal (despeje): b*x - t
+                try { SymOps.SolvePoly(new SymSub(new SymMul(b, x), new SymVar("t")), "x"); } catch { }
+                try { new SymAdd(new SymPow(x, new SymConst(3)), x).Diff("x").Simplify(); } catch { }
+                try { SymOps.SolveOde1(new SymMul(new SymConst(-1), x), "x", "t"); } catch { }
+            }
+            catch { }
         }
         private static bool IsDiffCall(MatlabNode n, out string yName, out string tName)
         {
