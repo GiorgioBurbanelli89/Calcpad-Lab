@@ -434,6 +434,22 @@ namespace Calcpad.Core.Matlab
             }
             return false;
         }
+        /// <summary>Render n-ario indexado estilo Calcpad $Sum/$Product:
+        ///   n
+        ///   ∑   vᵢ        (n arriba, i=1 abajo, sumando con subíndice i).
+        ///  i=1
+        /// Estructura EXACTA de FormatNary de Calcpad: dvr[ small(sup) nary(∑) small(sub) ] expr.
+        /// Sumando = operando con subíndice i (vᵢ para identificador, (expr)ᵢ para expresión).</summary>
+        private static string NaryIndexed(string sym, MatlabNode operand)
+        {
+            var op = RenderExpression(operand);
+            string body = operand is IdentRef
+                ? $"{op}<sub><var>i</var></sub>"
+                : $"(&hairsp;{op}&hairsp;)<sub><var>i</var></sub>";
+            return $"<span class=\"dvr\"><small><var>n</var></small>"
+                 + $"<span class=\"nary\">{sym}</span>"
+                 + $"<small><var>i</var>&hairsp;=&hairsp;1</small></span>{body}";
+        }
         /// <summary>True si el RHS es una llamada a función MATEMÁTICA que RenderCall dibuja
         /// como SÍMBOLO pretty (√, ∑, ∏, ‖·‖, |·|, ⁻¹, ᵀ, ⁿ√, ·, ×). Para éstas SÍ mostramos
         /// `fórmula = valor` (como Calcpad); para indexado/llamadas ordinarias, solo el valor.
@@ -884,15 +900,15 @@ namespace Calcpad.Core.Matlab
                     return $"{RenderExpression(c.Args[0])}<sup>−1</sup>";
                 if (laId.Name == "transpose" && c.Args.Count == 1)
                     return $"{RenderExpression(c.Args[0])}<sup>T</sup>";
-                // sum(v)→∑v  prod(v)→∏v: MISMA estructura n-aria de Calcpad ($Sum/$Product):
-                // <span class="dvr"><small>sup</small><span class="nary">∑</span><small>sub</small></span>expr
-                // El 'dvr' (inline-block) es el que da el layout — 'nary' solo (display:block)
-                // flotaba. sum(v) no tiene límites explícitos -> sub/sup vacíos (∑ grande a secas).
-                // Solo 1 arg (sum(A,dim) -> render de llamada normal).
+                // sum(v)→∑ , prod(v)→∏ : render IDENTICO a $Sum/$Product de Calcpad. Calcpad
+                // llama FormatNary(∑, sub="i=1", sup="n", expr="f(i)") ->
+                //   <span class="dvr"><small>n</small><nary>∑</nary><small>i=1</small></span>f(i)
+                // O sea: n ARRIBA, i=1 ABAJO, y el sumando INDEXADO. sum(v) suma los n=numel(v)
+                // elementos -> sumando = vᵢ (v con subindice i). Solo 1 arg (sum(A,dim)->call).
                 if (laId.Name == "sum" && c.Args.Count == 1)
-                    return $"<span class=\"dvr\"><small></small><span class=\"nary\">∑</span><small></small></span>{RenderExpression(c.Args[0])}";
+                    return NaryIndexed("∑", c.Args[0]);
                 if (laId.Name == "prod" && c.Args.Count == 1)
-                    return $"<span class=\"dvr\"><small></small><span class=\"nary\">∏</span><small></small></span>{RenderExpression(c.Args[0])}";
+                    return NaryIndexed("∏", c.Args[0]);
             }
             var sb = new StringBuilder();
             // Funciones builtin: sans-serif bold morado para diferenciacion clara
