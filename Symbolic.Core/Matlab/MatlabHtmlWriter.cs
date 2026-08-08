@@ -85,6 +85,14 @@ namespace Calcpad.Core.Matlab
                             // script. El render muestra SOLO el resultado (nombre = valor).
                             sb.Append(RenderValue(result.Value));
                         }
+                        else if (asg.Rhs is MatrixLit && result.Value != null
+                                 && result.Value.IsString && !result.Value.IsStringArray)
+                        {
+                            // (3c) RHS = [ '...' num2str(x) '...' ] -> CONCATENACION de char que
+                            // da un STRING (no una matriz). Mostrar SOLO el string resultante, no
+                            // los corchetes de matriz con los trozos sueltos (se veia mal).
+                            sb.Append(RenderValue(result.Value));
+                        }
                         else
                         {
                             // (3) Default: source = value con short-circuit visual
