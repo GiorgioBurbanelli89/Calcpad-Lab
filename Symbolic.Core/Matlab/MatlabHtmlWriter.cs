@@ -579,20 +579,46 @@ namespace Calcpad.Core.Matlab
             }
             int idx = name.IndexOf('_');
             if (idx <= 0 || idx == name.Length - 1)
-            {
-                // Sin underscore: igual probamos translit a letra griega.
-                // Ej: `xi` → ξ, `phi` → φ, `Phi` → Φ. Si no matchea, se queda
-                // como texto literal. Se respeta el toggle GreekAutoRender
-                // (% #nogreek … % #greek): si está OFF, el nombre queda literal.
-                string greek = GreekAutoRender ? GreekLetterMap(name) : null;
-                return $"<var>{(greek ?? Superscriptify(HttpUtility.HtmlEncode(name)))}</var>";
-            }
+                return $"<var>{DecorateBase(name)}</var>";
             string baseName = name.Substring(0, idx);
             string sub = name.Substring(idx + 1).Replace("_", ",");
-            // Greek letters: si baseName matches greek prefix, renderizar como letra griega
-            string baseRendered = (GreekAutoRender ? GreekLetterMap(baseName) : null)
-                                  ?? Superscriptify(HttpUtility.HtmlEncode(baseName));
-            return $"<var>{baseRendered}<sub>{Superscriptify(HttpUtility.HtmlEncode(sub))}</sub></var>";
+            return $"<var>{DecorateBase(baseName)}<sub>{Superscriptify(HttpUtility.HtmlEncode(sub))}</sub></var>";
+        }
+        /// <summary>Decora la BASE de un identificador con tokens tipo LaTeX (todos nombres MATLAB
+        /// validos): sqrt/raiz → √ , bar → x̄ , hat → x̂ , tilde → x̃ , dot → ẋ , ddot → ẍ ,
+        /// vec → x⃗ , deg → x° , sup+digitos → superindice , y letras griegas (alpha→α…).
+        /// Recursivo para combinar (p.ej. sqrt de algo, o vbar). Sobre texto HTML-encodeado.</summary>
+        // Acento centrado ARRIBA del contenido (robusto con cursiva; no depende de que la fuente
+        // tenga el carácter combinante). Ver bar (overline aparte).
+        private static string Over(string acc, string inner) =>
+            $"<span style=\"display:inline-block;position:relative;text-align:center;\">{inner}"
+          + $"<span style=\"position:absolute;left:0;right:0;top:-.60em;font-size:.72em;font-style:normal;font-weight:400;line-height:1;\">{acc}</span></span>";
+        // token de decoracion-sufijo -> función que envuelve el inner ya renderizado.
+        private static readonly (string tok, System.Func<string, string> wrap)[] _decos =
+        {
+            ("ddot", inner => Over("&#183;&#183;", inner)),   // ẍ  (doble punto)
+            ("dot",  inner => Over("&#183;", inner)),          // ẋ  (punto)
+            ("hat",  inner => Over("^", inner)),               // x̂
+            ("tilde",inner => Over("~", inner)),               // x̃
+            ("vec",  inner => Over("&#8594;", inner)),          // x⃗  (flecha → arriba)
+            ("bar",  inner => $"<span style=\"display:inline-block;border-top:.08em solid currentColor;line-height:1.05;padding:.02em .04em 0 0;\">{inner}</span>"), // x̄ overline
+        };
+        private static string DecorateBase(string b)
+        {
+            if (string.IsNullOrEmpty(b)) return "";
+            // Prefijo raiz: sqrtD / raizD → √D (con vinculum, como sqrt()).
+            if (b.Length > 4 && (b.StartsWith("sqrt") || b.StartsWith("raiz")))
+                return $"&ensp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{DecorateBase(b.Substring(4))}</span>";
+            // Grados como sufijo: Tdeg → T°.
+            if (b.Length > 3 && b.EndsWith("deg"))
+                return DecorateBase(b.Substring(0, b.Length - 3)) + "&deg;";
+            // Sufijos de decoracion (van sobre el ultimo caracter/base): bar/hat/tilde/dot/ddot/vec.
+            foreach (var (tok, wrap) in _decos)
+                if (b.Length > tok.Length && b.EndsWith(tok))
+                    return wrap(DecorateBase(b.Substring(0, b.Length - tok.Length)));
+            // Base simple: griega o texto con superindice (sup).
+            string greek = GreekAutoRender ? GreekLetterMap(b) : null;
+            return greek ?? Superscriptify(HttpUtility.HtmlEncode(b));
         }
         /// <summary>SUPERINDICE con el token `sup` (valido en MATLAB, ya que `^` no lo es en
         /// nombres — verificado en MATLAB 2017a). `sup` + digitos -> esos digitos en superindice.
