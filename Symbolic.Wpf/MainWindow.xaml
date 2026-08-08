@@ -1532,6 +1532,22 @@
                                 <MenuItem Header="break  /  continue" Click="Button_Click"
                                           Tag="for k = 1:10§    if k &gt; 5§        break§    end§    disp(k)§end"
                                           ToolTip="break sale del bucle; continue salta a la siguiente vuelta. Ejemplo: imprime 1..5 y corta en 6."/>
+                                <MenuItem Header="── Estructura ──" IsEnabled="False"/>
+                                <MenuItem Header="function (1 salida)" Click="Button_Click"
+                                          Tag="function y = mifun(x)§    y = x^2;§end"
+                                          ToolTip="Define una función: entrada x, salida y. En Hekatan/MATLAB puede ir al final del script."/>
+                                <MenuItem Header="function (varias salidas)" Click="Button_Click"
+                                          Tag="function [s, p] = sumprod(a, b)§    s = a + b;§    p = a * b;§end"
+                                          ToolTip="Función con varias salidas: [s, p] = sumprod(a, b)."/>
+                                <MenuItem Header="function anónima  @(x)" Click="Button_Click"
+                                          Tag="f = @(x) x.^2 + 1;§y = f(3)"
+                                          ToolTip="Handle anónimo: f = @(x) ... — se llama f(valor)."/>
+                                <MenuItem Header="classdef (clase OOP)" Click="Button_Click"
+                                          Tag="classdef Punto§    properties§        x§        y§    end§    methods§        function obj = Punto(x, y)§            obj.x = x;§            obj.y = y;§        end§        function d = norma(obj)§            d = sqrt(obj.x^2 + obj.y^2);§        end§    end§end"
+                                          ToolTip="Clase con propiedades y métodos (OOP MATLAB). Ejemplo: Punto con x,y y método norma()."/>
+                                <MenuItem Header="return" Click="Button_Click"
+                                          Tag="return"
+                                          ToolTip="Sale de la función (o script) inmediatamente."/>
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
