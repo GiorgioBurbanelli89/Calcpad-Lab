@@ -563,6 +563,9 @@ namespace Calcpad.Core.Matlab
         public static string RenderIdentName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
+            // PRIMA: el token `prime` -> ′ (para f'c del hormigon: fprime_c -> f′c, valido en
+            // MATLAB). Se aplica antes de subindice/fraccion para que se pegue a la base.
+            if (name.Contains("prime")) name = name.Replace("prime", "′");
             // DOBLE guion bajo `a__b` -> FRACCION a/b (valido en MATLAB, se ve como quebrado).
             // Ej: df__dx -> df/dx,  dy__dx -> dy/dx,  d__x -> d/x. Un solo `_` sigue = subindice.
             int dbl = name.IndexOf("__", System.StringComparison.Ordinal);
