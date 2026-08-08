@@ -796,14 +796,23 @@ namespace Calcpad.Core.Matlab
                     }
                     return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\"><em>∫</em></span><small>{sub}</small></span>{fExpr} d<var>{vName}</var>";
                 }
-                // integral(fun, a, b) NUMERICA -> ∫_a^b fun dx (equivale a $area/$integral de
-                // Calcpad; MATLAB: function handle + limites). Mismo glifo ∫ que int simbolico.
+                // integral(fun, a, b) NUMERICA -> ∫_a^b fun dx. IDENTICO a $Integral/$Area de
+                // Calcpad: FormatNary("<em>∫</em>", sub=a+"&nbsp;", sup="&emsp; "+b, f+" d"+x).
+                // El &emsp;/&nbsp; empujan los limites en diagonal alrededor del ∫ inclinado
+                // (.nary em rota el glifo). Si fun es un handle @(t)..., el integrando es su
+                // CUERPO y la variable es su parametro (no "@(t) ..." crudo).
                 if (fname == "integral" && c.Args.Count >= 1)
                 {
-                    var fExpr = RenderExpression(c.Args[0]);
-                    string isub = c.Args.Count >= 2 ? RenderExpression(c.Args[1]) : "";
-                    string isup = c.Args.Count >= 3 ? RenderExpression(c.Args[2]) : "";
-                    return $"<span class=\"dvr\"><small>{isup}</small><span class=\"nary\"><em>∫</em></span><small>{isub}</small></span>{fExpr}&thinsp;d<var>x</var>";
+                    string integrand, dvar = "x";
+                    if (c.Args[0] is AnonFunction iaf && iaf.ParamNames.Count >= 1)
+                    {
+                        integrand = RenderExpression(iaf.Body);
+                        dvar = GreekLetterMap(iaf.ParamNames[0]) ?? System.Web.HttpUtility.HtmlEncode(iaf.ParamNames[0]);
+                    }
+                    else integrand = RenderExpression(c.Args[0]);
+                    string isub = c.Args.Count >= 2 ? RenderExpression(c.Args[1]) + "&nbsp;" : "";
+                    string isup = c.Args.Count >= 3 ? "&emsp; " + RenderExpression(c.Args[2]) : "";
+                    return $"<span class=\"dvr\"><small>{isup}</small><span class=\"nary\"><em>∫</em></span><small>{isub}</small></span>{integrand} d<var>{dvar}</var>";
                 }
                 // trapz(y) o trapz(x,y) -> ∫ y dx (trapezoidal, sin limites explicitos). El
                 // operando integrado es el ULTIMO arg; trapz(x,y) integra y respecto de x.
