@@ -6162,6 +6162,14 @@ namespace Calcpad.Core.Matlab
                             return null;
                         case SymDiv x when !HasK(x.B, k):         // Σ (f/c) = (Σ f)/c
                             { var s = SymSumClosed(x.A, k, N); return s != null ? new SymDiv(s, x.B) : null; }
+                        // Distribuir potencia entera sobre cociente/producto: (u/v)^m=u^m/v^m, (u·v)^m=u^m·v^m.
+                        // Permite sumar sumas de Riemann como (i/n)^2·(1/n) → i²/n³.
+                        case SymPow dp when dp.Exp is SymConst dpe && dpe.Value > 0 && dpe.Value == Math.Floor(dpe.Value)
+                                            && dp.Base is SymDiv dpb && HasK(dp.Base, k):
+                            return SymSumClosed(new SymDiv(new SymPow(dpb.A, dp.Exp), new SymPow(dpb.B, dp.Exp)), k, N);
+                        case SymPow mp when mp.Exp is SymConst mpe && mpe.Value > 0 && mpe.Value == Math.Floor(mpe.Value)
+                                            && mp.Base is SymMul mpb && HasK(mp.Base, k):
+                            return SymSumClosed(new SymMul(new SymPow(mpb.A, mp.Exp), new SymPow(mpb.B, mp.Exp)), k, N);
                         case SymPow p when p.Base is SymVar bv && bv.Name == k && p.Exp is SymConst pe:
                             if (pe.Value == 1) return SymSumClosed(bv, k, N);
                             if (pe.Value == 2)               // Σ k² = N(N+1)(2N+1)/6
@@ -6567,17 +6575,56 @@ namespace Calcpad.Core.Matlab
                 string varName = "x";
                 if (a[1].IsSymbolic && a[1].Symbolic is SymVar v) varName = v.Name;
                 else if (a[1].IsString) varName = a[1].StringValue;
-                double x0 = a[2].Scalar;
-                // PUENTE giac (como MATLAB→MuPAD): limit(expr,var,x0) → giac. Fallback: L'Hopital propio.
+                var expr = a[0].Symbolic;
+                // El punto del límite puede ser NUMÉRICO (limit(f,x,0)) o SIMBÓLICO (limit(f,x,a)).
+                // Antes se hacía a[2].Scalar a ciegas → un punto simbólico colapsaba a 0 (bug: L1 daba a en vez de 2a).
+                bool ptIsNum = !a[2].IsSymbolic && a[2].IsScalar;
+                double x0 = ptIsNum ? a[2].Scalar : double.NaN;
+                SymNode ptSym = a[2].IsSymbolic ? a[2].Symbolic : new SymConst(x0);
+                // String del punto para Giac (±infinito y punto simbólico soportados)
+                string ptG;
+                if (a[2].IsSymbolic)
+                {
+                    ptG = ptSym.ToInfix();
+                    var low = ptG.Trim().ToLowerInvariant();
+                    if (low is "inf" or "infinity" or "+inf") ptG = "+infinity";
+                    else if (low is "-inf" or "-infinity") ptG = "-infinity";
+                }
+                else
+                {
+                    ptG = double.IsPositiveInfinity(x0) ? "+infinity"
+                        : double.IsNegativeInfinity(x0) ? "-infinity"
+                        : x0.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+                // PUENTE giac (como MATLAB→MuPAD). Vale para punto numérico Y simbólico.
                 if (GiacRunner.IsAvailable())
                 {
-                    string ptG = double.IsPositiveInfinity(x0) ? "+infinity"
-                               : double.IsNegativeInfinity(x0) ? "-infinity"
-                               : x0.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                    var (okl, resl) = GiacRunner.Eval($"limit({a[0].Symbolic.ToInfix()},{varName},{ptG})");
+                    var (okl, resl) = GiacRunner.Eval($"limit({expr.ToInfix()},{varName},{ptG})");
                     if (okl) { try { return MValue.NewSymbolic(GiacRunner.ParseToSym(GiacRunner.ToMatlab(resl)).Simplify()); } catch { } }
                 }
-                var expr = a[0].Symbolic;
+                // ---- Fallbacks propios ----
+                if (!ptIsNum)
+                {
+                    // Punto SIMBÓLICO sin giac: L'Hôpital SIMBÓLICO para cociente 0/0
+                    if (expr is SymDiv dsym)
+                    {
+                        var num = dsym.A; var den = dsym.B;
+                        bool IsZero(SymNode s) => s is SymConst z && Math.Abs(z.Value) < 1e-15;
+                        var n0 = num.Subs(varName, ptSym).Simplify();
+                        var d0 = den.Subs(varName, ptSym).Simplify();
+                        if (IsZero(n0) && IsZero(d0))
+                            for (int it = 0; it < 5; it++)
+                            {
+                                num = num.Diff(varName).Simplify();
+                                den = den.Diff(varName).Simplify();
+                                var dd = den.Subs(varName, ptSym).Simplify();
+                                if (!IsZero(dd))
+                                    return MValue.NewSymbolic(new SymDiv(num.Subs(varName, ptSym), dd).Simplify());
+                            }
+                    }
+                    // Sustitución simbólica directa
+                    return MValue.NewSymbolic(expr.Subs(varName, ptSym).Simplify());
+                }
                 // 1) Probar L'Hôpital PRIMERO si expr es cociente
                 if (expr is SymDiv d)
                 {
