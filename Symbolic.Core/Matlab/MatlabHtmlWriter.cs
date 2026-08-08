@@ -994,7 +994,12 @@ namespace Calcpad.Core.Matlab
                     if (c.Args[2] is IdentRef cInf && (cInf.Name == "Inf" || cInf.Name == "inf")) cExpr = "∞";
                     else if (c.Args[2] is NumberLit cNum && double.IsInfinity(cNum.Value)) cExpr = cNum.Value < 0 ? "−∞" : "∞";
                     else if (c.Args[2] is UnaryOp cU && cU.Op == "-" && cU.Operand is IdentRef cI2 && (cI2.Name == "Inf" || cI2.Name == "inf")) cExpr = "−∞";
-                    return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;color:#7c2bb2\">lim</span><sub>{vExpr}&rarr;{cExpr}</sub>&thinsp;{fExpr}";
+                    // Estilo LIBRO: la condición x→c va DEBAJO de "lim" (como el índice de la ∑),
+                    // no como subíndice al lado.
+                    return $"<span style=\"display:inline-block;text-align:center;vertical-align:middle\">" +
+                           $"<span style=\"display:block;font-family:'Segoe UI',sans-serif;font-weight:600;color:#7c2bb2;line-height:1\">lim</span>" +
+                           $"<span style=\"display:block;font-size:.68em;line-height:1;margin-top:.05em\">{vExpr}&rarr;{cExpr}</span>" +
+                           $"</span>&thinsp;{fExpr}";
                 }
                 // taylor(f, ...) — display como T_n(f) con subscript del orden
                 if (fname == "taylor" && c.Args.Count >= 1)
