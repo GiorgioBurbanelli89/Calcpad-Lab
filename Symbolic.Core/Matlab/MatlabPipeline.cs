@@ -323,6 +323,41 @@ namespace Calcpad.Core.Matlab
                 return false;
             }
 
+            // Bloque de atributos de formato de texto: `%'{color,align,estilo} texto` (y en
+            // titulos `%"{...}`). Traduce tokens (ES/EN) a CSS. Es el "codigo dentro de %" para
+            // pedir TODO el formato facil. Tokens separados por coma/espacio/;.
+            static string AttrsToCss(string attrs)
+            {
+                var css = new System.Text.StringBuilder();
+                foreach (var raw in attrs.Split(new[] { ',', ';', ' ' }, System.StringSplitOptions.RemoveEmptyEntries))
+                {
+                    switch (raw.Trim().ToLowerInvariant())
+                    {
+                        case "left": case "izquierda": case "izq": css.Append("text-align:left;"); break;
+                        case "center": case "centro": case "centrado": css.Append("text-align:center;"); break;
+                        case "right": case "derecha": case "der": css.Append("text-align:right;"); break;
+                        case "bold": case "negrita": case "b": css.Append("font-weight:600;"); break;
+                        case "italic": case "italica": case "cursiva": case "i": css.Append("font-style:italic;"); break;
+                        case "underline": case "subrayado": case "u": css.Append("text-decoration:underline;"); break;
+                        case "big": case "grande": css.Append("font-size:1.3em;"); break;
+                        case "small": case "pequeno": case "chico": css.Append("font-size:.85em;"); break;
+                        case "black": case "negro": css.Append("color:#000;"); break;
+                        case "red": case "rojo": css.Append("color:#c0392b;"); break;
+                        case "blue": case "azul": css.Append("color:#2c6fbb;"); break;
+                        case "green": case "verde": css.Append("color:#1a7a4c;"); break;
+                        case "gray": case "grey": case "gris": css.Append("color:#777;"); break;
+                        case "orange": case "naranja": css.Append("color:#d35400;"); break;
+                        case "purple": case "morado": css.Append("color:#7c2bb2;"); break;
+                        case "white": case "blanco": css.Append("color:#fff;"); break;
+                        default:
+                            var h = raw.Trim();
+                            if (h.StartsWith("#") && (h.Length == 4 || h.Length == 7)) css.Append($"color:{h};");
+                            break;
+                    }
+                }
+                return css.ToString();
+            }
+
             // Inner statements (dentro de for/while/if/switch/try): emitir como
             // <p class="line indent"> con leve indentación visual y data-line para click→nav
             _evaluator.InnerStmtOut = (innerStmt, innerRes) =>
@@ -562,13 +597,33 @@ namespace Calcpad.Core.Matlab
                             //   %'< texto  -> izquierda   %'| texto -> centrado   %'> texto -> derecha
                             //   %'* texto  -> negrita     %'/ texto -> italica    %'_ texto -> subrayado
                             //   %'\ texto  -> ESCAPE (literal, para usar < > | * / _ o ----- como texto)
+                            //   %'{color,align,estilo} texto  -> BLOQUE de atributos (el "codigo
+                            //       dentro de %"): color (rojo/azul/verde/negro/gris/naranja/morado
+                            //       o #hex), alineacion, negrita/italica/subrayado, grande/pequeno.
+                            //       Vale en titulos: %"{negro} Titulo -> titulo negro.
                             //   %'  texto  -> texto normal (izquierda)   (combinables: %'>* = derecha+negrita)
                             // El apostrofo/comilla inicial NO se muestra (marcador, como en Calcpad).
                             var capRaw = csCap.Text.TrimStart();
                             char marker = capRaw[0];                       // ' o "
                             var capText = capRaw.Length > 1 ? capRaw.Substring(1) : "";
                             var capTrim = capText.Trim();
-                            if (marker == '"')
+                            var t0 = capText.TrimStart();
+                            if (t0.StartsWith("{") && t0.Contains("}"))
+                            {
+                                // BLOQUE DE ATRIBUTOS: %'{color,align,estilo} texto  (y %"{...}).
+                                // El "codigo dentro de %" para pedir todo el formato facil.
+                                int close = t0.IndexOf('}');
+                                var css = AttrsToCss(t0.Substring(1, close - 1));
+                                var rest = t0.Substring(close + 1).Trim();
+                                // %" da base de titulo (centrado+negrita+acento); los attrs la
+                                // sobreescriben (ej. {negro} -> color negro; {left} -> izquierda).
+                                string baseCss = marker == '"'
+                                    ? "text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;" : "";
+                                var enc = System.Net.WebUtility.HtmlEncode(rest);
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\" style=\"display:block;{baseCss}{css}\">{enc}</span></p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
+                            else if (marker == '"')
                             {
                                 // TITULO: %" texto  -> centrado, negrita, acento.
                                 var title = System.Net.WebUtility.HtmlEncode(capTrim);
