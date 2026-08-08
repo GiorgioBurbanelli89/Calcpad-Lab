@@ -570,8 +570,9 @@ namespace Calcpad.Core.Matlab
             {
                 string num = name.Substring(0, dbl);
                 string den = name.Substring(dbl + 2);
-                return $"<span class=\"dvc\"><span class=\"dvc-num\">{RenderIdentName(num)}</span>"
-                     + $"<span class=\"dvl\"></span><span class=\"dvc-den\">{RenderIdentName(den)}</span></span>";
+                // Estructura IDENTICA a FormatDivision de Calcpad: dvc[ num · dvl · den ]
+                // (num/den como hijos DIRECTOS, sin wrappers). CSS .dvc/.dvl = byte-identico.
+                return $"<span class=\"dvc\">{RenderIdentName(num)}<span class=\"dvl\"></span>{RenderIdentName(den)}</span>";
             }
             int idx = name.IndexOf('_');
             if (idx <= 0 || idx == name.Length - 1)
@@ -710,7 +711,8 @@ namespace Calcpad.Core.Matlab
                 {
                     var num = RenderExpression(b.Left);
                     var den = RenderExpression(b.Right);
-                    return $"<span class=\"dvc\"><span class=\"dvc-num\">{num}</span><span class=\"dvl\"></span><span class=\"dvc-den\">{den}</span></span>";
+                    // Estructura IDENTICA a FormatDivision de Calcpad: dvc[ num · dvl · den ].
+                    return $"<span class=\"dvc\">{num}<span class=\"dvl\"></span>{den}</span>";
                 }
                 if (b.Op == "^" || b.Op == ".^")
                 {
