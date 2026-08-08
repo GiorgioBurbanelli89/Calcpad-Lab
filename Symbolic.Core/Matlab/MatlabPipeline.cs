@@ -559,9 +559,24 @@ namespace Calcpad.Core.Matlab
                             // % 'texto en LINEA PROPIA -> texto visible, sin el apostrofo.
                             var capText = csCap.Text.TrimStart();
                             capText = capText.Length > 1 ? capText.Substring(1) : "";
-                            var capEnc = System.Net.WebUtility.HtmlEncode(capText);
-                            sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
-                            lastEmittedPLine = stmtLine;
+                            var capTrim = capText.Trim();
+                            // REGLA / encabezado de seccion: `%' --- Titulo ---` -> divisor
+                            // centrado con lineas arriba/abajo (como una "regla" de seccion).
+                            // Tambien `%' === Titulo ===`. El texto interno se escapa (permite ∑,∏…).
+                            var ruleM = System.Text.RegularExpressions.Regex.Match(
+                                capTrim, @"^(-{2,}|={2,})\s*(.+?)\s*\1$");
+                            if (ruleM.Success)
+                            {
+                                var title = System.Net.WebUtility.HtmlEncode(ruleM.Groups[2].Value);
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;border-top:1.5px solid #bbb;border-bottom:1.5px solid #bbb;padding:4px 0;margin:11px 0;letter-spacing:.3px;\">{title}</span></p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
+                            else
+                            {
+                                var capEnc = System.Net.WebUtility.HtmlEncode(capText);
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
+                                lastEmittedPLine = stmtLine;
+                            }
                         }
                         // % #img <data-uri | ruta> → imagen incrustada (recorte pegado). MATLAB la ignora
                         // (es comentario) y el .m queda autocontenido cuando el src es un data:...base64.
