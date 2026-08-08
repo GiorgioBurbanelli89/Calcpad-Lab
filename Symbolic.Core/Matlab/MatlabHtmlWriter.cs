@@ -590,18 +590,22 @@ namespace Calcpad.Core.Matlab
         /// Recursivo para combinar (p.ej. sqrt de algo, o vbar). Sobre texto HTML-encodeado.</summary>
         // Acento centrado ARRIBA del contenido (robusto con cursiva; no depende de que la fuente
         // tenga el carácter combinante). Ver bar (overline aparte).
+        // Acento centrado ARRIBA. El translateX(.09em) compensa la itálica de <var> (la cima de
+        // la letra queda a la derecha del centro de la caja → sin esto el acento sale corrido a la izq).
         private static string Over(string acc, string inner) =>
             $"<span style=\"display:inline-block;position:relative;text-align:center;\">{inner}"
-          + $"<span style=\"position:absolute;left:0;right:0;top:-.60em;font-size:.72em;font-style:normal;font-weight:400;line-height:1;\">{acc}</span></span>";
+          + $"<span style=\"position:absolute;left:0;right:0;top:-.60em;font-size:.72em;font-style:normal;font-weight:400;line-height:1;transform:translateX(.09em);\">{acc}</span></span>";
         // token de decoracion-sufijo -> función que envuelve el inner ya renderizado.
         private static readonly (string tok, System.Func<string, string> wrap)[] _decos =
         {
             ("ddot", inner => Over("&#183;&#183;", inner)),   // ẍ  (doble punto)
             ("dot",  inner => Over("&#183;", inner)),          // ẋ  (punto)
             ("hat",  inner => Over("^", inner)),               // x̂
+            ("check",inner => Over("&#711;", inner)),          // x̌  (caron)
+            ("breve",inner => Over("&#728;", inner)),          // x̆  (breve)
             ("tilde",inner => Over("~", inner)),               // x̃
             ("vec",  inner => Over("&#8594;", inner)),          // x⃗  (flecha → arriba)
-            ("bar",  inner => $"<span style=\"display:inline-block;border-top:.08em solid currentColor;line-height:1.05;padding:.02em .04em 0 0;\">{inner}</span>"), // x̄ overline
+            ("bar",  inner => $"<span style=\"display:inline-block;border-top:.08em solid currentColor;line-height:1.05;padding:.02em .06em 0 .02em;\">{inner}</span>"), // x̄ overline
         };
         private static string DecorateBase(string b)
         {
@@ -609,6 +613,13 @@ namespace Calcpad.Core.Matlab
             // Prefijo raiz: sqrtD / raizD → √D (con vinculum, como sqrt()).
             if (b.Length > 4 && (b.StartsWith("sqrt") || b.StartsWith("raiz")))
                 return $"&ensp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{DecorateBase(b.Substring(4))}</span>";
+            // Valor absoluto / norma / angulo (prefijos que envuelven): absF→|F|, normv→‖v‖, angleAB→∠AB.
+            if (b.Length > 4 && b.StartsWith("norm"))
+                return $"<b class=\"b0\">‖</b>&hairsp;{DecorateBase(b.Substring(4))}&hairsp;<b class=\"b0\">‖</b>";
+            if (b.Length > 5 && b.StartsWith("angle"))
+                return $"∠&hairsp;{DecorateBase(b.Substring(5))}";
+            if (b.Length > 3 && b.StartsWith("abs"))
+                return $"<b class=\"b0\">|</b>&hairsp;{DecorateBase(b.Substring(3))}&hairsp;<b class=\"b0\">|</b>";
             // Grados como sufijo: Tdeg → T°.
             if (b.Length > 3 && b.EndsWith("deg"))
                 return DecorateBase(b.Substring(0, b.Length - 3)) + "&deg;";
