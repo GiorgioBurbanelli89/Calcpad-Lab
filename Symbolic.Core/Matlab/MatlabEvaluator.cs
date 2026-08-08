@@ -6114,31 +6114,67 @@ namespace Calcpad.Core.Matlab
                         return MValue.NewSymbolic(result);
                     }
                 }
-                // Caso simbólico (k_end es N): aplicar fórmulas cerradas conocidas
-                var ex = a[0].Symbolic;
-                if (ex is SymVar kv && kv.Name == kName)
+                // Caso simbólico (k_start = 1, k_end = N): forma cerrada para CUALQUIER
+                // polinomio en k (por linealidad) y progresion geometrica r^k.
+                if (a[2].IsScalar && a[2].Scalar == 1 && a[3].IsSymbolic && a[3].Symbolic is SymVar N)
                 {
-                    // sum_{k=1}^N k = N(N+1)/2
-                    if (a[2].IsScalar && a[2].Scalar == 1 && a[3].IsSymbolic && a[3].Symbolic is SymVar nv)
-                        return MValue.NewSymbolic(new SymDiv(
-                            new SymMul(nv, new SymAdd(nv, new SymConst(1))),
-                            new SymConst(2)).Simplify());
-                }
-                if (ex is SymPow pw && pw.Base is SymVar kv2 && kv2.Name == kName && pw.Exp is SymConst pe)
-                {
-                    if (pe.Value == 2 && a[2].IsScalar && a[2].Scalar == 1 && a[3].IsSymbolic && a[3].Symbolic is SymVar nv2)
-                        // sum_{k=1}^N k² = N(N+1)(2N+1)/6
-                        return MValue.NewSymbolic(new SymDiv(
-                            new SymMul(new SymMul(nv2, new SymAdd(nv2, new SymConst(1))),
-                                       new SymAdd(new SymMul(new SymConst(2), nv2), new SymConst(1))),
-                            new SymConst(6)).Simplify());
-                    if (pe.Value == 3 && a[2].IsScalar && a[2].Scalar == 1 && a[3].IsSymbolic && a[3].Symbolic is SymVar nv3)
-                        // sum_{k=1}^N k³ = (N(N+1)/2)²
-                        return MValue.NewSymbolic(new SymPow(
-                            new SymDiv(new SymMul(nv3, new SymAdd(nv3, new SymConst(1))), new SymConst(2)),
-                            new SymConst(2)).Simplify());
+                    var closed = SymSumClosed(a[0].Symbolic, kName, N);
+                    if (closed != null) return MValue.NewSymbolic(closed.Simplify());
                 }
                 throw new MatlabRuntimeException("symsum: caso no soportado (MVP — usa límites numéricos)");
+
+                // ---- helpers locales ----
+                // ¿la expresion depende de k?
+                static bool HasK(SymNode n, string k)
+                {
+                    switch (n)
+                    {
+                        case SymVar v: return v.Name == k;
+                        case SymConst: return false;
+                        case SymAdd x: return HasK(x.A, k) || HasK(x.B, k);
+                        case SymSub x: return HasK(x.A, k) || HasK(x.B, k);
+                        case SymMul x: return HasK(x.A, k) || HasK(x.B, k);
+                        case SymDiv x: return HasK(x.A, k) || HasK(x.B, k);
+                        case SymPow x: return HasK(x.Base, k) || HasK(x.Exp, k);
+                        default: return true;   // conservador
+                    }
+                }
+                // Forma cerrada de sum_{k=1}^{N} ex, o null si no se sabe.
+                static SymNode SymSumClosed(SymNode ex, string k, SymNode N)
+                {
+                    switch (ex)
+                    {
+                        case SymConst c:                          // Σ c = c·N
+                            return new SymMul(new SymConst(c.Value), N);
+                        case SymVar v when v.Name == k:           // Σ k = N(N+1)/2
+                            return new SymDiv(new SymMul(N, new SymAdd(N, new SymConst(1))), new SymConst(2));
+                        case SymVar v:                            // constante respecto de k
+                            return new SymMul(v, N);
+                        case SymAdd x: { var l = SymSumClosed(x.A, k, N); var r = SymSumClosed(x.B, k, N); return (l != null && r != null) ? new SymAdd(l, r) : null; }
+                        case SymSub x: { var l = SymSumClosed(x.A, k, N); var r = SymSumClosed(x.B, k, N); return (l != null && r != null) ? new SymSub(l, r) : null; }
+                        case SymMul x:                            // saca el factor constante en k
+                            if (!HasK(x.A, k)) { var s = SymSumClosed(x.B, k, N); return s != null ? new SymMul(x.A, s) : null; }
+                            if (!HasK(x.B, k)) { var s = SymSumClosed(x.A, k, N); return s != null ? new SymMul(x.B, s) : null; }
+                            return null;
+                        case SymDiv x when !HasK(x.B, k):         // Σ (f/c) = (Σ f)/c
+                            { var s = SymSumClosed(x.A, k, N); return s != null ? new SymDiv(s, x.B) : null; }
+                        case SymPow p when p.Base is SymVar bv && bv.Name == k && p.Exp is SymConst pe:
+                            if (pe.Value == 1) return SymSumClosed(bv, k, N);
+                            if (pe.Value == 2)               // Σ k² = N(N+1)(2N+1)/6
+                                return new SymDiv(new SymMul(new SymMul(N, new SymAdd(N, new SymConst(1))),
+                                    new SymAdd(new SymMul(new SymConst(2), N), new SymConst(1))), new SymConst(6));
+                            if (pe.Value == 3)               // Σ k³ = (N(N+1)/2)²
+                                return new SymPow(new SymDiv(new SymMul(N, new SymAdd(N, new SymConst(1))), new SymConst(2)), new SymConst(2));
+                            return null;
+                        case SymPow p when !HasK(p.Base, k) && p.Exp is SymVar ev && ev.Name == k:
+                            // GEOMETRICA: Σ_{k=1}^N r^k = r·(r^N − 1)/(r − 1)
+                            return new SymDiv(new SymMul(p.Base, new SymSub(new SymPow(p.Base, N), new SymConst(1))),
+                                              new SymSub(p.Base, new SymConst(1)));
+                        case SymPow p when !HasK(p, k):          // constante respecto de k
+                            return new SymMul(p, N);
+                        default: return null;
+                    }
+                }
             };
             _builtins["piecewise"] = a => {
                 // piecewise(c1, v1, c2, v2, ..., default) — evalúa condicionalmente

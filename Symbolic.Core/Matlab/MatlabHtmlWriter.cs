@@ -790,6 +790,23 @@ namespace Calcpad.Core.Matlab
                 // NumberLit / StringLit / etc. -> no aportan variables.
             }
         }
+        /// <summary>Clona la expresion sustituyendo el identificador `name` por `repl` (para
+        /// expandir progresiones: symsum(k^2,k,1,n) -> k→1, k→2, … -> 1²+2²+…). Solo los nodos
+        /// que aparecen en un sumando tipico.</summary>
+        private static MatlabNode SubstIdent(MatlabNode n, string name, MatlabNode repl)
+        {
+            switch (n)
+            {
+                case IdentRef id: return id.Name == name ? repl : id;
+                case BinaryOp b: return new BinaryOp { Op = b.Op, Left = SubstIdent(b.Left, name, repl), Right = SubstIdent(b.Right, name, repl) };
+                case UnaryOp u: return new UnaryOp { Op = u.Op, IsPrefix = u.IsPrefix, Operand = SubstIdent(u.Operand, name, repl) };
+                case CallOrIndex c2:
+                    var na = new System.Collections.Generic.List<MatlabNode>();
+                    if (c2.Args != null) foreach (var a in c2.Args) na.Add(SubstIdent(a, name, repl));
+                    return new CallOrIndex { Target = c2.Target, Args = na };
+                default: return n;
+            }
+        }
         private static string RenderCall(CallOrIndex c)
         {
             // ── Notacion matematica nativa Calcpad para funciones simbolicas ──
@@ -837,8 +854,27 @@ namespace Calcpad.Core.Matlab
                     var kk = RenderExpression(c.Args[1]);
                     var lo = RenderExpression(c.Args[2]);
                     var hi = RenderExpression(c.Args[3]);
-                    return $"<span class=\"dvr\"><small>{hi}</small><span class=\"nary\">{sym}</span>"
-                         + $"<small>{kk}=&hairsp;{lo}</small></span>{body}";
+                    var nary = $"<span class=\"dvr\"><small>{hi}</small><span class=\"nary\">{sym}</span>"
+                             + $"<small>{kk}=&hairsp;{lo}</small></span>{body}";
+                    // PROGRESION expandida: si el limite inferior es literal, mostrar
+                    //   f(a) + f(a+1) + f(a+2) + … + f(b)   (o · para productos). Ej:
+                    //   symsum(k,k,1,n) -> 1 + 2 + 3 + … + n ;  k^2 -> 1² + 2² + 3² + … + n²
+                    if (c.Args[1] is IdentRef kv && c.Args[2] is NumberLit a0 && a0.Value == System.Math.Floor(a0.Value))
+                    {
+                        int a = (int)a0.Value;
+                        string op = fname == "symprod" ? " &middot; " : " + ";
+                        var sbp = new System.Text.StringBuilder();
+                        for (int j = a; j < a + 3; j++)
+                        {
+                            if (j > a) sbp.Append(op);
+                            sbp.Append(RenderExpression(SubstIdent(c.Args[0], kv.Name,
+                                new NumberLit { Value = j, OrigText = j.ToString(System.Globalization.CultureInfo.InvariantCulture) })));
+                        }
+                        sbp.Append(op).Append("&hellip;").Append(op);
+                        sbp.Append(RenderExpression(SubstIdent(c.Args[0], kv.Name, c.Args[3])));
+                        return $"{nary} = {sbp}";
+                    }
+                    return nary;
                 }
                 if (fname == "int" && c.Args.Count >= 1)
                 {
