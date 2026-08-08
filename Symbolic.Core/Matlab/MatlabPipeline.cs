@@ -455,6 +455,8 @@ namespace Calcpad.Core.Matlab
             // tablas |...|, listas -). El codigo entre medias se ejecuta igual.
             bool mdMode = false;
             bool insideDeqBlock = false;   // bloque de ecuaciones: %#deq … %#endeq
+            // Lineas del fuente (para el bloque %#deq…%#endeq con CODIGO REAL adentro).
+            var deqSrcLines = source.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             // Contadores para elementos tipo LIBRO (auto-numerados): citas [N], figuras, tablas, notas.
             int refCounter = 0, figCounter = 0, tabCounter = 0, notaCounter = 0;
             // Emite UNA ecuacion #deq (usado por la forma de una linea y por el bloque %#deq…%#endeq).
@@ -512,12 +514,42 @@ namespace Calcpad.Core.Matlab
                     if (dt0 == "#endeq" || dt0 == "#end deq") { insideDeqBlock = false; continue; }
                 }
 
-                // Dentro del bloque de ecuaciones: cada comentario es una ecuacion (sin repetir #deq).
-                if (insideDeqBlock && stmt is CommentStmt cdeqBlk && !cdeqBlk.IsHeading)
+                // Dentro del bloque de ecuaciones %#deq … %#endeq:
+                if (insideDeqBlock)
                 {
-                    var eqLine = cdeqBlk.Text.Trim();
-                    if (eqLine.Length > 0) { EmitDeqLine(eqLine, stmtLine); lastEmittedPLine = stmtLine; }
-                    continue;
+                    // (a) comentario de ecuacion: `%sigma = ... @@(n)` (sin repetir #deq)
+                    if (stmt is CommentStmt cdeqBlk && !cdeqBlk.IsHeading)
+                    {
+                        // Si es el comentario INLINE (@@) que sigue a una linea de codigo real ya
+                        // renderizada en este bloque (misma linea), saltarlo (ya se numero).
+                        if (stmtLine == lastEmittedPLine) continue;
+                        var eqLine = cdeqBlk.Text.Trim();
+                        if (eqLine.Length > 0) { EmitDeqLine(eqLine, stmtLine); lastEmittedPLine = stmtLine; }
+                        continue;
+                    }
+                    // (b) CODIGO REAL (variable fuera de %): se EJECUTA (queda definida) y se
+                    //     muestra como ECUACION display. El numero opcional viene del %@@(n) inline.
+                    if (!(stmt is CommentStmt))
+                    {
+                        try { _evaluator.ExecuteOne(stmt, _evaluator.Globals); } catch { }
+                        string raw = (stmtLine >= 1 && stmtLine <= deqSrcLines.Length) ? deqSrcLines[stmtLine - 1] : "";
+                        // separar codigo del comentario inline (que puede llevar @@(n))
+                        int pct = raw.IndexOf('%');
+                        string codePart = pct >= 0 ? raw[..pct] : raw;
+                        string cmtPart = pct >= 0 ? raw[(pct + 1)..].Trim() : "";
+                        string lbl = null;
+                        if (cmtPart.StartsWith("#deq")) cmtPart = cmtPart.Substring(4).Trim();
+                        if (cmtPart.StartsWith("@@"))
+                        {
+                            lbl = cmtPart.Substring(2).Trim();
+                            if (lbl.StartsWith("(") && lbl.EndsWith(")")) lbl = lbl[1..^1].Trim();
+                        }
+                        var body = codePart.Trim().TrimEnd(';').Trim();
+                        if (lbl != null) body += " @@(" + lbl + ")";
+                        if (body.Length > 0) { EmitDeqLine(body, stmtLine); lastEmittedPLine = stmtLine; }
+                        prevNonCommentLine = stmtLine;
+                        continue;
+                    }
                 }
 
                 // En modo Markdown: los comentarios se acumulan; cualquier statement
