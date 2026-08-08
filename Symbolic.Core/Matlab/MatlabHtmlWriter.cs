@@ -563,6 +563,16 @@ namespace Calcpad.Core.Matlab
         public static string RenderIdentName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
+            // DOBLE guion bajo `a__b` -> FRACCION a/b (valido en MATLAB, se ve como quebrado).
+            // Ej: df__dx -> df/dx,  dy__dx -> dy/dx,  d__x -> d/x. Un solo `_` sigue = subindice.
+            int dbl = name.IndexOf("__", System.StringComparison.Ordinal);
+            if (dbl > 0 && dbl + 2 < name.Length)
+            {
+                string num = name.Substring(0, dbl);
+                string den = name.Substring(dbl + 2);
+                return $"<span class=\"dvc\"><span class=\"dvc-num\">{RenderIdentName(num)}</span>"
+                     + $"<span class=\"dvl\"></span><span class=\"dvc-den\">{RenderIdentName(den)}</span></span>";
+            }
             int idx = name.IndexOf('_');
             if (idx <= 0 || idx == name.Length - 1)
             {
