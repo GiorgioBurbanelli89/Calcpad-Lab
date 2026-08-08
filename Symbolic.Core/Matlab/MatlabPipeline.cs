@@ -575,6 +575,8 @@ namespace Calcpad.Core.Matlab
                     bool visible = ct.StartsWith("'") || ct.StartsWith("\"")
                                    || ct.StartsWith("#noc") || ct.StartsWith("#val") || ct.StartsWith("#equ")
                                    || ct.StartsWith("#img")   // % #img <data-uri|ruta> → imagen incrustada (recorte pegado)
+                                   || ct.StartsWith("#deq")   // % #deq ecuacion @@(numero) → ecuacion numerada tipo libro
+                                   || ct.StartsWith("#col") || ct.StartsWith("#inl")  // % #col a ; b ; c → columnas
                                    // Operador Calcpad directo `% $Plot/$Sum/$Area/...` → visible (se
                                    // renderiza en modo #equ). Antes quedaba oculto pese a que
                                    // ParseDirective lo soporta; así funcionan con solo `% $Op{...}`.
@@ -700,6 +702,55 @@ namespace Calcpad.Core.Matlab
                                 sb.Append($"<div style=\"text-align:center;margin:6px 0;\"><img src=\"{isrc}\" style=\"max-width:100%;height:auto;\" alt=\"imagen\"></div>\n");
                                 lastEmittedPLine = stmtLine;
                             }
+                        }
+                        // % #deq  ECUACION @@(numero)  → ecuacion numerada tipo LIBRO: la
+                        // ecuacion renderizada como math a la izquierda y el (numero/enunciado)
+                        // a la derecha. Display-only (MATLAB la ignora, es comentario).
+                        //   % #deq F = k*u @@(2.1)      % #deq sigma = P/A_g + M*v/I @@(flexo-compresion)
+                        else if (stmt is CommentStmt cdeq && !cdeq.IsHeading && !isInlineComment
+                            && cdeq.Text.TrimStart().StartsWith("#deq", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            var body = cdeq.Text.TrimStart().Substring(4).Trim();
+                            string label = null;
+                            int at = body.IndexOf("@@", System.StringComparison.Ordinal);
+                            if (at >= 0)
+                            {
+                                label = body[(at + 2)..].Trim();
+                                if (label.StartsWith("(") && label.EndsWith(")")) label = label[1..^1].Trim();
+                                body = body[..at].Trim();
+                            }
+                            var eqHtml = MatlabHtmlWriter.RenderEquation(body);
+                            if (label != null)
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"display:flex;justify-content:space-between;align-items:center;margin:.45em 0\"><span class=\"eq\">{eqHtml}</span><span style=\"font-family:Georgia,serif;color:#555;margin-left:2em;white-space:nowrap\">({System.Net.WebUtility.HtmlEncode(label)})</span></p>\n");
+                            else
+                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\" style=\"text-align:center;margin:.45em 0\"><span class=\"eq\">{eqHtml}</span></p>\n");
+                            lastEmittedPLine = stmtLine;
+                        }
+                        // % #col a ; b ; c   (o #inl) → COLUMNAS: fila flex de celdas iguales
+                        // separadas por ';'. Celda con `'` = texto; sin `'` = ecuacion/expresion.
+                        else if (stmt is CommentStmt ccol && !ccol.IsHeading && !isInlineComment
+                            && (ccol.Text.TrimStart().StartsWith("#col", System.StringComparison.OrdinalIgnoreCase)
+                                || ccol.Text.TrimStart().StartsWith("#inl", System.StringComparison.OrdinalIgnoreCase)))
+                        {
+                            var body = ccol.Text.TrimStart().Substring(4).Trim();
+                            var cells = SplitTopLevel(body, ';');
+                            var cb = new System.Text.StringBuilder();
+                            cb.Append($"<div class=\"line\" id=\"line-{stmtLine}\" style=\"display:flex;gap:1.6em;align-items:baseline;margin:.4em 0\">");
+                            foreach (var cell in cells)
+                            {
+                                var cc = cell.Trim();
+                                string inner;
+                                if (cc.StartsWith("'"))
+                                    inner = System.Net.WebUtility.HtmlEncode(cc[1..].Trim());   // texto literal
+                                else if (cc.Length == 0)
+                                    inner = "&nbsp;";
+                                else
+                                    inner = $"<span class=\"eq\">{MatlabHtmlWriter.RenderEquation(cc)}</span>";  // ecuacion/expresion
+                                cb.Append($"<div style=\"flex:1\">{inner}</div>");
+                            }
+                            cb.Append("</div>\n");
+                            sb.Append(cb);
+                            lastEmittedPLine = stmtLine;
                         }
                         else if (stmt is CommentStmt cdir && !cdir.IsHeading && !isInlineComment
                             && TryRenderCalcpadDirective(cdir.Text, stmtLine, out var directiveHtml))
@@ -882,6 +933,28 @@ namespace Calcpad.Core.Matlab
         /// un comentario normal (el caller lo rendea como texto). Cualquier fallo
         /// del render Calcpad cae a false (fallback seguro a comentario normal).
         /// </summary>
+        /// <summary>Divide `s` por el separador `sep` a nivel superior (fuera de ()/[]/{}).
+        /// Para celdas de #col: el `'` inicial de cada celda es prefijo de TEXTO (no
+        /// delimitador), así que NO se rastrean comillas — el ';' siempre separa celdas.</summary>
+        private static System.Collections.Generic.List<string> SplitTopLevel(string s, char sep)
+        {
+            var res = new System.Collections.Generic.List<string>();
+            int depth = 0, last = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '(' || c == '[' || c == '{') depth++;
+                else if (c == ')' || c == ']' || c == '}') depth--;
+                else if (c == sep && depth == 0)
+                {
+                    res.Add(s[last..i]);
+                    last = i + 1;
+                }
+            }
+            res.Add(s[last..]);
+            return res;
+        }
+
         private bool TryRenderCalcpadDirective(string commentText, int matlabLine, out string html)
         {
             html = null;

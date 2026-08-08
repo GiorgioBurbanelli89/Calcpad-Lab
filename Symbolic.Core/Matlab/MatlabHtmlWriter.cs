@@ -523,6 +523,57 @@ namespace Calcpad.Core.Matlab
         }
 
         /// <summary>Render una expresión AST como HTML MATLAB.</summary>
+        /// <summary>Renderiza una ECUACIÓN dada como string (para #deq y celdas #col):
+        /// divide por '=' de nivel superior (soporta a=b=c), parsea cada lado y lo
+        /// renderiza como math bonito (fracciones, subíndices, ·, potencias). Si un lado
+        /// no parsea, cae a texto. Es display-only — no evalúa nada.</summary>
+        public static string RenderEquation(string src)
+        {
+            if (string.IsNullOrWhiteSpace(src)) return "";
+            var parts = SplitTopEquals(src);
+            var sb = new System.Text.StringBuilder();
+            bool first = true;
+            foreach (var p in parts)
+            {
+                var s = p.Trim();
+                if (s.Length == 0) continue;
+                if (!first) sb.Append(" = ");
+                first = false;
+                try
+                {
+                    var toks = MatlabTokenizer.Tokenize(s);
+                    var node = new MatlabParser(toks).ParseExpression();
+                    sb.Append(RenderExpression(node));
+                }
+                catch { sb.Append(System.Net.WebUtility.HtmlEncode(s)); }
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Divide por '=' de nivel superior (fuera de ()/[]/{}), ignorando
+        /// ==, &lt;=, &gt;=, ~=, != y =>.</summary>
+        private static System.Collections.Generic.List<string> SplitTopEquals(string s)
+        {
+            var res = new System.Collections.Generic.List<string>();
+            int depth = 0, last = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c is '(' or '[' or '{') depth++;
+                else if (c is ')' or ']' or '}') depth--;
+                else if (c == '=' && depth == 0)
+                {
+                    char prev = i > 0 ? s[i - 1] : ' ';
+                    char next = i + 1 < s.Length ? s[i + 1] : ' ';
+                    if (next == '=' || prev is '=' or '<' or '>' or '~' or '!') continue;
+                    res.Add(s[last..i]);
+                    last = i + 1;
+                }
+            }
+            res.Add(s[last..]);
+            return res;
+        }
+
         public static string RenderExpression(MatlabNode node)
         {
             return node switch
