@@ -253,11 +253,13 @@ namespace Calcpad.Core
             private readonly int[] _iparm = new int[64];
             private readonly int[] _perm;
             private readonly int[] _rowPtr, _colIdx;
-            private readonly double[] _vals;
+            private double[] _vals;
             private readonly int _n, _mtype;
             private bool _disposed;
 
             public int N => _n;
+            public int[] RowPtr => _rowPtr;   // patrón (para comparar y reusar el análisis)
+            public int[] ColIdx => _colIdx;
 
             private PardisoFactorization(int n, int[] rowPtr, int[] colIdx, double[] vals, int mtype)
             {
@@ -286,6 +288,28 @@ namespace Calcpad.Core
                 }
                 if (error != 0) { f.Dispose(); throw new InvalidOperationException($"PARDISO factor error {error}"); }
                 return f;
+            }
+
+            /// <summary>Fase 22: RE-factorización numérica reusando el ANÁLISIS simbólico (fase 11)
+            /// ya hecho — para el MISMO patrón con valores nuevos (Newton/pushover: misma K, cambian
+            /// los valores). Evita repetir el reordenamiento fill-reducing, que es la parte cara.</summary>
+            public void Refactor(double[] newVals)
+            {
+                if (_disposed) throw new ObjectDisposedException(nameof(PardisoFactorization));
+                if (newVals.Length != _vals.Length)
+                    throw new ArgumentException($"Refactor: {newVals.Length} valores, se esperaba {_vals.Length} (mismo patrón)");
+                System.Array.Copy(newVals, _vals, _vals.Length);   // mismo patrón, valores nuevos
+                int error = 0;
+                fixed (long* ppt = _pt)
+                fixed (int* pip = _iparm, pia = _rowPtr, pja = _colIdx, ppe = _perm)
+                fixed (double* pa = _vals)
+                {
+                    int mt = _mtype, mf = 1, mn = 1, ml = 0, nr = 1, N = _n;
+                    int phase = 22;                 // SOLO factorización numérica (reusa el análisis en _pt)
+                    double dummy = 0;
+                    NativeBlas.Pardiso((void*)ppt, &mf, &mn, &mt, &phase, &N, pa, pia, pja, ppe, &nr, pip, &ml, &dummy, &dummy, &error);
+                }
+                if (error != 0) throw new InvalidOperationException($"PARDISO refactor error {error}");
             }
 
             /// <summary>Fase 33: sustitución hacia adelante/atrás reusando la factorización retenida.</summary>

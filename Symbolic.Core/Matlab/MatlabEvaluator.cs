@@ -14426,6 +14426,19 @@ namespace Calcpad.Core.Matlab
 
     internal static class MatlabLinAlg
     {
+        // CACHE de factorización PARDISO para A\b sparse REPETIDO con el MISMO patrón (Newton/pushover:
+        // misma K(free,free), cambian los valores). Reusa el ANÁLISIS simbólico (fase 11, la parte cara)
+        // y solo re-factoriza (fase 22) + resuelve (fase 33). Keyed por el CONTENIDO del patrón (rowPtr,
+        // colIdx) — funciona aunque la submatriz sea un objeto nuevo cada iteración (value-semantics).
+        [ThreadStatic] private static Calcpad.Core.BlasInterop.PardisoFactorization _pardisoCache;
+        private static bool SameIntArray(int[] a, int[] b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
         /// <summary>LU-based determinant. Devuelve 0 si singular.</summary>
         public static double Determinant(MValue m)
         {
@@ -14530,12 +14543,37 @@ namespace Calcpad.Core.Matlab
                     var bd = b.IsSparseReal ? b.ToDense() : b;
                     var bv = new double[nn];
                     for (int i = 0; i < nn; i++) bv[i] = bd.At(i, 0);
-                    var xx = Calcpad.Core.BlasInterop.SolveSparsePardiso(nn, A.SparseRowPtr, A.SparseCols, A.SparseVals, bv);
+                    var rp = A.SparseRowPtr; var ci = A.SparseCols; var vv = A.SparseVals;
+                    double[] xx;
+                    // REUSO del análisis simbólico: si el patrón (rowPtr,colIdx) coincide con el
+                    // cacheado, solo re-factorizar (fase 22) + solve (fase 33) — se salta la fase 11.
+                    // Solo vale la pena para sistemas medianos/grandes (nn>=256).
+                    if (nn >= 256)
+                    {
+                        var cache = _pardisoCache;
+                        if (cache != null && cache.N == nn && SameIntArray(cache.RowPtr, rp) && SameIntArray(cache.ColIdx, ci))
+                        {
+                            cache.Refactor(vv);
+                            xx = cache.Solve(bv);
+                        }
+                        else
+                        {
+                            cache?.Dispose();
+                            _pardisoCache = null;
+                            var f = Calcpad.Core.BlasInterop.PardisoFactorization.Factor(nn, rp, ci, (double[])vv.Clone());
+                            xx = f.Solve(bv);
+                            _pardisoCache = f;
+                        }
+                    }
+                    else
+                    {
+                        xx = Calcpad.Core.BlasInterop.SolveSparsePardiso(nn, rp, ci, vv, bv);
+                    }
                     var rr = new MValue(nn, 1);
                     for (int i = 0; i < nn; i++) rr.Set(i, 0, xx[i]);
                     return rr;
                 }
-                catch { A = A.ToDense(); }
+                catch { try { _pardisoCache?.Dispose(); } catch { } _pardisoCache = null; A = A.ToDense(); }
             }
             // Fast-path DENSA-PERO-RALA: en Lab `sparse(n,n)` devuelve una densa, asi que
             // el ensamblaje FEM (K=sparse(n,n); K(d,d)=K(d,d)+Ke) produce una densa que es
