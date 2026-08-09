@@ -1725,6 +1725,12 @@ namespace Calcpad.Core.Matlab
         private static Expression ConvertCallOrIndex(string name, List<MatlabNode> args, CompileCtx cc)
         {
             bool isFn = cc.Evaluator.JitIsFunction(name);
+            // FUNCIÓN ANÓNIMA en variable (handle callable, p.ej. nid=@(i,j)…): NO es builtin ni
+            // función de usuario, así que isFn=false y el JIT la trataría como INDEXADO de matriz
+            // (nid(k,0) → índice 0 → "Index out of bounds"). Como el handle lleva closure, el JIT
+            // no sabe invocarlo: claudicamos (return null) y el intérprete ejecuta el loop correcto.
+            if (!isFn && cc.Scope != null && cc.Scope.TryGet(name, out var hv) && hv != null && hv.IsCallable)
+                return null;
             // isempty(x): logico escalar (1.0/0.0). El arg suele ser MATRIZ (n, D del return-map),
             // asi que NO pasa por el path double[] (que exige escalar). Emitimos MIsEmpty directo.
             if (name == "isempty" && args.Count == 1 && !cc.Evaluator.JitIsUserFunction(name))
