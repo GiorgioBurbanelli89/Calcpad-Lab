@@ -2283,7 +2283,12 @@ namespace Calcpad.Core.Matlab
                     else if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigTitle(a[0].StringValue);
                     else RelayoutLastPlot("title", JsonEscape(a[0].StringValue));
                 }
-                return new MValue(0);
+                // Devuelve un HANDLE de título (no 0): así ht=title(...) + set(ht,'String',...)
+                // en un bucle de animación actualiza el título en cada frame (como MATLAB).
+                var th = new MValue(0) { IsGfxHandle = true };
+                th.Fields = new System.Collections.Generic.Dictionary<string, MValue>();
+                th.Fields["__istitle"] = new MValue(1);
+                return th;
             };
             _builtins["xlabel"] = a => {
                 a = DropAxes(a);
@@ -3095,6 +3100,8 @@ namespace Calcpad.Core.Matlab
             };
             _builtins["set"] = a => {
                 MValue newVerts = null, newCData = null;
+                // ¿el handle es un TÍTULO (ht=title(...))? -> set(ht,'String',s) actualiza el título.
+                bool isTitleH = a.Length > 0 && a[0].Fields != null && a[0].Fields.ContainsKey("__istitle");
                 for (int i = 1; i + 1 < a.Length; i += 2)
                     if (a[i].IsString)
                     {
@@ -3102,6 +3109,8 @@ namespace Calcpad.Core.Matlab
                         if (a[0].Fields != null) a[0].Fields[k] = a[i + 1];   // guarda en el handle si lo tiene
                         if (k == "vertices") newVerts = a[i + 1];
                         else if (k == "facevertexcdata") newCData = a[i + 1];
+                        else if (k == "string" && isTitleH && a[i + 1].IsString)
+                            MatlabPlots.SetFigTitle(a[i + 1].StringValue);   // título vivo en cada frame
                     }
                 // MALLA RETENIDA (modo MATLAB): set con Vertices/FaceVertexCData MUTA la malla viva;
                 // el próximo render (drawnow) la reconstruye desde ahí → animación. Si el handle trae
