@@ -3431,13 +3431,35 @@ cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
             }
             return $"rgb({c.r},{c.g},{c.b})";
         }
+        // jet(256) EXACTO de MATLAB (portado de toolbox/matlab/graph3d/jet.m): n=ceil(m/4),
+        // rampa u=[(1:n)/n, ones(1,n-1), (n:-1:1)/n], canales R/G/B desplazados ±n. Da
+        // azul[0]=0.5156 (no 0.5) — byte-idéntico a MATLAB jet(256), no la fórmula aproximada.
+        private static readonly double[][] _jet256 = BuildJetMatlab(256);
+        private static double[][] BuildJetMatlab(int m)
+        {
+            int n = (int)Math.Ceiling(m / 4.0);
+            var u = new System.Collections.Generic.List<double>(3 * n);
+            for (int i = 1; i <= n; i++) u.Add((double)i / n);
+            for (int i = 0; i < n - 1; i++) u.Add(1.0);
+            for (int i = n; i >= 1; i--) u.Add((double)i / n);
+            int L = u.Count;
+            int gbase = (int)Math.Ceiling(n / 2.0) - (m % 4 == 1 ? 1 : 0);
+            var J = new double[m][];
+            for (int i = 0; i < m; i++) J[i] = new double[3];
+            int cg = 0; for (int k = 0; k < L; k++) { int gi = gbase + (k + 1); if (gi >= 1 && gi <= m) { J[gi - 1][1] = u[cg]; cg++; } }
+            int cr = 0; for (int k = 0; k < L; k++) { int ri = gbase + (k + 1) + n; if (ri >= 1 && ri <= m) { J[ri - 1][0] = u[cr]; cr++; } }
+            var bidx = new System.Collections.Generic.List<int>();
+            for (int k = 0; k < L; k++) { int bi = gbase + (k + 1) - n; if (bi >= 1 && bi <= m) bidx.Add(bi); }
+            int lb = bidx.Count; for (int k = 0; k < lb; k++) J[bidx[k] - 1][2] = u[L - lb + k];
+            return J;
+        }
         private static (int, int, int) JetRgb(double t)
         {
-            // Jet: blue → cyan → green → yellow → red
-            double r = Math.Max(0, Math.Min(1, Math.Min(4*t - 1.5, -4*t + 4.5)));
-            double g = Math.Max(0, Math.Min(1, Math.Min(4*t - 0.5, -4*t + 3.5)));
-            double b = Math.Max(0, Math.Min(1, Math.Min(4*t + 0.5, -4*t + 2.5)));
-            return ((int)(r*255), (int)(g*255), (int)(b*255));
+            if (t < 0) t = 0; else if (t > 1) t = 1;
+            int idx = (int)Math.Round(t * (_jet256.Length - 1));
+            if (idx < 0) idx = 0; else if (idx >= _jet256.Length) idx = _jet256.Length - 1;
+            var c = _jet256[idx];
+            return ((int)Math.Round(c[0] * 255), (int)Math.Round(c[1] * 255), (int)Math.Round(c[2] * 255));
         }
         private static (int, int, int) HotRgb(double t)
         {
