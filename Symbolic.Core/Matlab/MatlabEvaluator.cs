@@ -316,12 +316,6 @@ namespace Calcpad.Core.Matlab
         /// <summary>Callback opcional para HTML inline (plots, etc.). Si null, los plots se descartan.</summary>
         private Action<string> _htmlOut;
         public Action<string> HtmlOut { get => _htmlOut; set => _htmlOut = value; }
-        // CACHE del patrón sparse: sparse(I,Jj,Vv) en un loop FEM se llama cientos de veces con
-        // I,Jj IDÉNTICOS (solo cambia Vv). Cacheamos el orden CSR (cols/rowPtr) + el mapa
-        // triplete→posición, así en las repeticiones solo se rellenan valores (sin dict ni sort).
-        private double[] _spCacheII, _spCacheJJ;
-        private int _spCacheM, _spCacheN, _spCacheNnz;
-        private int[] _spCachePos, _spCacheCols, _spCacheRowPtr;
         /// <summary>Valores VIVOS de los controles interactivos (slider/numbox/checkbox/dropdown).
         /// Vive en la WPF (sobrevive a re-runs; el motor es nuevo cada cálculo) y se inyecta por run.
         /// Un control lee su valor de aquí (si existe) o usa su default; al moverlo, la WPF actualiza
@@ -782,53 +776,30 @@ namespace Calcpad.Core.Matlab
             }
             MValue TripletsToCsr(int m, int n, double[] ii, double[] jj, double[] ss)
             {
-                int nt = ii.Length;
-                bool oneS = ss.Length == 1 && nt > 1;
-                // FAST PATH: mismo patrón (mismas refs de I,Jj y dims) → solo rellenar valores.
-                // Reusa el orden CSR y el mapa triplete→posición cacheados (sin dict ni sort).
-                if (ReferenceEquals(ii, _spCacheII) && ReferenceEquals(jj, _spCacheJJ)
-                    && m == _spCacheM && n == _spCacheN && _spCachePos != null && _spCachePos.Length == nt)
-                {
-                    var vf = new double[_spCacheNnz];
-                    for (int k = 0; k < nt; k++) { int p = _spCachePos[k]; if (p >= 0) vf[p] += oneS ? ss[0] : ss[k]; }
-                    return MValue.NewSparseCSR(m, n, vf, _spCacheCols, _spCacheRowPtr);
-                }
-                // SLOW PATH: construir el patrón UNA vez y cachearlo.
-                var keyOf = new long[nt];
-                var uniq = new Dictionary<long, int>();
-                for (int k = 0; k < nt; k++)
+                // Acumular duplicados, ordenar por (row, col)
+                var dict = new Dictionary<long, double>();
+                for (int k = 0; k < ii.Length; k++)
                 {
                     int r = (int)ii[k] - 1, c = (int)jj[k] - 1;
-                    if (r < 0 || r >= m || c < 0 || c >= n) { keyOf[k] = -1; continue; }
+                    if (r < 0 || r >= m || c < 0 || c >= n) continue;
                     long key = (long)r * n + c;
-                    keyOf[k] = key;
-                    uniq[key] = 0;
+                    if (dict.TryGetValue(key, out var existing)) dict[key] = existing + ss[k];
+                    else dict[key] = ss[k];
                 }
-                var sortedKeys = uniq.Keys.ToArray();
-                Array.Sort(sortedKeys);
-                int nnz = sortedKeys.Length;
-                var cols = new int[nnz];
+                var sortedKeys = dict.Keys.OrderBy(k => k).ToArray();
+                var vals = new double[sortedKeys.Length];
+                var cols = new int[sortedKeys.Length];
                 var rowPtr = new int[m + 1];
-                var keyToIdx = new Dictionary<long, int>(nnz);
-                int idx = 0, curRow = 0;
+                int idx = 0; int curRow = 0;
                 foreach (var key in sortedKeys)
                 {
                     int r = (int)(key / n), c = (int)(key % n);
-                    while (curRow <= r) rowPtr[curRow++] = idx;
-                    cols[idx] = c; keyToIdx[key] = idx; idx++;
+                    while (curRow <= r) { rowPtr[curRow++] = idx; }
+                    vals[idx] = dict[key];
+                    cols[idx] = c;
+                    idx++;
                 }
                 while (curRow <= m) rowPtr[curRow++] = idx;
-                var pos = new int[nt];
-                var vals = new double[nnz];
-                for (int k = 0; k < nt; k++)
-                {
-                    int p = keyOf[k] < 0 ? -1 : keyToIdx[keyOf[k]];
-                    pos[k] = p;
-                    if (p >= 0) vals[p] += oneS ? ss[0] : ss[k];
-                }
-                // Cachear patrón para las próximas llamadas con los mismos I,Jj.
-                _spCacheII = ii; _spCacheJJ = jj; _spCacheM = m; _spCacheN = n;
-                _spCachePos = pos; _spCacheCols = cols; _spCacheRowPtr = rowPtr; _spCacheNnz = nnz;
                 return MValue.NewSparseCSR(m, n, vals, cols, rowPtr);
             }
             _builtins["spdiags"] = a => {
