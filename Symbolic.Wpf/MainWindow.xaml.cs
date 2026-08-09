@@ -1621,6 +1621,15 @@ namespace Calcpad.Wpf
                                 // el MISMO lienzo (__matlabReplaceFrame). El resto se agrega normal.
                                 bool isFrame = html != null && html.StartsWith("@@LABFRAME@@", StringComparison.Ordinal);
                                 var payload = isFrame ? html.Substring(12) : html;
+                                // Animacion WebGL retenida: los frames \x02GLDATA\x02+json solo actualizan
+                                // los buffers de la GPU (window.__hkGL), SIN reemplazar el HTML (que
+                                // destruiria el contexto WebGL). El primer frame es HTML normal (init).
+                                if (isFrame && payload.StartsWith("\x02GLDATA\x02", StringComparison.Ordinal))
+                                {
+                                    var gljson = System.Text.Json.JsonSerializer.Serialize(payload.Substring(8));
+                                    await WebViewer.ExecuteScriptAsync($"window.__hkGL && window.__hkGL({gljson});");
+                                    return;
+                                }
                                 var escaped = System.Text.Json.JsonSerializer.Serialize(payload);
                                 var fn = isFrame ? "__matlabReplaceFrame" : "__matlabAppendChunk";
                                 await WebViewer.ExecuteScriptAsync(

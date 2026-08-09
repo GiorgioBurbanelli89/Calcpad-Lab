@@ -100,6 +100,15 @@ namespace Calcpad.Core.Matlab
         private static string _figTitle = "";
         // Captura headless (--shot/--gif/--pdf): sin tooltip de hover (imagen limpia = saveas de MATLAB).
         public static bool HeadlessNoHover = false;
+        // Fondo para animacion WebGL: rasteriza ejes/colorbar/lineas/texto SIN el relleno del campo
+        // (la malla la dibuja la GPU por encima). Ver BuildGlInit / RenderFrame.
+        public static bool SkipFieldFill = false;
+        // Animacion WebGL retenida (=HG2+ANGLE de MATLAB): la malla vive en GPU; cada drawnow solo
+        // actualiza el buffer de vertices+valor (bufferSubData) y redibuja. _glInited: primer frame
+        // emite el canvas+shaders; los siguientes emiten solo datos (\x02GLDATA\x02+json).
+        public static bool UseGlAnim = true;
+        private static bool _glInited = false;
+        public static void ResetGlAnim() { _glInited = false; }
         private static string _figXLabel = null, _figYLabel = null, _figZLabel = null;
 
         /// <summary>Tema oscuro para las gráficas (lo fija la app según Dark/Gold). En dark
@@ -2115,6 +2124,8 @@ return {make:make};
                         {
                             path.Close();
                             bool edgeOn = !string.IsNullOrEmpty(p.EdgeColor) && p.EdgeColor != "none";
+                            // Fondo para animacion WebGL: la GPU dibuja el campo, aqui se omite su relleno.
+                            if (SkipFieldFill && (p.VertVals != null || p.VertCols != null)) { continue; }
                             if (p.VertVals != null && p.VertVals.Length == 3 && p.Xs.Length >= 3)
                             {
                                 // INTERPOLACIÓN POR VALOR (idéntica a MATLAB 'FaceColor','interp' con
@@ -2658,10 +2669,144 @@ cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
                 _liveFast = true;
                 if (RetainedActive) BuildRetainedFaces();   // reconstruye la malla desde el estado RETENIDO (mutado por set) = modo MATLAB
                 if (_figPrims == null) return null;
+                // ── Ruta WebGL retenida (=HG2+ANGLE de MATLAB): la malla vive en GPU; el primer
+                //    frame emite canvas+shaders, los siguientes solo datos (bufferSubData+draw). ──
+                if (UseGlAnim && (!HeadlessNoHover || System.Environment.GetEnvironmentVariable("HK_GL_HEADLESS") == "1"))
+                {
+                    var gm = GlFieldMesh();
+                    if (gm != null)
+                    {
+                        if (!_glInited) { _glInited = true; return BuildGlInit(760, 560, gm); }
+                        return "\x02GLDATA\x02" + BuildGlData(gm);
+                    }
+                }
                 return RenderInteractiveMesh(760, 560, "anim", keepState: true);
             }
             catch { return null; }
             finally { _liveFast = prev; }
+        }
+
+        // Malla retenida coloreada (el campo animado): la ultima con CData/Verts/Faces validos.
+        private static RetMesh GlFieldMesh()
+        {
+            for (int i = _retList.Count - 1; i >= 0; i--)
+            {
+                var m = _retList[i];
+                if (m.CData != null && m.Verts != null && m.Faces != null &&
+                    m.Verts.Length >= 3 && m.Faces.Length >= 1 && m.Verts[0].Length >= 2) return m;
+            }
+            return null;
+        }
+
+        // Rango de color (caxis o datos) para normalizar CData -> [0,1].
+        private static void GlColorRange(RetMesh gm, out double clo, out double chi)
+        {
+            if (TryGetCAxis(out clo, out chi) && chi > clo) return;
+            clo = double.MaxValue; chi = double.MinValue;
+            foreach (var v in gm.CData) { if (v < clo) clo = v; if (v > chi) chi = v; }
+            if (chi <= clo) chi = clo + 1;
+        }
+
+        // Datos por-frame: posiciones (deformadas) y valores normalizados de los nodos + titulo.
+        private static string BuildGlData(RetMesh gm)
+        {
+            GlColorRange(gm, out double clo, out double chi); double rng = chi - clo;
+            var p = new StringBuilder("["); var v = new StringBuilder("[");
+            for (int i = 0; i < gm.Verts.Length; i++)
+            {
+                if (i > 0) { p.Append(','); v.Append(','); }
+                p.Append(gm.Verts[i][0].ToString("0.####", Inv)).Append(',').Append(gm.Verts[i][1].ToString("0.####", Inv));
+                double val = (i < gm.CData.Length) ? (gm.CData[i] - clo) / rng : 0;
+                v.Append(val.ToString("0.####", Inv));
+            }
+            p.Append(']'); v.Append(']');
+            return "{\"p\":" + p + ",\"v\":" + v + ",\"t\":\"" + EscapeJs(_figTitle) + "\"}";
+        }
+
+        // Primer frame: canvas WebGL + shaders + malla (indices, posiciones, valores) + textura jet.
+        // Fondo = PNG SIN el relleno del campo (ejes/colorbar/lineas/carga/ancla); la GPU pinta el campo.
+        private static string BuildGlInit(int width, int height, RetMesh gm)
+        {
+            // 1) fondo (ejes+colorbar+lineas+texto, SIN campo) y transform dato->pixel (_pm...).
+            //    El titulo NO se hornea en el fondo (quedaria congelado en el 1er frame); lo muestra
+            //    el div 'gltitle' de arriba, que se actualiza en cada __hkGL.
+            string bg = ""; string savedTitle = _figTitle;
+            SkipFieldFill = true; _figTitle = "";
+            try { var b = RasterizeFigurePng(width, height, 2); if (b != null && b.Length > 0) bg = System.Convert.ToBase64String(b); }
+            catch { }
+            finally { SkipFieldFill = false; _figTitle = savedTitle; }
+            double MOX = _pmOX, MOY = _pmOY, MSX = _pmSX, MSY = _pmSY, MX0 = _pmX0, MY0 = _pmY0, MH = _pmH;
+            // 2) indices de triangulos (0-based) desde Faces
+            var idx = new StringBuilder("[");
+            int ntri = 0;
+            for (int f = 0; f < gm.Faces.Length; f++)
+            {
+                var fc = gm.Faces[f]; if (fc.Length < 3) continue;
+                if (ntri > 0) idx.Append(',');
+                idx.Append((int)fc[0] - 1).Append(',').Append((int)fc[1] - 1).Append(',').Append((int)fc[2] - 1);
+                ntri++;
+            }
+            idx.Append(']');
+            // 3) posiciones y valores iniciales
+            GlColorRange(gm, out double clo, out double chi); double rng = chi - clo;
+            var p0 = new StringBuilder("["); var v0 = new StringBuilder("[");
+            for (int i = 0; i < gm.Verts.Length; i++)
+            {
+                if (i > 0) { p0.Append(','); v0.Append(','); }
+                p0.Append(gm.Verts[i][0].ToString("0.####", Inv)).Append(',').Append(gm.Verts[i][1].ToString("0.####", Inv));
+                double val = (i < gm.CData.Length) ? (gm.CData[i] - clo) / rng : 0;
+                v0.Append(val.ToString("0.####", Inv));
+            }
+            p0.Append(']'); v0.Append(']');
+            // 4) textura jet (256 RGB) del colormap activo
+            var jet = new StringBuilder("[");
+            for (int i = 0; i < 256; i++)
+            {
+                var c = CmapF(_figCmapName, i / 255.0);
+                if (i > 0) jet.Append(',');
+                jet.Append((int)Math.Round(255 * Math.Max(0, Math.Min(1, c[0])))).Append(',')
+                   .Append((int)Math.Round(255 * Math.Max(0, Math.Min(1, c[1])))).Append(',')
+                   .Append((int)Math.Round(255 * Math.Max(0, Math.Min(1, c[2]))));
+            }
+            jet.Append(']');
+            bool edgeOn = gm.Edge != null && gm.Edge != "none";
+            var sb = new StringBuilder();
+            sb.Append("<div style=\"display:inline-block;font-family:sans-serif\">");
+            sb.Append($"<div id=\"gltitle\" style=\"text-align:center;font-size:14px;margin:3px\">{TexToHtml(_figTitle)}</div>");
+            sb.Append($"<div style=\"position:relative;width:{width}px;height:{height}px\">");
+            sb.Append($"<img src=\"data:image/png;base64,{bg}\" style=\"width:{width}px;height:{height}px;display:block;border:1px solid #ccc\"/>");
+            sb.Append($"<canvas id=\"glc\" width=\"{width * 2}\" height=\"{height * 2}\" style=\"position:absolute;top:0;left:0;width:{width}px;height:{height}px;pointer-events:none\"></canvas>");
+            sb.Append("</div></div>\n<script>(function(){\n");
+            sb.Append($"var W={width},H={height},NT={ntri};\n");
+            sb.Append($"var IDX={idx},P={p0},V={v0},JET={jet};\n");
+            sb.Append($"var UT=[{MOX.ToString("0.#####", Inv)},{MOY.ToString("0.#####", Inv)},{MSX.ToString("0.######", Inv)},{MSY.ToString("0.######", Inv)},{MX0.ToString("0.#####", Inv)},{MY0.ToString("0.#####", Inv)},{MH.ToString("0.###", Inv)}];\n");
+            sb.Append(@"var cv=document.getElementById('glc');var gl=cv.getContext('webgl')||cv.getContext('experimental-webgl');
+if(!gl){window.__hkGL=function(){};return;}
+function sh(t,s){var o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o;}
+var vs=sh(gl.VERTEX_SHADER,'attribute vec2 aPos;attribute float aVal;uniform vec2 uRes;uniform float uT[7];varying float vV;void main(){float px=uT[0]+(aPos.x-uT[4])*uT[2];float py=uT[6]-uT[1]-(aPos.y-uT[5])*uT[3];gl_Position=vec4(2.0*px/uRes.x-1.0,1.0-2.0*py/uRes.y,0.0,1.0);vV=aVal;}');
+var fs=sh(gl.FRAGMENT_SHADER,'precision mediump float;varying float vV;uniform sampler2D uJet;void main(){gl_FragColor=texture2D(uJet,vec2(clamp(vV,0.0,1.0),0.5));}');
+var pr=gl.createProgram();gl.attachShader(pr,vs);gl.attachShader(pr,fs);gl.linkProgram(pr);gl.useProgram(pr);
+var aPos=gl.getAttribLocation(pr,'aPos'),aVal=gl.getAttribLocation(pr,'aVal');
+var uRes=gl.getUniformLocation(pr,'uRes'),uT=gl.getUniformLocation(pr,'uT'),uJet=gl.getUniformLocation(pr,'uJet');
+var pB=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,pB);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(P),gl.DYNAMIC_DRAW);
+var vB=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vB);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(V),gl.DYNAMIC_DRAW);
+var iB=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,iB);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(IDX),gl.STATIC_DRAW);
+var tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,256,1,0,gl.RGB,gl.UNSIGNED_BYTE,new Uint8Array(JET));
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+function draw(){gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(pr);
+gl.uniform2f(uRes,W,H);gl.uniform1fv(uT,UT);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(uJet,0);
+gl.bindBuffer(gl.ARRAY_BUFFER,pB);gl.enableVertexAttribArray(aPos);gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+gl.bindBuffer(gl.ARRAY_BUFFER,vB);gl.enableVertexAttribArray(aVal);gl.vertexAttribPointer(aVal,1,gl.FLOAT,false,0,0);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,iB);gl.drawElements(gl.TRIANGLES,NT*3,gl.UNSIGNED_SHORT,0);}
+window.__hkGL=function(js){var d=(typeof js==='string')?JSON.parse(js):js;
+gl.bindBuffer(gl.ARRAY_BUFFER,pB);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(d.p));
+gl.bindBuffer(gl.ARRAY_BUFFER,vB);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(d.v));
+if(d.t){var e=document.getElementById('gltitle');if(e)e.textContent=d.t;}draw();};
+draw();
+");
+            sb.Append("})();</script>\n");
+            return sb.ToString();
         }
 
         // Quita las caras de la malla (patch2d con Val) de _figPrims, para que set(...) la reconstruya.
@@ -2686,6 +2831,7 @@ cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
         public static int SetRetainedMesh(double[][] faces, double[][] verts, double[] cdata, string edge, string face, double alpha, double lw)
         {
             _retList.Add(new RetMesh { Faces = faces, Verts = verts, CData = cdata, Edge = edge, Face = face, Alpha = alpha, Lw = lw });
+            _glInited = false;   // malla nueva -> re-inicializar la escena WebGL en el proximo frame
             return _retList.Count - 1;
         }
         public static bool RetainedActive => _retList.Count > 0;
