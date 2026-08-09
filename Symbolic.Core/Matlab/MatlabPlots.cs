@@ -1993,22 +1993,60 @@ return {make:make};
                         {
                             path.Close();
                             bool edgeOn = !string.IsNullOrEmpty(p.EdgeColor) && p.EdgeColor != "none";
-                            if (p.VertCols == null && p.VertVals != null && p.VertVals.Length == 3 && p.Xs.Length >= 3)
+                            if (p.VertVals != null && p.VertVals.Length == 3 && p.Xs.Length >= 3)
                             {
-                                // VALOR->COLOR POR-PÍXEL (como matplotlib tripcolor gouraud): la coord de
-                                // textura = valor normalizado [0..1]*255; DrawVertices INTERPOLA esa coord
-                                // linealmente por el triangulo y el shader del colormap la samplea -> el
-                                // color se calcula por-pixel desde el VALOR, no mezclando RGB entre vertices.
-                                // Resultado: bandas nitidas (misma nitidez que matplotlib), sin costuras.
-                                var pts = new[] {
-                                    new SKPoint(TX(p.Xs[0]), TY(p.Ys[0])),
-                                    new SKPoint(TX(p.Xs[1]), TY(p.Ys[1])),
-                                    new SKPoint(TX(p.Xs[2]), TY(p.Ys[2])) };
-                                var texs = new[] {
-                                    new SKPoint(Math.Max(0f, Math.Min(255.99f, p.VertVals[0] * 255.99f)), 0.5f),
-                                    new SKPoint(Math.Max(0f, Math.Min(255.99f, p.VertVals[1] * 255.99f)), 0.5f),
-                                    new SKPoint(Math.Max(0f, Math.Min(255.99f, p.VertVals[2] * 255.99f)), 0.5f) };
-                                canvas.DrawVertices(SKVertexMode.Triangles, pts, texs, null, cmapPaint);
+                                // INTERPOLACIÓN POR VALOR (idéntica a MATLAB 'FaceColor','interp' con
+                                // CData indexado): MATLAB interpola el VALOR del colormap a través del
+                                // triángulo y RECIÉN AHÍ lo mapea a jet -> el degradado recorre TODO el
+                                // espectro (rojo→amarillo→verde→cian→azul). Interpolar RGB entre vértices
+                                // (rojo+azul=morado) colapsa los tonos medios y encoge la mancha caliente.
+                                // Subdividimos el triángulo LxL: en cada sub-vértice interpolamos el VALOR
+                                // por baricéntricas y lo mapeamos a jet; el error dentro de cada sub-tri es
+                                // despreciable -> value-interp exacto, sin costuras, y usa el mismo
+                                // DrawVertices(colors) que sí renderiza (la ruta textura+shader salía en blanco).
+                                var P0 = new SKPoint(TX(p.Xs[0]), TY(p.Ys[0]));
+                                var P1 = new SKPoint(TX(p.Xs[1]), TY(p.Ys[1]));
+                                var P2 = new SKPoint(TX(p.Xs[2]), TY(p.Ys[2]));
+                                float v0 = p.VertVals[0], v1 = p.VertVals[1], v2 = p.VertVals[2];
+                                const int L = 8;                       // 8x8 = 64 sub-tri por triángulo
+                                int rows = L + 1;
+                                var gp = new SKPoint[rows * (rows + 1) / 2];
+                                var gc = new SKColor[gp.Length];
+                                int gi = 0;
+                                for (int jj = 0; jj <= L; jj++)
+                                    for (int ii = 0; ii <= L - jj; ii++)
+                                    {
+                                        float a = (L - ii - jj) / (float)L, b = ii / (float)L, c = jj / (float)L;
+                                        gp[gi] = new SKPoint(a * P0.X + b * P1.X + c * P2.X, a * P0.Y + b * P1.Y + c * P2.Y);
+                                        double t = a * v0 + b * v1 + c * v2;
+                                        var cc = CmapF(_figCmapName, Math.Max(0.0, Math.Min(1.0, t)));
+                                        gc[gi] = new SKColor(
+                                            (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cc[0]))),
+                                            (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cc[1]))),
+                                            (byte)Math.Round(255 * Math.Max(0, Math.Min(1, cc[2]))));
+                                        gi++;
+                                    }
+                                // índice del sub-vértice (i,j) en el arreglo triangular por filas j
+                                int Idx(int i, int j) { int off = 0; for (int r = 0; r < j; r++) off += (L - r + 1); return off + i; }
+                                var tri = new System.Collections.Generic.List<SKPoint>(L * L * 3);
+                                var tcol = new System.Collections.Generic.List<SKColor>(L * L * 3);
+                                for (int jj = 0; jj < L; jj++)
+                                    for (int ii = 0; ii < L - jj; ii++)
+                                    {
+                                        int A = Idx(ii, jj), B = Idx(ii + 1, jj), C = Idx(ii, jj + 1);
+                                        tri.Add(gp[A]); tri.Add(gp[B]); tri.Add(gp[C]);
+                                        tcol.Add(gc[A]); tcol.Add(gc[B]); tcol.Add(gc[C]);
+                                        if (ii + jj < L - 1)
+                                        {
+                                            int D = Idx(ii + 1, jj + 1);
+                                            tri.Add(gp[B]); tri.Add(gp[D]); tri.Add(gp[C]);
+                                            tcol.Add(gc[B]); tcol.Add(gc[D]); tcol.Add(gc[C]);
+                                        }
+                                    }
+                                bool prevAA2 = fill.IsAntialias; var prevCol2 = fill.Color;
+                                fill.IsAntialias = false; fill.Color = SKColors.White;
+                                canvas.DrawVertices(SKVertexMode.Triangles, tri.ToArray(), tcol.ToArray(), fill);
+                                fill.IsAntialias = prevAA2; fill.Color = prevCol2;
                                 if (edgeOn) { stroke.Color = ParseColor(p.EdgeColor); stroke.StrokeWidth = (float)Math.Max(0.5, p.LineWidth); canvas.DrawPath(path, stroke); }
                             }
                             else if (p.VertCols != null && p.VertCols.Length == 3 && p.Xs.Length >= 3)
