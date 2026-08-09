@@ -273,7 +273,10 @@ namespace Calcpad.Core.Matlab
             // FRAMES de animación (drawnow): en StreamingMode (WPF) se emiten EN VIVO con la marca
             // \x01FRAME\x01 → el host los repinta en el mismo lienzo. En batch (CLI) se ignoran los
             // intermedios (solo importa la figura final que emite FinishFigure).
-            _evaluator.FrameOut = html => { if (!hidden && html != null && StreamingMode && StatementCompleted != null) StatementCompleted.Invoke(-1, "@@LABFRAME@@" + html); };
+            // ¿se streameó al menos un frame de animación en vivo? Si sí, la figura ya se ve
+            // animada en #labAnimFrame y NO hay que volcar otra figura final (evita el plot DUPLICADO).
+            bool animFrameStreamed = false;
+            _evaluator.FrameOut = html => { if (!hidden && html != null && StreamingMode && StatementCompleted != null) { animFrameStreamed = true; StatementCompleted.Invoke(-1, "@@LABFRAME@@" + html); } };
             // Marca de streaming: hasta dónde de `sb` ya se emitió en vivo. Declarado
             // ACÁ (antes de InnerStmtOut) para que el lambda pueda avanzarlo al emitir
             // chunks por iteración y el flush top-level no los reenvíe (evita duplicados).
@@ -1027,8 +1030,10 @@ namespace Calcpad.Core.Matlab
                 var gridEnd = MatlabPlots.CloseSubplotGrid();
                 if (!string.IsNullOrEmpty(gridEnd)) sb.Append(gridEnd);
             }
-            else if (MatlabPlots.HasOpenFigure)
+            else if (MatlabPlots.HasOpenFigure && !animFrameStreamed)
             {
+                // Solo si NO hubo animación en vivo: si drawnow ya streameó frames, la figura
+                // final ya está en #labAnimFrame — volver a volcarla duplicaría el plot.
                 var finalFig = MatlabPlots.FinishFigure();
                 if (!string.IsNullOrEmpty(finalFig)) sb.Append(finalFig);
             }
