@@ -1746,6 +1746,10 @@ return {make:make};
                 else if (p.Kind == "fieldfill" && !double.IsNaN(p.Vmin)) { if (p.Vmin < vmin) vmin = p.Vmin; if (p.Vmax > vmax) vmax = p.Vmax; }
             }
             bool hasVals = vmax >= vmin;
+            // Si el script fijó caxis/clim, el colorbar Y el relleno usan ESE rango (como MATLAB),
+            // no el min/max del valor por-cara. Antes: colorbar mostraba el max del promedio por-cara
+            // (p.ej. 15) mientras el campo se normalizaba con caxis (p.ej. 18) → escala inconsistente.
+            if (hasVals && TryGetCAxis(out double _cax0, out double _cax1) && _cax1 > _cax0) { vmin = _cax0; vmax = _cax1; }
             if (hasVals && vmax - vmin < 1e-12) vmax = vmin + 1;
             bool cmapRev = _figCmapName != null && (_figCmapName.EndsWith("_r") || _figCmapName.Contains("reverse"));
             SKColor ValColor(double v)
@@ -2448,17 +2452,29 @@ draw();
 function pip(px,py,p){var ins=false,n=p.length/2;for(var i=0,j=n-1;i<n;j=i++){var xi=p[2*i],yi=p[2*i+1],xj=p[2*j],yj=p[2*j+1];if(((yi>py)!=(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))ins=!ins;}return ins;}
 ");
             if (hoverOn)
+            {
+                // Nombre+unidad del eje desde xlabel/ylabel reales (antes hardcodeado 'x…mm / y…mm').
+                (string, string) AxisTip(string lbl, string def)
+                {
+                    if (string.IsNullOrWhiteSpace(lbl)) return (def, "");
+                    int b = lbl.IndexOf('['); if (b < 0) return (lbl.Trim(), "");
+                    int e = lbl.IndexOf(']', b);
+                    return (lbl.Substring(0, b).Trim(), e > b ? lbl.Substring(b + 1, e - b - 1).Trim() : "");
+                }
+                var (xtn, xtu) = AxisTip(_figXLabel, "x"); var (ytn, ytu) = AxisTip(_figYLabel, "y");
+                sb.Append($"var XTN='{EscapeJs(xtn)}',XTU='{EscapeJs(xtu)}',YTN='{EscapeJs(ytn)}',YTU='{EscapeJs(ytu)}';\n");
                 sb.Append(@"cv.addEventListener('mousemove',function(ev){var r=cv.getBoundingClientRect();var mx=ev.clientX-r.left,my=ev.clientY-r.top;
  draw(mx,my);
  var dx=MX0+(mx-MOX)/MSX,dy=MY0+(MH-MOY-my)/MSY,hit=-1;
  for(var k=0;k<P.length;k++){if(pip(dx,dy,P[k][0])){hit=k;break;}}
  if(hit<0){tt.style.display='none';return;}
- var e=P[hit],t='x = '+dx.toFixed(0)+' mm\ny = '+dy.toFixed(0)+' mm';
+ var e=P[hit],t=XTN+' = '+dx.toFixed(2)+(XTU?' '+XTU:'')+'\n'+YTN+' = '+dy.toFixed(2)+(YTU?' '+YTU:'');
  if(HL&&e.length>3){for(var q=0;q<HL.length;q++)t+='\n'+HL[q]+' = '+e[3][q].toPrecision(4);}else t+='\nvalor = '+e[2].toFixed(3);
  tt.textContent=t;
  tt.style.display='block';var tx=mx+14;if(tx+120>W)tx=mx-125;tt.style.left=tx+'px';tt.style.top=Math.max(2,my-10)+'px';});
 cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
 ");
+            }
             sb.Append("})();</script>\n");
             if (!keepState)
             {
