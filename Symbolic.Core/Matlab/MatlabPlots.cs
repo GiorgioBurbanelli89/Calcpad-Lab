@@ -1989,7 +1989,7 @@ return {make:make};
                         {
                             path.Close();
                             bool edgeOn = !string.IsNullOrEmpty(p.EdgeColor) && p.EdgeColor != "none";
-                            if (p.VertVals != null && p.VertVals.Length == 3 && p.Xs.Length >= 3)
+                            if (p.VertCols == null && p.VertVals != null && p.VertVals.Length == 3 && p.Xs.Length >= 3)
                             {
                                 // VALOR->COLOR POR-PÍXEL (como matplotlib tripcolor gouraud): la coord de
                                 // textura = valor normalizado [0..1]*255; DrawVertices INTERPOLA esa coord
