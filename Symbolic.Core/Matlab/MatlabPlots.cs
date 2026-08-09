@@ -98,6 +98,8 @@ namespace Calcpad.Core.Matlab
         private static int _figId = 0;
         private static bool _figIs3D = false;
         private static string _figTitle = "";
+        // Captura headless (--shot/--gif/--pdf): sin tooltip de hover (imagen limpia = saveas de MATLAB).
+        public static bool HeadlessNoHover = false;
         private static string _figXLabel = null, _figYLabel = null, _figZLabel = null;
 
         /// <summary>Tema oscuro para las gráficas (lo fija la app según Dark/Gold). En dark
@@ -566,7 +568,7 @@ namespace Calcpad.Core.Matlab
             }
             sb.Append($"<div class=\"matlab-plot\" style=\"width:{contW}px;display:inline-block;vertical-align:top\">");
             if (!string.IsNullOrEmpty(_figTitle))   // MATLAB muestra el title() sobre la figura
-                sb.Append($"<div style=\"font:bold 13px sans-serif;text-align:center;width:{cw}px;margin-bottom:4px\">{EscapeXml(_figTitle)}</div>");
+                sb.Append($"<div style=\"font:bold 13px sans-serif;text-align:center;width:{cw}px;margin-bottom:4px\">{TexToHtml(_figTitle)}</div>");
             sb.Append($"<canvas id=\"lab3d_{id}\" width=\"1440\" height=\"1120\" style=\"width:{cw}px;height:{ch}px;border:1px solid {PlotGrid};background:{PlotBg};cursor:grab;display:inline-block\"></canvas>");
             sb.Append(cbar);
             sb.Append($"<div style=\"font:11px sans-serif;color:{PlotFg};margin-top:4px\">{ejes}</div>");
@@ -902,6 +904,126 @@ return {make:make};
         public static void SetFigXLabel(string s) { _figXLabel = s; }
         public static void SetFigYLabel(string s) { _figYLabel = s; }
         public static void SetFigZLabel(string s) { _figZLabel = s; }
+
+        // ── Intérprete TeX de MATLAB para title()/xlabel()/ylabel(): _{...}/^{...} (subíndice/
+        //    superíndice), _c/^c (un token), y \alpha \Delta \leq ... (griegas y símbolos). ──
+        private static readonly System.Collections.Generic.Dictionary<string,string> _texSym =
+            new System.Collections.Generic.Dictionary<string,string>(System.StringComparer.Ordinal) {
+            {"alpha","α"},{"beta","β"},{"gamma","γ"},{"delta","δ"},{"epsilon","ε"},{"varepsilon","ε"},
+            {"zeta","ζ"},{"eta","η"},{"theta","θ"},{"vartheta","ϑ"},{"iota","ι"},{"kappa","κ"},
+            {"lambda","λ"},{"mu","μ"},{"nu","ν"},{"xi","ξ"},{"pi","π"},{"rho","ρ"},{"sigma","σ"},
+            {"tau","τ"},{"upsilon","υ"},{"phi","φ"},{"varphi","φ"},{"chi","χ"},{"psi","ψ"},{"omega","ω"},
+            {"Gamma","Γ"},{"Delta","Δ"},{"Theta","Θ"},{"Lambda","Λ"},{"Xi","Ξ"},{"Pi","Π"},
+            {"Sigma","Σ"},{"Phi","Φ"},{"Psi","Ψ"},{"Omega","Ω"},
+            {"leq","≤"},{"geq","≥"},{"neq","≠"},{"times","×"},{"cdot","·"},{"pm","±"},{"mp","∓"},
+            {"infty","∞"},{"partial","∂"},{"nabla","∇"},{"rightarrow","→"},{"leftarrow","←"},
+            {"Rightarrow","⇒"},{"approx","≈"},{"propto","∝"},{"circ","°"},{"degree","°"},
+            {"sqrt","√"},{"sum","∑"},{"int","∫"},{"in","∈"},{"cdots","⋯"},{"ldots","…"},
+        };
+        private struct TexRun { public string Text; public int Lvl; }   // -1 sub, 0 normal, +1 sup
+        /// <summary>Reemplaza \nombre por su símbolo (griegas/símbolos), sin manejar sub/sup.</summary>
+        private static string TexPlain(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s.IndexOf('\\') < 0) return s;
+            var sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; )
+            {
+                if (s[i] == '\\')
+                {
+                    int j = i + 1; while (j < s.Length && char.IsLetter(s[j])) j++;
+                    string name = s.Substring(i + 1, j - i - 1);
+                    if (name.Length > 0 && _texSym.TryGetValue(name, out var sym))
+                    { sb.Append(sym); i = j; if (i < s.Length && s[i] == ' ') i++; continue; }
+                    if (j < s.Length) { sb.Append(s[i + 1]); i += 2; } else i++;
+                }
+                else { sb.Append(s[i]); i++; }
+            }
+            return sb.ToString();
+        }
+        /// <summary>Parte una cadena TeX en runs normal/subíndice/superíndice.</summary>
+        private static System.Collections.Generic.List<TexRun> TexParse(string s)
+        {
+            var runs = new System.Collections.Generic.List<TexRun>();
+            if (string.IsNullOrEmpty(s)) return runs;
+            var buf = new StringBuilder();
+            void Flush() { if (buf.Length > 0) { runs.Add(new TexRun { Text = buf.ToString(), Lvl = 0 }); buf.Clear(); } }
+            for (int i = 0; i < s.Length; )
+            {
+                char c = s[i];
+                if (c == '\\')
+                {
+                    int j = i + 1; while (j < s.Length && char.IsLetter(s[j])) j++;
+                    string name = s.Substring(i + 1, j - i - 1);
+                    if (name.Length > 0 && _texSym.TryGetValue(name, out var sym))
+                    { buf.Append(sym); i = j; if (i < s.Length && s[i] == ' ') i++; continue; }
+                    if (j < s.Length) { buf.Append(s[i + 1]); i += 2; } else i++;
+                    continue;
+                }
+                if (c == '_' || c == '^')
+                {
+                    int lvl = c == '_' ? -1 : 1; Flush(); i++;
+                    if (i < s.Length && s[i] == '{')
+                    {
+                        int depth = 1, k = i + 1; var inner = new StringBuilder();
+                        while (k < s.Length && depth > 0)
+                        { if (s[k] == '{') depth++; else if (s[k] == '}') { depth--; if (depth == 0) break; } inner.Append(s[k]); k++; }
+                        runs.Add(new TexRun { Text = TexPlain(inner.ToString()), Lvl = lvl }); i = k + 1;
+                    }
+                    else if (i < s.Length) { runs.Add(new TexRun { Text = TexPlain(s[i].ToString()), Lvl = lvl }); i++; }
+                    continue;
+                }
+                buf.Append(c); i++;
+            }
+            Flush();
+            return runs;
+        }
+        /// <summary>¿La cadena contiene marcas TeX que requieran interpretación?</summary>
+        private static bool HasTex(string s) => !string.IsNullOrEmpty(s) &&
+            (s.IndexOf('_') >= 0 || s.IndexOf('^') >= 0 || s.IndexOf('\\') >= 0);
+        /// <summary>TeX → HTML (con &lt;sub&gt;/&lt;sup&gt;), ya escapado para insertar en el div.</summary>
+        private static string TexToHtml(string s)
+        {
+            if (!HasTex(s)) return EscapeXml(s ?? "");
+            var sb = new StringBuilder();
+            foreach (var r in TexParse(s))
+            {
+                if (r.Lvl == -1) { sb.Append("<sub>").Append(EscapeXml(r.Text)).Append("</sub>"); }
+                else if (r.Lvl == 1) { sb.Append("<sup>").Append(EscapeXml(r.Text)).Append("</sup>"); }
+                else sb.Append(EscapeXml(r.Text));
+            }
+            return sb.ToString();
+        }
+        /// <summary>TeX → SVG con &lt;tspan&gt; (baseline-shift) para sub/superíndices.</summary>
+        private static string TexToSvg(string s)
+        {
+            if (!HasTex(s)) return EscapeXml(s ?? "");
+            var sb = new StringBuilder();
+            foreach (var r in TexParse(s))
+            {
+                if (r.Lvl == -1) sb.Append("<tspan baseline-shift='-25%' font-size='70%'>").Append(EscapeXml(r.Text)).Append("</tspan>");
+                else if (r.Lvl == 1) sb.Append("<tspan baseline-shift='super' font-size='70%'>").Append(EscapeXml(r.Text)).Append("</tspan>");
+                else sb.Append(EscapeXml(r.Text));
+            }
+            return sb.ToString();
+        }
+        /// <summary>Dibuja texto TeX centrado en (cx, baseY) con sub/superíndices (SkiaSharp).</summary>
+        private static void DrawTexCentered(SkiaSharp.SKCanvas canvas, string s, float cx, float baseY,
+                                            SkiaSharp.SKFont font, SkiaSharp.SKPaint paint, SkiaSharp.SKTypeface tface)
+        {
+            if (!HasTex(s)) { canvas.DrawText(s, cx, baseY, SkiaSharp.SKTextAlign.Center, font, paint); return; }
+            var runs = TexParse(s);
+            using var subFont = new SkiaSharp.SKFont(tface, font.Size * 0.72f) { Embolden = font.Embolden };
+            float total = 0;
+            foreach (var r in runs) { var f = r.Lvl == 0 ? font : subFont; total += f.MeasureText(r.Text); }
+            float x = cx - total / 2f;
+            foreach (var r in runs)
+            {
+                var f = r.Lvl == 0 ? font : subFont;
+                float dy = r.Lvl == -1 ? font.Size * 0.28f : (r.Lvl == 1 ? -font.Size * 0.34f : 0f);
+                canvas.DrawText(r.Text, x, baseY + dy, SkiaSharp.SKTextAlign.Left, f, paint);
+                x += f.MeasureText(r.Text);
+            }
+        }
         private static string EscapeJs(string s)
             => (s ?? "").Replace("\\", "\\\\").Replace("'", "\\'");
         public static string Csv(MValue v)
@@ -1517,7 +1639,7 @@ return {make:make};
             if (!string.IsNullOrEmpty(_figTitle))
             {
                 int titleFont = _subplotActive ? 26 : 14;
-                svg.AppendLine($"  <text x='{width/2}' y='{(_subplotActive ? 30 : 25)}' text-anchor='middle' font-family='sans-serif' font-size='{titleFont}' font-weight='bold'>{EscapeXml(_figTitle)}</text>");
+                svg.AppendLine($"  <text x='{width/2}' y='{(_subplotActive ? 30 : 25)}' text-anchor='middle' font-family='sans-serif' font-size='{titleFont}' font-weight='bold'>{TexToSvg(_figTitle)}</text>");
             }
             // X label
             if (!string.IsNullOrEmpty(_figXLabel))
@@ -1883,16 +2005,16 @@ return {make:make};
                 // figura -> con axis-equal (caja centrada y encogida) siguen a la caja como MATLAB.
                 using var lblFont = new SKFont(tface, fLabel);
                 if (!string.IsNullOrEmpty(_figXLabel))
-                    canvas.DrawText(_figXLabel, (plotL + plotR) / 2f, Math.Min(height - 6, plotB + fTick + fLabel + 10), SKTextAlign.Center, lblFont, txt);
+                    DrawTexCentered(canvas, _figXLabel, (plotL + plotR) / 2f, Math.Min(height - 6, plotB + fTick + fLabel + 10), lblFont, txt, tface);
                 if (!string.IsNullOrEmpty(_figYLabel))
                 {
                     canvas.Save(); canvas.RotateDegrees(-90, 13, (plotT + plotB) / 2f);
-                    canvas.DrawText(_figYLabel, 13, (plotT + plotB) / 2f, SKTextAlign.Center, lblFont, txt);
+                    DrawTexCentered(canvas, _figYLabel, 13, (plotT + plotB) / 2f, lblFont, txt, tface);
                     canvas.Restore();
                 }
                 if (!string.IsNullOrEmpty(_figTitle))
                     using (var tfont = new SKFont(tface, fTitle) { Embolden = true })
-                        canvas.DrawText(_figTitle, (plotL + plotR) / 2f, Math.Max(fTitle + 2, plotT - fTitle * 0.5f - 3), SKTextAlign.Center, tfont, txt);
+                        DrawTexCentered(canvas, _figTitle, (plotL + plotR) / 2f, Math.Max(fTitle + 2, plotT - fTitle * 0.5f - 3), tfont, txt, tface);
                 // ── Curvas / primitivas: CLIPeadas al area de plot ──
                 // Las anotaciones de texto (text2d) NO se clipean (MATLAB las dibuja fuera del box) → diferidas.
                 var pendingText = new System.Collections.Generic.List<FigPrim>();
@@ -2436,10 +2558,10 @@ if(window.THREE&&THREE.OrbitControls){go();}else{var s1=document.createElement("
             // patch NO tiene hover salvo que se active WindowButtonMotionFcn/datacursormode.
             // Sin hoverdata: sin tooltip, sin listener, cursor normal. Mismo script, mismo
             // comportamiento (el Lab ya NO inventa hover en mallas coloreadas).
-            bool hoverOn = _hoverVals != null || faces.Count > 0;   // malla coloreada -> hover automático (antes exigía hoverdata())
+            bool hoverOn = (_hoverVals != null || faces.Count > 0) && !HeadlessNoHover;   // malla coloreada -> hover automático; en captura headless SIN tooltip (=saveas MATLAB, imagen limpia)
             var sb = new StringBuilder();
             sb.Append("<div style=\"display:inline-block;font-family:sans-serif\">");
-            sb.Append($"<div style=\"text-align:center;font-size:14px;margin:3px\">{EscapeXml(_figTitle)}</div>");
+            sb.Append($"<div style=\"text-align:center;font-size:14px;margin:3px\">{TexToHtml(_figTitle)}</div>");
             // El CAMPO = el MISMO PNG del estático (SkiaSharp, Gouraud real, nítido 2×) como <img>
             // NATIVO -> idéntico al estático, sin re-render en JS. El canvas va TRANSPARENTE encima,
             // solo para el crosshair del cursor. Antes el canvas re-dibujaba un Gouraud aproximado

@@ -3647,6 +3647,9 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 else if (argv[i] == "--ctl" && i + 1 < argv.Length) _ctlDir = argv[++i];
                 else fileParts.Add(argv[i]);
             }
+            // Captura headless (--shot/--gif/--pdf): imagen LIMPIA sin datatip de hover (= saveas de MATLAB).
+            if (_shotPng != null || _gifDir != null || _pdfOut != null)
+                Calcpad.Core.Matlab.MatlabPlots.HeadlessNoHover = true;
             if (_ctlDir != null) StartControlServer();   // canal de control CLI (Piso 3 / pruebas)
             if (fileParts.Count > 0)
             {
