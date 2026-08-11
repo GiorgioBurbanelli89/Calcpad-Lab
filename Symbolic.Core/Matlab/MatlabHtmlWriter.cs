@@ -16,6 +16,35 @@ namespace Calcpad.Core.Matlab
 {
     public static class MatlabHtmlWriter
     {
+        /// <summary>Provee el valor actual de una variable (lo fija el pipeline apuntando a Globals).
+        /// Usado por el paso de sustitucion Calcpad-style (n_e = n_a·n_b = 6·4 = 24).</summary>
+        public static System.Func<string, MValue> VarValueProvider;
+
+        /// <summary>Clona el AST reemplazando cada variable ESCALAR conocida por su valor numerico
+        /// (NumberLit). Reusa RenderExpression sobre el resultado para el "paso de sustitucion".</summary>
+        private static MatlabNode SubstituteValues(MatlabNode n)
+        {
+            switch (n)
+            {
+                case IdentRef id:
+                    var v = VarValueProvider?.Invoke(id.Name);
+                    if (v != null && v.IsScalar && !v.IsString) return new NumberLit { Value = v.Scalar };
+                    return n;
+                case BinaryOp b:
+                    return new BinaryOp { Op = b.Op, Left = SubstituteValues(b.Left), Right = SubstituteValues(b.Right), Line = b.Line };
+                case UnaryOp u:
+                    return new UnaryOp { Op = u.Op, Operand = SubstituteValues(u.Operand), IsPrefix = u.IsPrefix, Line = u.Line };
+                case CallOrIndex c:
+                {
+                    var args = new System.Collections.Generic.List<MatlabNode>(c.Args.Count);
+                    foreach (var a in c.Args) args.Add(SubstituteValues(a));
+                    return new CallOrIndex { Target = c.Target, Args = args, Line = c.Line };
+                }
+                default:
+                    return n;
+            }
+        }
+
         /// <summary>Render statement (formula + result) en HTML MATLAB-style.</summary>
         public static string RenderStatement(MatlabNode stmt, StatementResult result)
         {
@@ -95,13 +124,22 @@ namespace Calcpad.Core.Matlab
                         }
                         else
                         {
-                            // (3) Default: source = value con short-circuit visual
+                            // (3) Default: source [= SUSTITUIDO] = value (estilo Calcpad).
+                            // Paso de sustitucion: el RHS con las variables reemplazadas por su
+                            // valor numerico (n_e = n_a·n_b = 6·4 = 24). Solo escalares.
                             var rhsHtml = RenderExpression(asg.Rhs);
                             sb.Append(rhsHtml);
                             if (!IsTrivialAssignment(asg))
                             {
                                 var valHtml = RenderValue(result.Value);
-                                if (valHtml != rhsHtml)
+                                string subHtml = null;
+                                if (result.Value != null && result.Value.IsScalar && VarValueProvider != null)
+                                {
+                                    var s = RenderExpression(SubstituteValues(asg.Rhs));
+                                    if (s != rhsHtml && s != valHtml) subHtml = s;
+                                }
+                                if (subHtml != null) { sb.Append(" = "); sb.Append(subHtml); }
+                                if (valHtml != rhsHtml && valHtml != subHtml)
                                 {
                                     sb.Append(" = ");
                                     sb.Append(valHtml);
@@ -283,6 +321,22 @@ namespace Calcpad.Core.Matlab
             if (v.IsSymMatrix)
             {
                 int snr = v.SymCells.GetLength(0), snc = v.SymCells.GetLength(1);
+                // Pre-render cada celda (ToHtml = typeset crudo) y mide su largo (ToInfix) para
+                // decidir el layout — las expresiones simbolicas largas se amontonan en horizontal.
+                var cells = new string[snr, snc];
+                int maxLen = 0;
+                for (int i = 0; i < snr; i++)
+                    for (int j = 0; j < snc; j++)
+                    {
+                        var cs = (v.SymCells[i, j] ?? new SymConst(0)).Simplify();
+                        cells[i, j] = cs.ToHtml();
+                        int len = (cs.ToInfix() ?? "").Length;
+                        if (len > maxLen) maxLen = len;
+                    }
+                // Separadores | entre columnas cuando los elementos son EXPRESIONES (multi-termino):
+                // en vectores fila Y matrices 2D, para que se distinga donde termina cada elemento.
+                // Elementos cortos/atomicos ([0 0 0 0], [1 2 3]) NO llevan separador.
+                bool sep = snc > 1 && maxLen > 3;
                 var sbSym = new StringBuilder();
                 sbSym.Append("<span class=\"matrix\" style=\"color:#5d2b8a;font-style:italic\">");
                 for (int i = 0; i < snr; i++)
@@ -290,11 +344,10 @@ namespace Calcpad.Core.Matlab
                     sbSym.Append("<span class=\"tr\"><span class=\"td\"></span>");
                     for (int j = 0; j < snc; j++)
                     {
-                        sbSym.Append("<span class=\"td\">");
-                        // ToHtml (typeset: fracciones/superíndices/ν) = HTML crudo, NO HtmlEncode.
-                        // Antes: HtmlEncode(ToInfix()) → texto plano "(E*t^3)/(12*(-nu^2 + 1))".
-                        var cellSym = v.SymCells[i, j] ?? new SymConst(0);
-                        sbSym.Append(cellSym.Simplify().ToHtml());
+                        string tdStyle = sep ? "padding:.12em .7em" : "padding:0 .5em";
+                        if (sep && j > 0) tdStyle += ";border-left:1px solid #c9b8dd";
+                        sbSym.Append($"<span class=\"td\" style=\"{tdStyle}\">");
+                        sbSym.Append(cells[i, j]);
                         sbSym.Append("</span>");
                     }
                     sbSym.Append("<span class=\"td\"></span></span>");
@@ -615,9 +668,10 @@ namespace Calcpad.Core.Matlab
         public static string RenderIdentName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
-            // PRIMA: el token `prime` -> ′ (para f'c del hormigon: fprime_c -> f′c, valido en
-            // MATLAB). Se aplica antes de subindice/fraccion para que se pegue a la base.
-            if (name.Contains("prime")) name = name.Replace("prime", "′");
+            // PRIMA: la maneja DecorateBase via _decos (sufijos prime/pprime/tprime -> ′/″/‴),
+            // DESPUES de mapear el griego del base -> asi `Phiprime_1a` sale Φ′₁ₐ (no "Phi′₁ₐ").
+            // (Antes habia aqui un `name.Replace("prime","′")` que metia el ′ en el base y rompia
+            //  el griego + pisaba pprime/tprime; se quito.)
             // DOBLE guion bajo `a__b` -> FRACCION a/b (valido en MATLAB, se ve como quebrado).
             // Ej: df__dx -> df/dx,  dy__dx -> dy/dx,  d__x -> d/x. Un solo `_` sigue = subindice.
             int dbl = name.IndexOf("__", System.StringComparison.Ordinal);
@@ -653,6 +707,11 @@ namespace Calcpad.Core.Matlab
         // token de decoracion-sufijo -> función que envuelve el inner ya renderizado.
         private static readonly (string tok, System.Func<string, string> wrap)[] _decos =
         {
+            // PRIMA como sufijo (nombre MATLAB-valido): Phiprime_1a -> Φ′₁ₐ, Phipprime -> Φ″, Phitprime -> Φ‴.
+            // Mas especificos primero (tprime/pprime antes que prime), igual que ddot antes de dot.
+            ("tprime", inner => inner + "<span style=\"font-style:normal\">&#8244;</span>"), // ‴ triple prima
+            ("pprime", inner => inner + "<span style=\"font-style:normal\">&#8243;</span>"), // ″ doble prima
+            ("prime",  inner => inner + "<span style=\"font-style:normal\">&#8242;</span>"), // ′ prima
             ("ddot", inner => Over("&#183;&#183;", inner, "-.30em")), // ẍ  (doble punto, glifo bajo -> subir)
             ("dot",  inner => Over("&#183;", inner, "-.30em")),        // ẋ  (punto, glifo bajo -> subir)
             ("hat",  inner => Over("^", inner, "-.14em")),             // x̂
@@ -1336,6 +1395,7 @@ namespace Calcpad.Core.Matlab
             // Strings extra
             or "strsplit" or "strjoin" or "strrep" or "strfind" or "contains"
             or "startsWith" or "endsWith" or "strtrim"
+            or "str2double" or "int2str" or "erase" or "deblank" or "blanks" or "pad"
             // Workspace
             or "who" or "whos" or "clear" or "exist" or "tic" or "toc" or "assignin" or "evalin"
             // I/O

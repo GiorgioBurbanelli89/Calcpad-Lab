@@ -4,39 +4,34 @@
 % Motor: Hekatan Lab (MATLAB). Notacion: la que Calcpad VM usa por defecto.
 
 clear; clc;
+tic;   % cronometro tic/toc (comparacion de tiempo Hekatan Lab vs Calcpad VM)
 
 %% Input data
-% Slab dimensions — a = 6 m,  b = 4 m
-% Thickness — t = 0.1 m
-% Load — q = 10 kN/m²
-% Modulus of elasticity — E = 35000 MPa
-% Poisson`s ratio — ν = 0.15
-a = 6     % Dimension en x [m]
-b = 4     % Dimension en y [m]
-t = 0.1   % Espesor [m]
-q = 10    % Carga distribuida [kN/m^2]
-E = 35000 % Modulo elastico [MPa] = [kN/mm^2*10^3]
-nu = 0.15 % Coef de Poisson
-
-% Conversion a unidades consistentes (kN, m): E en kN/m^2 = MPa * 1000
-E_si = E*1000 % [kN/m^2]
+%' <h3>Análisis por elementos finitos de losa rectangular</h3>
+%' <hr/>
+%' <h4>Datos de entrada</h4>
+% Inputs ocultos (%); se muestran combinados con @nombre en las lineas %' de abajo (estilo Calcpad).
+a = 6;  b = 4;  t = 0.1;  q = 10;  E = 35000;  nu = 0.15;
+%' <img src="https://calcpad.eu/media/mechanics/elastic/slab.png" style="height:110pt;float:right;margin:0 10pt;">
+%' Dimensiones de la losa - @a m, @b m
+%' Espesor - @t m
+%' Carga - @q kN/m²
+%' Módulo de elasticidad - @E MPa
+%' Coeficiente de Poisson - @nu
+E_si = E*1000;
+%' Módulo en unidades consistentes (kN, m) - @E_si kN/m²
 
 %% Finite element mesh
-% Usamos el elemento finito rectangular con n = 16 grados de libertad.
-% Number of elements along a and b — n_a = 6,  n_b = 4
-% Total number of elements — n_e = n_a·n_b
-% Total number of joints — n_j = (n_a + 1)·(n_b + 1)
-% Element dimensions — a₁ = a/n_a,  b₁ = b/n_b
-% Supported joints count — n_s = 2·(n_a + n_b)
-n_a = 6   % elementos en a
-n_b = 4   % elementos en b
-n_e = n_a*n_b           % total elementos
-n_j = (n_a+1)*(n_b+1)   % total joints
-a_1 = a/n_a             % ancho elemento
-b_1 = b/n_b             % alto elemento
-n_dof = 4   % DOFs por joint: w, theta_x, theta_y, psi (twist)
-n_ke = 16   % DOFs por elemento (4 nodos x 4 DOFs)
-n_g = n_dof*n_j  % DOFs totales globales
+%' <h4>Malla de elementos finitos</h4>
+%' Usamos el elemento finito rectangular con 16 grados de libertad.
+n_a = 6;  n_b = 4;
+%' Número de elementos a lo largo de a y b - @n_a, @n_b
+n_e = n_a*n_b           %' Número total de elementos: @
+n_j = (n_a+1)*(n_b+1)   %' Número total de nudos: @
+a_1 = a/n_a             %' Dimensiones del elemento: @ m,
+b_1 = b/n_b             %' @ m
+n_dof = 4;  n_ke = 16;
+n_g = n_dof*n_j         %' GDL globales totales (w, θ_x, θ_y, ψ por nudo): @
 
 %-- Coordenadas de los joints
 x_j = zeros(n_j, 1);
@@ -86,7 +81,7 @@ for i = 2:n_b
     s_j(i_s) = n_a*(n_b + 1) + i;
 end
 
-fprintf('Mesh: %d elem (%d x %d), %d joints, %d apoyos\n', n_e, n_a, n_b, n_j, n_s);
+%' Malla generada: @n_e elementos (@n_a × @n_b), @n_j nudos, @n_s apoyos.
 
 %% Constitutive matrix (stress - strain relationship)
 % Matriz constitutiva de flexion de placa, la misma que Calcpad VM:
@@ -112,17 +107,17 @@ for k = 1 : 4
                    subs(w_gen, sym_s, 1) == BC(k, 3), subs(dw_gen, sym_s, 1) == BC(k, 4)], [As Bs Cs Ds]);
     Nsym(k) = simplify(subs(w_gen, {As, Bs, Cs, Ds}, {sol_k.As, sol_k.Bs, sol_k.Cs, sol_k.Ds}));
 end
-disp('Funciones de forma deducidas  N = [N_1  N_2  N_3  N_4]:')
-disp(Nsym)
+%' Funciones de forma deducidas  N = [N_1  N_2  N_3  N_4]:
+Nsym
 %' Sus curvaturas (segundas derivadas) son lo que entra a la rigidez de flexion:
 ddNsym = diff(Nsym, sym_s, 2);
-disp('Curvaturas  N_i'''' :')
-disp(ddNsym)
+%' Curvaturas  N_i'' :
+ddNsym
 %' La matriz de rigidez de flexion 1D SALE de integrar el producto de curvaturas:
 % #noc K_{1D} = $Integral{N_i'' N_j'' @ s = 0 : 1}
 K1D_sym = int(ddNsym.' * ddNsym, sym_s, 0, 1);
-disp('K_1D = integral de N_i'''' N_j'''' en [0,1]  (matriz de rigidez de viga Euler-Bernoulli):')
-disp(K1D_sym)
+%' K_1D = integral de N_i'' N_j'' en [0,1]  (matriz de rigidez de viga Euler-Bernoulli):
+K1D_sym
 %' Es exactamente la matriz de rigidez de viga clasica. El elemento de placa BFS
 %' es el PRODUCTO TENSORIAL de estas funciones de Hermite en x e y (16 gdl).
 %'
@@ -151,7 +146,7 @@ gp = (gp4 + 1)/2; gw = gw4/2;
 n_gp = 4;
 
 %% Calculo de K_e por elemento (numerico, Gauss 4x4 x 4x4)
-fprintf('Computando K_e (16x16) con Gauss 4x4...\n');
+%' Computando K_e (16×16) con Gauss 4×4…
 
 %-- Funcion auxiliar: evaluar segundas derivadas de Phi_k en xi=u con aa=L
 function v = phi_dd(k, u, L)
@@ -278,15 +273,11 @@ for ig = 1:n_gp
     end
 end
 
-fprintf('K_e calculado. Diagonal:\n');
-diag_Ke = diag(K_e);
-fprintf('  K_e(1,1) = %g  (DOF w nodo 1)\n', K_e(1,1));
-fprintf('  K_e(2,2) = %g  (DOF tx nodo 1)\n', K_e(2,2));
-fprintf('  K_e(3,3) = %g  (DOF ty nodo 1)\n', K_e(3,3));
-fprintf('  K_e(4,4) = %g  (DOF psi nodo 1)\n', K_e(4,4));
+%' K_e calculado. Diagonal del nodo 1 (w, θ_x, θ_y, ψ):
+Ke_nodo1 = [K_e(1,1); K_e(2,2); K_e(3,3); K_e(4,4)]
 
 %% Ensamblaje de la K global
-fprintf('Ensamblando K global (%d x %d)...\n', n_g, n_g);
+%' Ensamblando K global (@n_g × @n_g)…
 K = zeros(n_g, n_g);
 F = zeros(n_g, 1);
 
@@ -343,7 +334,7 @@ end
 %   Z = K⁻¹ · F        (K·Z = F)
 %
 % Z contiene los desplazamientos de todos los GDL (w, θₓ, θᵧ, ψ por joint), en m.
-fprintf('Resolviendo sistema (%d ecs)...\n', n_g);
+%' Resolviendo sistema (@n_g ecuaciones)…
 Z = K \ F;
 
 %% Results — Joint displacements (deflexion central)
@@ -355,11 +346,12 @@ Z = K \ F;
 center_col = n_a/2 + 1;
 center_row = n_b/2 + 1;
 center_joint = (center_col - 1)*(n_b + 1) + center_row;
-fprintf('Joint central: %d en (%.2f, %.2f) m\n', center_joint, x_j(center_joint), y_j(center_joint));
+%' Nudo central: @center_joint  en (@{x_j(center_joint)}, @{y_j(center_joint)}) m
 
 w_center = Z(4*(center_joint - 1) + 1);
 %-- Conversion: Z esta en m porque K esta en kN/m, F en kN. w_center en m.
-fprintf('Deflexion central w(a/2, b/2) = %g m = %g mm\n', w_center, w_center*1000);
+w_mm = w_center*1000;
+%" Deflexión central  w(a/2, b/2) = @w_mm mm
 
 %% Campos nodales para graficar (deflexion + momentos)
 W_z = zeros(n_a+1, n_b+1);
@@ -453,4 +445,6 @@ title('Momento Mxy [kNm/m] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
 figure; contourf(Xf, Yf, Mvmf, 20, 'LineStyle', 'none'); colorbar; colormap(flipud(jet));
 title('Von Mises sigma [MPa] - interp2 spline'); xlabel('x [m]'); ylabel('y [m]');
 
-fprintf('\n=== FIN benchmark BFS slab FEA ===\n');
+t_total = toc;   % tiempo total tic/toc
+%' TIEMPO TOTAL (tic/toc) = @t_total s
+%" FIN — benchmark BFS slab FEA

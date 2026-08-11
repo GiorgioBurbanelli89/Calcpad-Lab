@@ -2977,7 +2977,7 @@ namespace Calcpad.Wpf
         // (que en headless bloquea para siempre) -> huérfanos msedgewebview2 + cuelgues.
         internal static readonly bool IsHeadless =
             System.Environment.GetCommandLineArgs().Any(a =>
-                a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf");
+                a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf" || a == "--tex");
 
         // Piso 3: valores VIVOS de los controles interactivos (slider/numbox/checkbox). Vive en la
         // WPF y sobrevive a re-runs (el motor/pipeline es NUEVO cada cálculo). Se inyecta por run.
@@ -2988,6 +2988,8 @@ namespace Calcpad.Wpf
         private string _shotPng;   // ruta PNG a capturar si se lanzó con --shot (headless, para tests)
         private string _wshotPng;  // ruta PNG de la VENTANA COMPLETA (chrome+editor) para revisar el tema
         private string _pdfOut;    // ruta PDF headless (--pdf) para verificar que el export sale en BLANCO
+        private string _texOut;    // ruta .tex headless (--tex): exporta el .m a LaTeX + PNG externos
+        private string _texAssets; // carpeta opcional para los PNG del --tex (default: la del .tex)
         private string _gifDir;    // carpeta donde volcar frames PNG si se lanzó con --gif (animaciones headless)
         private int _gifFrames = 48;
         private int _gifIntervalMs = 100;
@@ -3636,6 +3638,19 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 if (argv[i] == "--shot" && i + 1 < argv.Length) _shotPng = argv[++i];
                 else if (argv[i] == "--theme" && i + 1 < argv.Length) i++;   // ya consumido en el ctor
                 else if (argv[i] == "--pdf" && i + 1 < argv.Length) _pdfOut = argv[++i];
+                else if (argv[i] == "--tex" && i + 1 < argv.Length)
+                {
+                    _texOut = argv[++i];
+                    // Directorio opcional de assets: siguiente token que NO sea otra flag ni un
+                    // archivo de script (para no confundirlo con el .m posicional).
+                    if (i + 1 < argv.Length && !argv[i + 1].StartsWith("--"))
+                    {
+                        var nxt = argv[i + 1];
+                        var nex = Path.GetExtension(nxt).ToLowerInvariant();
+                        if (nex != ".m" && nex != ".cpd" && nex != ".cpdz" && nex != ".f90" && nex != ".f95")
+                            _texAssets = argv[++i];
+                    }
+                }
                 else if (argv[i] == "--wshot" && i + 1 < argv.Length)
                 {
                     _wshotPng = argv[++i];
@@ -3675,6 +3690,13 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                         // Code+Output split, nunca como input-form.
                         // Para .cpd: respetar header `\v` (form) si existe.
                         var isScript = ex == ".m" || ex == ".f90" || ex == ".f95";
+                        // Export headless a LaTeX (--tex): NO necesita WebView. Genera el .tex
+                        // (texto + ecuaciones LaTeX + PNG externos) y sale. Solo para .m.
+                        if (_texOut != null && ex == ".m")
+                        {
+                            ExportTexAndExit(s);
+                            return;
+                        }
                         var hasForm = !isScript && (GetInputTextFromFile() || ex == ".cpdz");
                         if (isScript)
                             GetInputTextFromFile();   // cargar contenido al RichTextBox sin importar header
@@ -3717,6 +3739,29 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             }
             ShowHelp();
             DispatchLineNumbers();
+        }
+
+        // Export headless a LaTeX (--tex): parsea/ejecuta el .m con el motor MATLAB
+        // (para tener los valores calculados) y escribe un .tex self-contained con las
+        // figuras como PNG externos junto al .tex. No usa el WebView. Luego cierra.
+        private void ExportTexAndExit(string mFile)
+        {
+            try
+            {
+                var src = File.ReadAllText(mFile);
+                var scriptDir = Path.GetDirectoryName(Path.GetFullPath(mFile));
+                var entry = Path.GetFileNameWithoutExtension(mFile);
+                var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
+                pipeline.EntryFunctionHint = entry;
+                if (!string.IsNullOrEmpty(scriptDir)) pipeline.SetScriptDirectory(scriptDir, mFile);
+                pipeline.RunLatex(src, _texOut, _texAssets);
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "hekatan_tex_error.txt"), ex.ToString()); }
+                catch { }
+            }
+            try { Application.Current.Shutdown(); } catch { }
         }
 
         // Captura de PÁGINA COMPLETA del WebViewer (WebView2) a PNG vía DevTools

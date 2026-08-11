@@ -375,6 +375,7 @@ namespace Calcpad.Core.Matlab
                 if (dispBuffer.Length > 0)
                 {
                     var dispRawI = dispBuffer.ToString().TrimEnd();
+                    dispRawI = ConvertPrimes(dispRawI);   // N'' -> N″ antes del typeset
                     if (renderDisp) dispRawI = RenderDispInline(dispRawI);
                     var dispProcessedI = RenderDispWithMatrices(dispRawI);
                     var encodedI = EncodeWithHtmlSegments(dispProcessedI);
@@ -458,6 +459,10 @@ namespace Calcpad.Core.Matlab
             // tablas |...|, listas -). El codigo entre medias se ejecuta igual.
             bool mdMode = false;
             bool insideDeqBlock = false;   // bloque de ecuaciones: %#deq … %#endeq
+            bool insideColsBlock = false;  // bloque de columnas: %#cols … %#endcols
+            var colsRows = new System.Collections.Generic.List<System.Collections.Generic.List<string>>();
+            int colsCurLine = -1;
+            string colsHeaders = null;
             // Lineas del fuente (para el bloque %#deq…%#endeq con CODIGO REAL adentro).
             var deqSrcLines = source.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             // Contadores para elementos tipo LIBRO (auto-numerados): citas [N], figuras, tablas, notas.
@@ -486,6 +491,35 @@ namespace Calcpad.Core.Matlab
                 mdBuf.Clear();
                 mdMode = false;
             }
+            // Emite el bloque de COLUMNAS acumulado (%#cols…%#endcols): filas col-blk con
+            // celdas col-cell (mecanismo nativo de Calcpad = una fila line-tracked, columnas
+            // inline; NO párrafos por ecuación, así no se apilan). Encabezados opcionales.
+            void EmitColsBlock()
+            {
+                if (!string.IsNullOrEmpty(colsHeaders))
+                {
+                    sb.Append("<div class=\"col-blk\">");
+                    foreach (var h in colsHeaders.Split('|', ';'))
+                        sb.Append($"<div class=\"col-cell\"><b>{System.Net.WebUtility.HtmlEncode(h.Trim())}</b></div>");
+                    sb.Append("</div>\n");
+                }
+                foreach (var row in colsRows)
+                {
+                    sb.Append("<div class=\"col-blk\">");
+                    foreach (var cell in row) sb.Append($"<div class=\"col-cell\">{cell}</div>");
+                    sb.Append("</div>\n");
+                }
+                colsRows.Clear(); colsCurLine = -1; colsHeaders = null;
+            }
+
+            // Pre-calculo de escalares (datos de entrada) para @nombre/@{expr} en lineas %' que van
+            // ANTES de la definicion. Seguro: no ejecuta graficas/FEM (ver BuildPreviewVars).
+            BuildPreviewVars(stmts);
+
+            // Paso de sustitucion Calcpad-style (n_e = n_a·n_b = 6·4 = 24): el HtmlWriter consulta
+            // el valor ACTUAL de cada variable desde Globals (se actualiza al ejecutar cada stmt).
+            MatlabHtmlWriter.VarValueProvider = name =>
+                _evaluator.Globals.Vars.TryGetValue(name, out var vv) ? vv : null;
 
             foreach (var stmt in stmts)
             {
@@ -515,6 +549,17 @@ namespace Calcpad.Core.Matlab
                     // Adentro, cada linea de comentario `%ecuacion @@(n)` se renderiza como #deq.
                     if (dt0 == "#deq") { insideDeqBlock = true; continue; }
                     if (dt0 == "#endeq" || dt0 == "#end deq") { insideDeqBlock = false; continue; }
+                    // Bloque de COLUMNAS: `%#cols [Enc1 | Enc2 | …]` abre; `%#endcols` cierra.
+                    // Adentro, cada linea son referencias a variables ya calculadas separadas por `;`
+                    // (MATLAB las evalua sin error); Hekatan las pinta en columnas (Base | 1a | 2a).
+                    if (dt0 == "#endcols" || dt0 == "#end cols") { EmitColsBlock(); insideColsBlock = false; continue; }
+                    if (dt0.StartsWith("#cols", System.StringComparison.Ordinal))
+                    {
+                        insideColsBlock = true; colsRows.Clear(); colsCurLine = -1;
+                        var hh = dt0.Length > 5 ? dt0.Substring(5).Trim() : "";
+                        colsHeaders = hh.Length > 0 ? hh : null;
+                        continue;
+                    }
                 }
 
                 // Dentro del bloque de ecuaciones %#deq … %#endeq:
@@ -553,6 +598,26 @@ namespace Calcpad.Core.Matlab
                         prevNonCommentLine = stmtLine;
                         continue;
                     }
+                }
+
+                // Dentro del bloque de COLUMNAS %#cols … %#endcols: cada sentencia es una
+                // referencia a una variable ya calculada; se ejecuta (queda consistente) y su
+                // render (name = value) va a una CELDA. Sentencias de la MISMA linea del fuente
+                // = misma FILA (col-blk). Comentarios sueltos adentro se ignoran.
+                if (insideColsBlock)
+                {
+                    if (stmt is CommentStmt) continue;
+                    StatementResult resC = default;
+                    try { resC = _evaluator.ExecuteOne(stmt, _evaluator.Globals); } catch { }
+                    var cellHtml = MatlabHtmlWriter.RenderStatement(stmt, resC) ?? "";
+                    cellHtml = System.Text.RegularExpressions.Regex.Replace(cellHtml, @"^\s*<p[^>]*>", "");
+                    int endp = cellHtml.LastIndexOf("</p>", System.StringComparison.Ordinal);
+                    if (endp >= 0) cellHtml = cellHtml.Substring(0, endp);
+                    cellHtml = cellHtml.Trim();
+                    if (cellHtml.Length == 0) continue;
+                    if (stmtLine != colsCurLine) { colsRows.Add(new System.Collections.Generic.List<string>()); colsCurLine = stmtLine; }
+                    colsRows[colsRows.Count - 1].Add(cellHtml);
+                    continue;
                 }
 
                 // En modo Markdown: los comentarios se acumulan; cualquier statement
@@ -624,6 +689,7 @@ namespace Calcpad.Core.Matlab
                 if (dispBuffer.Length > 0)
                 {
                     var dispRaw = dispBuffer.ToString().TrimEnd();
+                    dispRaw = ConvertPrimes(dispRaw);   // N'' -> N″ ANTES del typeset (si no, la ' queda tras un tag)
                     if (renderDisp) dispRaw = RenderDispInline(dispRaw);
                     var dispProcessed = RenderDispWithMatrices(dispRaw);
                     var encoded = EncodeWithHtmlSegments(dispProcessed);
@@ -710,16 +776,9 @@ namespace Calcpad.Core.Matlab
                                 // %" da base de titulo (centrado+negrita+acento); los attrs la
                                 // sobreescriben (ej. {negro} -> color negro; {left} -> izquierda).
                                 string baseCss = marker == '"'
-                                    ? "text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;" : "";
+                                    ? "text-align:center;font-weight:600;color:#111;letter-spacing:.3px;" : "";
                                 var enc = System.Net.WebUtility.HtmlEncode(rest);
                                 sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\" style=\"display:block;{baseCss}{css}\">{enc}</span></p>\n");
-                                lastEmittedPLine = stmtLine;
-                            }
-                            else if (marker == '"')
-                            {
-                                // TITULO: %" texto  -> centrado, negrita, acento.
-                                var title = System.Net.WebUtility.HtmlEncode(capTrim);
-                                sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span style=\"display:block;text-align:center;font-weight:600;color:#1a7a4c;letter-spacing:.3px;margin:3px 0;\">{title}</span></p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
                             else if (capText.TrimStart().StartsWith("\\"))
@@ -739,8 +798,14 @@ namespace Calcpad.Core.Matlab
                             }
                             else
                             {
-                                // FORMATO: consumir prefijos < > | * / (combinables) tras el apostrofo.
+                                // FORMATO: BASE segun marcador + prefijos < > | * / _ (combinables) que la sobreescriben.
+                                //   %"  -> TITULO por defecto: centrado, negrita, NEGRO.
+                                //   %"< -> SUBTITULO a la izquierda (misma negrita/negro, sin centrar).  %"> derecha.
+                                //   %'  -> texto normal (izquierda).
+                                //   Prefijos: < izq · > der · | centro · * negrita · / italica · _ subrayado.
                                 var t = capText.TrimStart();
+                                string baseStyle = marker == '"'
+                                    ? "text-align:center;font-weight:600;color:#111;letter-spacing:.3px;margin:4px 0;" : "";
                                 string style = "";
                                 bool more = true;
                                 while (more && t.Length > 0)
@@ -757,18 +822,14 @@ namespace Calcpad.Core.Matlab
                                     }
                                     if (more) t = t.Substring(1);
                                 }
-                                if (style.Length > 0)
-                                {
-                                    // Texto con formato (alineacion/negrita/italica). display:block para alinear.
-                                    var enc = System.Net.WebUtility.HtmlEncode(t.Trim());
-                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\" style=\"display:block;{style}\">{enc}</span></p>\n");
-                                }
+                                // El prefijo va DESPUES de baseStyle -> en text-align gana el prefijo (subtitulo izq).
+                                string finalStyle = baseStyle + style;
+                                // @nombre / @{expr} → ecuación inline (combinar variables en la línea visible).
+                                var enc = RenderInlineVarRefs(t.Trim());
+                                if (finalStyle.Length > 0)
+                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\" style=\"display:block;{finalStyle}\">{enc}</span></p>\n");
                                 else
-                                {
-                                    // Texto normal (incluye `%'----texto`: NO es linea).
-                                    var capEnc = System.Net.WebUtility.HtmlEncode(capText);
-                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{capEnc}</span></p>\n");
-                                }
+                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{enc}</span></p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
                         }
@@ -932,6 +993,39 @@ namespace Calcpad.Core.Matlab
                                 if (eqNumInline.StartsWith("(") && eqNumInline.EndsWith(")")) eqNumInline = eqNumInline[1..^1].Trim();
                             }
                             if (inlineText.StartsWith("'")) inlineText = inlineText[1..];
+                            // PLACEHOLDER @ : marca DÓNDE va la ecuación dentro del texto → texto ANTES/DESPUÉS/mezclado.
+                            //   a = 6 %' Lado de la losa: @ m   → "Lado de la losa: a = 6 m"
+                            //   a = 6 %' El lado @              → "El lado  a = 6"   (texto ANTES de la variable)
+                            //   (sin @ = texto DESPUÉS, como siempre). REGLA: en el código la VARIABLE va primero;
+                            //   las reglas de colocación del texto viven en el %  (MATLAB lo ignora, el .m sigue corriendo).
+                            if (eqNumInline == null && inlineText.IndexOf('@') >= 0)
+                            {
+                                int atPos = inlineText.IndexOf('@');
+                                var preT = System.Net.WebUtility.HtmlEncode(inlineText.Substring(0, atPos).Trim());
+                                var postT = System.Net.WebUtility.HtmlEncode(inlineText.Substring(atPos + 1).Trim());
+                                var curH = sb.ToString();
+                                string idMark = $"id=\"line-{stmtLine}\">";
+                                int idPos = curH.LastIndexOf(idMark, System.StringComparison.Ordinal);
+                                int clPos = curH.LastIndexOf("</p>", System.StringComparison.Ordinal);
+                                if (lastEmittedPLine == stmtLine && idPos >= 0 && clPos > idPos)
+                                {
+                                    int insAfter = idPos + idMark.Length;
+                                    var eqInner = curH.Substring(insAfter, clPos - insAfter);
+                                    sb.Length = insAfter;
+                                    if (preT.Length > 0) sb.Append($"<span style=\"margin-right:.45em\">{preT}</span>");
+                                    sb.Append(eqInner);
+                                    if (postT.Length > 0) sb.Append($"<span style=\"margin-left:.45em\">{postT}</span>");
+                                    sb.Append("</p>\n");
+                                }
+                                else
+                                {
+                                    var join = (preT.Length > 0 && postT.Length > 0) ? " " : "";
+                                    sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\">{preT}{join}{postT}</span></p>\n");
+                                    lastEmittedPLine = stmtLine;
+                                }
+                            }
+                            else
+                            {
                             var encodedText = System.Net.WebUtility.HtmlEncode(inlineText);
                             // Comentario en NEGRO como el texto `'...` de Calcpad puro (no verde).
                             // Si es número de ecuación → span flotado a la derecha; si no → caption normal.
@@ -958,6 +1052,7 @@ namespace Calcpad.Core.Matlab
                                 sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\">{captionSpan}</p>\n");
                                 lastEmittedPLine = stmtLine;
                             }
+                            }  // fin else (sin placeholder @)
                         }
                         else
                         {
@@ -1055,6 +1150,29 @@ namespace Calcpad.Core.Matlab
         }
 
         /// <summary>
+        /// Exporta el `.m` a un `.tex` self-contained (texto + ecuaciones LaTeX reales),
+        /// con las figuras como PNG externos junto al `.tex`. Reusa este pipeline: la carga
+        /// de funciones hermanas (SetScriptDirectory) y el mismo evaluador que Run. Headless
+        /// (no requiere navegador). Devuelve la ruta del `.tex` escrito.
+        /// </summary>
+        public string RunLatex(string source, string texPath, string assetsDir = null)
+        {
+            MatlabTokenizer.OctaveMode = OctaveMode;
+            _evaluator.OctaveMode = OctaveMode;
+            var tokens = MatlabTokenizer.Tokenize(source);
+            var parser = new MatlabParser(tokens);
+            var stmts = parser.ParseAllStatements();
+            // PRE-PASS: registrar todas las function/classdef antes de ejecutar (igual que Run).
+            foreach (var stmt in stmts)
+            {
+                if (stmt is FunctionDef fd) _evaluator.RegisterFunction(fd);
+                else if (stmt is ClassDef cd) _evaluator.RegisterClass(cd);
+            }
+            MatlabHtmlWriter.GreekAutoRender = true;
+            return MatlabLatexWriter.ExportLatex(stmts, _evaluator, texPath, assetsDir);
+        }
+
+        /// <summary>
         /// Procesa una línea sola. Devuelve (html, errMsg, errLine) — exactamente
         /// uno de html/errMsg será no-null. Usar desde ExpressionParser para
         /// integración fina.
@@ -1131,6 +1249,7 @@ namespace Calcpad.Core.Matlab
             else if (TryMarker(t, "#greek", out var afterG)) { greekOverride = true; t = afterG; }
             var expr = ParseDirective(t, out string mode);
             if (expr == null || expr.Length == 0) return false;
+            expr = ConvertPrimes(expr);   // N'' -> N″ antes del parser (el parser de Calcpad maltrata la ')
             // Transliterar nombres griegos ASCII → símbolo Unicode (nu→ν, phi→φ) para que
             // el .m se mantenga MATLAB-válido y el output muestre las griegas. El override
             // inline gana sobre el estado de bloque; sin override, respeta el bloque
@@ -1190,7 +1309,7 @@ namespace Calcpad.Core.Matlab
                     // para que el click→navegación llegue a la línea real del .m.
                     result = new System.Text.RegularExpressions.Regex("<p\\b").Replace(
                         result, $"<p id=\"line-{matlabLine}\"", 1);
-                html = result.Trim();
+                html = ConvertPrimes(result.Trim());   // N'' -> N″ tambien en #noc (tras el cierre del sub)
                 return html.Length > 0;
             }
             catch
@@ -1254,6 +1373,124 @@ namespace Calcpad.Core.Matlab
                     defs.Append($"{name} = {v.Scalar.ToString("0.###############", ci)}\n");
             if (defs.Length == 0) return string.Empty;
             return "#hide\n" + defs + "#show\n";
+        }
+
+        /// <summary>
+        /// En una línea de TEXTO visible (`%' …`), sustituye <c>@nombre</c> y <c>@{expr}</c> por la
+        /// ecuación «nombre = valor» renderizada inline. Permite combinar varias variables definidas
+        /// en líneas de código distintas (con comentarios OCULTOS) en UNA sola línea visible, estilo
+        /// Calcpad:  <c>%' Slab dimensions - @a m, @b m</c>  →  «Slab dimensions - a = 6 m, b = 4 m».
+        /// El resto del texto se escapa normal. Un <c>@</c> suelto (sin nombre/llave) queda literal.
+        /// </summary>
+        private string RenderInlineVarRefs(string text)
+        {
+            text = ConvertSubscripts(ConvertPrimes(text));   // N''->N″, N_1->N₁ en texto %' (captions)
+            if (string.IsNullOrEmpty(text) || text.IndexOf('@') < 0)
+                return System.Net.WebUtility.HtmlEncode(text ?? "");
+            var outSb = new StringBuilder();
+            int i = 0;
+            while (i < text.Length)
+            {
+                int at = text.IndexOf('@', i);
+                if (at < 0) { outSb.Append(System.Net.WebUtility.HtmlEncode(text.Substring(i))); break; }
+                if (at > i) outSb.Append(System.Net.WebUtility.HtmlEncode(text.Substring(i, at - i)));
+                int k = at + 1;
+                string expr = null;
+                if (k < text.Length && text[k] == '{')                       // @{expr}
+                {
+                    int close = text.IndexOf('}', k);
+                    if (close > k) { expr = text.Substring(k + 1, close - k - 1); k = close + 1; }
+                }
+                else                                                          // @nombre
+                {
+                    int s = k;
+                    while (k < text.Length && (char.IsLetterOrDigit(text[k]) || text[k] == '_')) k++;
+                    if (k > s) expr = text.Substring(s, k - s);
+                }
+                if (string.IsNullOrEmpty(expr)) { outSb.Append('@'); i = at + 1; continue; }   // @ suelto = literal
+                outSb.Append(RenderVarRefEq(expr));
+                i = k;
+            }
+            return outSb.ToString();
+        }
+
+        /// <summary>Renderiza «expr = valor» como ecuación inline. `expr` = identificador (lookup
+        /// directo) o expresión (se evalúa con el motor). Si no hay valor escalar, muestra solo el símbolo.</summary>
+        private string RenderVarRefEq(string expr)
+        {
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            string fmt(double d) => d.ToString("0.###############", ci);
+            string valStr = null;
+            try
+            {
+                if (System.Text.RegularExpressions.Regex.IsMatch(expr, @"^[A-Za-z_]\w*$"))
+                {
+                    // 1) valor ACTUAL (ya definido en este punto del script)
+                    if (_evaluator.Globals.Vars.TryGetValue(expr, out var v0) && v0.IsScalar)
+                        valStr = fmt(v0.Scalar);
+                    // 2) fallback: valor PRE-CALCULADO (permite escribir la linea %' ANTES de definir)
+                    else if (_previewScope != null && _previewScope.Vars.TryGetValue(expr, out var vp) && vp.IsScalar)
+                        valStr = fmt(vp.Scalar);
+                }
+                else
+                {
+                    var toks = MatlabTokenizer.Tokenize(expr);
+                    var node = new MatlabParser(toks).ParseExpression();
+                    MValue res = null;
+                    try { res = _evaluator.Eval(node, _evaluator.Globals); } catch { }
+                    if ((res == null || !res.IsScalar) && _previewScope != null)
+                        try { res = _evaluator.Eval(node, _previewScope); } catch { }
+                    if (res != null && res.IsScalar) valStr = fmt(res.Scalar);
+                }
+            }
+            catch { }
+            string eqSrc = valStr != null ? $"{expr} = {valStr}" : expr;
+            return $"<span class=\"eq\">{MatlabHtmlWriter.RenderEquation(eqSrc)}</span>";
+        }
+
+        // Pre-calculo de escalares para que @nombre/@{expr} en una linea %' funcionen AUNQUE la
+        // linea vaya ANTES de definir la variable. SEGURO: solo evalua asignaciones escalares cuyo
+        // RHS es aritmetica pura (literales, variables ya pre-calculadas, +-*/^ y funciones math
+        // puras). NO ejecuta graficas, fprintf, FEM ni funciones de usuario (sin efectos secundarios).
+        private MatlabScope _previewScope;
+        private static readonly System.Collections.Generic.HashSet<string> _pureMath =
+            new(System.StringComparer.Ordinal) {
+                "sqrt","abs","sin","cos","tan","asin","acos","atan","atan2","sinh","cosh","tanh",
+                "exp","log","log10","log2","floor","ceil","round","fix","mod","rem","min","max",
+                "sign","hypot","deg2rad","rad2deg","factorial","nchoosek","pow2","power" };
+        private static bool IsSafeScalarRhs(MatlabNode n)
+        {
+            switch (n)
+            {
+                case NumberLit: case ImaginaryLit: case IdentRef: return true;
+                case UnaryOp u: return IsSafeScalarRhs(u.Operand);
+                case BinaryOp b: return IsSafeScalarRhs(b.Left) && IsSafeScalarRhs(b.Right);
+                case CallOrIndex c:
+                    if (c.Target is IdentRef fn && _pureMath.Contains(fn.Name))
+                    {
+                        foreach (var arg in c.Args) if (!IsSafeScalarRhs(arg)) return false;
+                        return true;
+                    }
+                    return false;
+                default: return false;
+            }
+        }
+        private void BuildPreviewVars(System.Collections.Generic.List<MatlabNode> stmts)
+        {
+            _previewScope = new MatlabScope();
+            foreach (var st in stmts)
+            {
+                if (st is Assignment asg && asg.Targets.Count == 1 && asg.Targets[0] is IdentRef tgt
+                    && IsSafeScalarRhs(asg.Rhs))
+                {
+                    try
+                    {
+                        var val = _evaluator.Eval(asg.Rhs, _previewScope);
+                        if (val != null && val.IsScalar) _previewScope.Vars[tgt.Name] = val;
+                    }
+                    catch { }
+                }
+            }
         }
 
         // Sentinels PUA (Private Use Area) que char(symbolic) usa para marcar
@@ -1433,6 +1670,45 @@ namespace Calcpad.Core.Matlab
             return "<i class=\"unit\">" + u + "</i>";
         }
 
+        /// <summary>Convierte apostrofos de PRIMA tras un identificador en glifos: N'->N′, N''->N″,
+        /// N'''->N‴ (como Calcpad). El lookahead evita "Poisson's", "d'Alembert" y la transpuesta A' de
+        /// codigo (solo aplica cuando los ' NO van seguidos de letra/digito). Para etiquetas/#noc/texto.</summary>
+        internal static string ConvertPrimes(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s.IndexOf('\'') < 0) return s;
+            return System.Text.RegularExpressions.Regex.Replace(
+                s, @"(>|[A-Za-z0-9_}\])])('{1,4})(?![A-Za-z0-9'])",
+                m =>
+                {
+                    int n = m.Groups[2].Value.Length;
+                    string p = n == 1 ? "′" : n == 2 ? "″" : n == 3 ? "‴" : "⁗";
+                    return m.Groups[1].Value + p;
+                });
+        }
+
+        // Subíndices Unicode para prosa: letra/griega SOLA + '_' + 1-3 alfanum. -> N_1→N₁, K_e→Kₑ,
+        // σ_v→σᵥ, J_2→J₂. Si algún char del subíndice no tiene forma Unicode, se deja igual (no rompe
+        // snake_case ni nombres largos: la base es 1 char y el subíndice ≤3).
+        private static readonly System.Collections.Generic.Dictionary<char,char> _subMap =
+            new() {
+                {'0','₀'},{'1','₁'},{'2','₂'},{'3','₃'},{'4','₄'},{'5','₅'},{'6','₆'},{'7','₇'},{'8','₈'},{'9','₉'},
+                {'a','ₐ'},{'e','ₑ'},{'h','ₕ'},{'i','ᵢ'},{'j','ⱼ'},{'k','ₖ'},{'l','ₗ'},{'m','ₘ'},{'n','ₙ'},
+                {'o','ₒ'},{'p','ₚ'},{'r','ᵣ'},{'s','ₛ'},{'t','ₜ'},{'u','ᵤ'},{'v','ᵥ'},{'x','ₓ'} };
+        internal static string ConvertSubscripts(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s.IndexOf('_') < 0) return s;
+            return System.Text.RegularExpressions.Regex.Replace(
+                s, "(?<![A-Za-z0-9\\u0370-\\u03FF])([A-Za-z\\u0370-\\u03FF])_([A-Za-z0-9]{1,3})(?![A-Za-z0-9_])",
+                m =>
+                {
+                    var sb = new StringBuilder();
+                    foreach (var ch in m.Groups[2].Value)
+                        if (_subMap.TryGetValue(char.ToLowerInvariant(ch), out var sc)) sb.Append(sc);
+                        else return m.Value;   // algún char sin subíndice Unicode -> dejar igual
+                    return m.Groups[1].Value + sb;
+                });
+        }
+
         private static string RenderDispWithMatrices(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return raw ?? string.Empty;
@@ -1445,17 +1721,36 @@ namespace Calcpad.Core.Matlab
             void FlushMatrix()
             {
                 if (matRows.Count == 0) return;
+                // Parsear celdas de cada fila y medir el largo VISIBLE (sin tags/sentinels).
+                var grid = new System.Collections.Generic.List<string[]>();
+                int maxLen = 0, maxCols = 0;
+                foreach (var rc in matRows)
+                {
+                    var raw = System.Text.RegularExpressions.Regex.Split(rc, @"[ \t]{2,}");
+                    var cs = new System.Collections.Generic.List<string>();
+                    foreach (var c in raw) if (!string.IsNullOrWhiteSpace(c)) cs.Add(c);
+                    grid.Add(cs.ToArray());
+                    if (cs.Count > maxCols) maxCols = cs.Count;
+                    foreach (var c in cs)
+                    {
+                        var vis = System.Text.RegularExpressions.Regex.Replace(c, "<[^>]*>", "")
+                                    .Replace("", "").Replace("", "");
+                        if (vis.Length > maxLen) maxLen = vis.Length;
+                    }
+                }
+                // Separadores | entre columnas cuando los elementos son EXPRESIONES (multi-termino).
+                bool sep = maxCols > 1 && maxLen > 3;
                 outSb.Append(HtmlStart);
                 outSb.Append("<span class=\"matrix\">");   // clásico AJUSTADO (corchetes = borde de celda vacía)
-                foreach (var rowContent in matRows)
+                foreach (var cells in grid)
                 {
                     outSb.Append("<span class=\"tr\"><span class=\"td\"></span>");
-                    var cells = System.Text.RegularExpressions.Regex.Split(rowContent, @"[ \t]{2,}");
-                    foreach (var cellRaw in cells)
+                    for (int j = 0; j < cells.Length; j++)
                     {
-                        if (string.IsNullOrWhiteSpace(cellRaw)) continue;
-                        outSb.Append("<span class=\"td\">");
-                        outSb.Append(EncodeWithHtmlSegments(cellRaw));
+                        string tdStyle = sep ? "padding:.12em .7em" : "padding:0 .5em";
+                        if (sep && j > 0) tdStyle += ";border-left:1px solid #bbb";
+                        outSb.Append($"<span class=\"td\" style=\"{tdStyle}\">");
+                        outSb.Append(EncodeWithHtmlSegments(cells[j]));
                         outSb.Append("</span>");
                     }
                     outSb.Append("<span class=\"td\"></span></span>");
@@ -1481,7 +1776,7 @@ namespace Calcpad.Core.Matlab
                 }
                 else
                 {
-                    outSb.Append(line);
+                    outSb.Append(ConvertPrimes(line));   // N'' -> N″ en etiquetas de disp
                     if (idx != lines.Length - 1) outSb.Append('\n');
                 }
             }

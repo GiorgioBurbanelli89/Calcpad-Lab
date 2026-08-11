@@ -428,6 +428,21 @@ namespace Calcpad.Core.Matlab
                    $"{body});}}catch(e){{}}}},60);</script>\n";
         }
 
+        // etiqueta del colorbar: cb.Label.String='d_x [mm]' (MATLAB). Se renderiza como titulo de
+        // la barra de escala (colorbar.title), lado derecho, igual que MATLAB.
+        private static string _cbLabel = null;
+        public static string ColorbarLabel => _cbLabel;
+        public static string SetColorbarLabelRestyle(string label)
+        {
+            _cbLabel = label;
+            if (_plotCounter <= 0 || string.IsNullOrEmpty(label)) return null;
+            string esc = label.Replace("\\", "\\\\").Replace("'", "\\'");
+            string pfx = _lastIsMarkerColored ? "marker.colorbar" : "colorbar";
+            string body = $"{{'{pfx}.title.text':['{esc}'],'{pfx}.title.side':['right']}}";
+            return $"<script>setTimeout(function(){{try{{Plotly.restyle('matlab_plot_{_plotCounter}'," +
+                   $"{body});}}catch(e){{}}}},80);</script>\n";
+        }
+
         private static float[] SampleCustom(double t)
         {
             var mm = _customCmapRgb; int n = mm.Length;
@@ -700,7 +715,7 @@ return {make:make};
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
             _figGrid = false;
-            _figColorbar = false; _cbReverse = false; _cbTicks = null;
+            _figColorbar = false; _cbReverse = false; _cbTicks = null; _cbLabel = null;
             _figAxisEqual = false;
             _figShowLegend = false; _figLegendLoc = null; _figLegendNames = null;
             return prev;
@@ -2329,6 +2344,15 @@ return {make:make};
                         using var sfont = new SKFont(tface, fTick * 0.8f);
                         canvas.DrawText(cbExp.ToString(), ex + w10 + 1, ey - 5, SKTextAlign.Left, sfont, txt);
                     }
+                    // ── ETIQUETA del colorbar (cb.Label.String), vertical a la derecha (=MATLAB) ──
+                    if (!string.IsNullOrEmpty(_cbLabel))
+                    {
+                        float lx = cbX + cbW + 42, ly = plotT + cbH / 2f;
+                        canvas.Save();
+                        canvas.RotateDegrees(-90, lx, ly);
+                        canvas.DrawText(_cbLabel, lx, ly, SKTextAlign.Center, font, txt);
+                        canvas.Restore();
+                    }
                 }
 
                 // ── LEGEND (caja con muestras de linea + nombres), como MATLAB ──
@@ -2711,16 +2735,33 @@ cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
         private static string BuildGlData(RetMesh gm)
         {
             GlColorRange(gm, out double clo, out double chi); double rng = chi - clo;
-            var p = new StringBuilder("["); var v = new StringBuilder("[");
+            var p = new StringBuilder("["); var v = new StringBuilder("["); var vr = new StringBuilder("[");
             for (int i = 0; i < gm.Verts.Length; i++)
             {
-                if (i > 0) { p.Append(','); v.Append(','); }
+                if (i > 0) { p.Append(','); v.Append(','); vr.Append(','); }
                 p.Append(gm.Verts[i][0].ToString("0.####", Inv)).Append(',').Append(gm.Verts[i][1].ToString("0.####", Inv));
-                double val = (i < gm.CData.Length) ? (gm.CData[i] - clo) / rng : 0;
+                double raw = (i < gm.CData.Length) ? gm.CData[i] : 0;
+                double val = (i < gm.CData.Length) ? (raw - clo) / rng : 0;
                 v.Append(val.ToString("0.####", Inv));
+                vr.Append(raw.ToString("0.####", Inv));   // valor CRUDO (magnitud real) para el hover
             }
-            p.Append(']'); v.Append(']');
-            return "{\"p\":" + p + ",\"v\":" + v + ",\"t\":\"" + EscapeJs(_figTitle) + "\"}";
+            p.Append(']'); v.Append(']'); vr.Append(']');
+            // multi-campo por frame (hoverdata): hv[vertice][campo], para el hover d_x/d_z/d_res/...
+            string hvJs = "null";
+            if (_hoverVals != null && _hoverVals.Length >= gm.Verts.Length)
+            {
+                var hv = new StringBuilder("[");
+                for (int i = 0; i < gm.Verts.Length; i++)
+                {
+                    if (i > 0) hv.Append(',');
+                    hv.Append('[');
+                    var row = _hoverVals[i] ?? System.Array.Empty<double>();
+                    for (int c = 0; c < row.Length; c++) { if (c > 0) hv.Append(','); hv.Append(row[c].ToString("0.####", Inv)); }
+                    hv.Append(']');
+                }
+                hv.Append(']'); hvJs = hv.ToString();
+            }
+            return "{\"p\":" + p + ",\"v\":" + v + ",\"vr\":" + vr + ",\"hv\":" + hvJs + ",\"t\":\"" + EscapeJs(_figTitle) + "\"}";
         }
 
         // Primer frame: canvas WebGL + shaders + malla (indices, posiciones, valores) + textura jet.
@@ -2749,15 +2790,17 @@ cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
             idx.Append(']');
             // 3) posiciones y valores iniciales
             GlColorRange(gm, out double clo, out double chi); double rng = chi - clo;
-            var p0 = new StringBuilder("["); var v0 = new StringBuilder("[");
+            var p0 = new StringBuilder("["); var v0 = new StringBuilder("["); var vr0 = new StringBuilder("[");
             for (int i = 0; i < gm.Verts.Length; i++)
             {
-                if (i > 0) { p0.Append(','); v0.Append(','); }
+                if (i > 0) { p0.Append(','); v0.Append(','); vr0.Append(','); }
                 p0.Append(gm.Verts[i][0].ToString("0.####", Inv)).Append(',').Append(gm.Verts[i][1].ToString("0.####", Inv));
-                double val = (i < gm.CData.Length) ? (gm.CData[i] - clo) / rng : 0;
+                double raw = (i < gm.CData.Length) ? gm.CData[i] : 0;
+                double val = (i < gm.CData.Length) ? (raw - clo) / rng : 0;
                 v0.Append(val.ToString("0.####", Inv));
+                vr0.Append(raw.ToString("0.####", Inv));   // valor CRUDO por nodo -> hover muestra magnitud real
             }
-            p0.Append(']'); v0.Append(']');
+            p0.Append(']'); v0.Append(']'); vr0.Append(']');
             // 4) textura jet (256 RGB) del colormap activo
             var jet = new StringBuilder("[");
             for (int i = 0; i < 256; i++)
@@ -2776,9 +2819,33 @@ cv.addEventListener('mouseleave',function(){draw();tt.style.display='none';});
             sb.Append($"<div style=\"position:relative;width:{width}px;height:{height}px\">");
             sb.Append($"<img src=\"data:image/png;base64,{bg}\" style=\"width:{width}px;height:{height}px;display:block;border:1px solid #ccc\"/>");
             sb.Append($"<canvas id=\"glc\" width=\"{width * 2}\" height=\"{height * 2}\" style=\"position:absolute;top:0;left:0;width:{width}px;height:{height}px;pointer-events:none\"></canvas>");
+            // Overlay TRANSPARENTE que SÍ recibe el mouse (glc esta en pointer-events:none) -> hover.
+            sb.Append($"<canvas id=\"glh\" width=\"{width}\" height=\"{height}\" style=\"position:absolute;top:0;left:0;width:{width}px;height:{height}px;pointer-events:auto;cursor:crosshair\"></canvas>");
+            sb.Append("<div id=\"gltip\" style=\"position:fixed;pointer-events:none;background:rgba(20,20,28,.9);color:#fff;font:12px Consolas;padding:3px 7px;border-radius:4px;display:none;z-index:99999;white-space:pre\"></div>");
+            // MULTI-CAMPO para el hover (hoverdata): HV[vertice][campo] + HLBLS. Si el script llamo
+            // hoverdata([d_x d_z d_res ...], 'd_x|d_z|d_res|...') se muestran TODOS los campos por
+            // punto; si no, HV=null y el hover cae al campo unico coloreado (VR).
+            string hvJs = "null", hlblsJs = "null";
+            if (_hoverVals != null && _hoverLabels != null && _hoverVals.Length >= gm.Verts.Length)
+            {
+                var hv = new StringBuilder("[");
+                for (int i = 0; i < gm.Verts.Length; i++)
+                {
+                    if (i > 0) hv.Append(',');
+                    hv.Append('[');
+                    var row = _hoverVals[i] ?? System.Array.Empty<double>();
+                    for (int c = 0; c < row.Length; c++) { if (c > 0) hv.Append(','); hv.Append(row[c].ToString("0.####", Inv)); }
+                    hv.Append(']');
+                }
+                hv.Append(']'); hvJs = hv.ToString();
+                var lb = new StringBuilder("[");
+                for (int i = 0; i < _hoverLabels.Length; i++) { if (i > 0) lb.Append(','); lb.Append('"').Append(EscapeJs(_hoverLabels[i])).Append('"'); }
+                lb.Append(']'); hlblsJs = lb.ToString();
+            }
             sb.Append("</div></div>\n<script>(function(){\n");
             sb.Append($"var W={width},H={height},NT={ntri};\n");
-            sb.Append($"var IDX={idx},P={p0},V={v0},JET={jet};\n");
+            sb.Append($"var IDX={idx},P={p0},V={v0},VR={vr0},JET={jet};\n");
+            sb.Append($"var HLBL=\"{EscapeJs(_cbLabel ?? "valor")}\",HV={hvJs},HLBLS={hlblsJs};\n");   // HLBL=campo unico; HV/HLBLS=multi-campo (hoverdata)
             sb.Append($"var UT=[{MOX.ToString("0.#####", Inv)},{MOY.ToString("0.#####", Inv)},{MSX.ToString("0.######", Inv)},{MSY.ToString("0.######", Inv)},{MX0.ToString("0.#####", Inv)},{MY0.ToString("0.#####", Inv)},{MH.ToString("0.###", Inv)}];\n");
             sb.Append(@"var cv=document.getElementById('glc');var gl=cv.getContext('webgl')||cv.getContext('experimental-webgl');
 if(!gl){window.__hkGL=function(){};return;}
@@ -2802,8 +2869,29 @@ gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,iB);gl.drawElements(gl.TRIANGLES,NT*3,gl.U
 window.__hkGL=function(js){var d=(typeof js==='string')?JSON.parse(js):js;
 gl.bindBuffer(gl.ARRAY_BUFFER,pB);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(d.p));
 gl.bindBuffer(gl.ARRAY_BUFFER,vB);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(d.v));
+if(d.p)P=d.p;if(d.vr)VR=d.vr;if(d.hv)HV=d.hv;
 if(d.t){var e=document.getElementById('gltitle');if(e)e.textContent=d.t;}draw();};
 draw();
+// ── HOVER: overlay 'glh' recibe el mouse; invierte el transform dato->pixel (UT), busca el
+//    triangulo bajo el cursor e interpola el valor CRUDO (VR) -> muestra x, z y el campo. ──
+var hc=document.getElementById('glh'),htx=hc.getContext('2d'),htip=document.getElementById('gltip');
+hc.addEventListener('mousemove',function(ev){
+ var r=hc.getBoundingClientRect();var mx=(ev.clientX-r.left)*W/r.width,my=(ev.clientY-r.top)*H/r.height;
+ var dx=(mx-UT[0])/UT[2]+UT[4],dy=(UT[6]-UT[1]-my)/UT[3]+UT[5];var hit=null;
+ for(var t=0;t<NT;t++){var a=IDX[3*t],b=IDX[3*t+1],c=IDX[3*t+2];
+  var ax=P[2*a],ay=P[2*a+1],bx=P[2*b],by=P[2*b+1],cx=P[2*c],cy=P[2*c+1];
+  var d0=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);if(Math.abs(d0)<1e-12)continue;
+  var l1=((by-cy)*(dx-cx)+(cx-bx)*(dy-cy))/d0,l2=((cy-ay)*(dx-cx)+(ax-cx)*(dy-cy))/d0,l3=1-l1-l2;
+  if(l1>=-0.02&&l2>=-0.02&&l3>=-0.02){hit={a:a,b:b,c:c,l1:l1,l2:l2,l3:l3};break;}}
+ htx.clearRect(0,0,W,H);
+ if(!hit){htip.style.display='none';return;}
+ htx.strokeStyle='rgba(0,0,0,.45)';htx.lineWidth=1;htx.beginPath();htx.moveTo(mx,0);htx.lineTo(mx,H);htx.moveTo(0,my);htx.lineTo(W,my);htx.stroke();
+ var txt='x = '+dx.toFixed(2)+' m\nz = '+dy.toFixed(2)+' m';
+ if(HV){for(var j=0;j<HLBLS.length;j++){var vj=hit.l1*HV[hit.a][j]+hit.l2*HV[hit.b][j]+hit.l3*HV[hit.c][j];txt+='\n'+HLBLS[j]+' = '+vj.toFixed(2);}}
+ else{var val=hit.l1*VR[hit.a]+hit.l2*VR[hit.b]+hit.l3*VR[hit.c];txt+='\n'+HLBL+' = '+val.toFixed(2);}
+ htip.style.display='block';htip.style.left=(ev.clientX+13)+'px';htip.style.top=(ev.clientY+8)+'px';
+ htip.textContent=txt;});
+hc.addEventListener('mouseleave',function(){htip.style.display='none';htx.clearRect(0,0,W,H);});
 ");
             sb.Append("})();</script>\n");
             return sb.ToString();

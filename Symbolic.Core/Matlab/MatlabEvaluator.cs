@@ -1644,6 +1644,7 @@ namespace Calcpad.Core.Matlab
             // en scripts MATLAB. Los aceptamos como no-op para evitar errores.
             _builtins["clc"]     = a => new MValue(0);
             _builtins["close"]   = a => new MValue(0);
+            _builtins["graphics_toolkit"] = a => new MValue(0);   // Octave: selector de backend gráfico → no-op en Hekatan
             _builtins["clf"]     = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
             _builtins["cla"]     = a => { MatlabPlots.ClearFigure(); return new MValue(0); };
             // colorbands(n) o colorbands([l0 l1 ... ln]): bandas discretas estilo GEO5 (isosuperficie).
@@ -2366,7 +2367,13 @@ namespace Calcpad.Core.Matlab
                 // MATLAB: colorbar tras el plot enciende la barra en el plot YA dibujado.
                 var r = MatlabPlots.RestyleLastColorbar(true);
                 if (r != null) _htmlOut?.Invoke(r);
-                return new MValue(0);
+                // devolver HANDLE (con sub-struct Label) para cb=colorbar; cb.Label.String='d_x [mm]'
+                var cbh = MValue.NewStruct(); cbh.IsGfxHandle = true;
+                cbh.Fields["__iscolorbar"] = new MValue(1);
+                var lab = MValue.NewStruct(); lab.IsGfxHandle = true;
+                lab.Fields["__iscblabel"] = new MValue(1);
+                cbh.Fields["Label"] = lab;
+                return cbh;
             };
             _builtins["shading"] = a => new MValue(0);
             _builtins["axis"] = a => {
@@ -3587,6 +3594,52 @@ namespace Calcpad.Core.Matlab
             _builtins["startsWith"] = a => new MValue(a[0].IsString && a[1].IsString && a[0].StringValue.StartsWith(a[1].StringValue) ? 1 : 0);
             _builtins["endsWith"] = a => new MValue(a[0].IsString && a[1].IsString && a[0].StringValue.EndsWith(a[1].StringValue) ? 1 : 0);
             _builtins["strtrim"] = a => new MValue(a[0].IsString ? a[0].StringValue.Trim() : a[0].ToString());
+            // str2double: como str2num pero devuelve NaN si no parsea (=MATLAB)
+            _builtins["str2double"] = a => {
+                if (a[0].IsString && double.TryParse(a[0].StringValue.Trim(), System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    return new MValue(d);
+                return new MValue(double.NaN);
+            };
+            // int2str: redondea al entero mas cercano y da texto (matriz -> filas/columnas)
+            _builtins["int2str"] = a => {
+                if (a[0].IsString) return a[0];
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                string one(double d) {
+                    if (double.IsNaN(d)) return "NaN";
+                    if (double.IsInfinity(d)) return d > 0 ? "Inf" : "-Inf";
+                    return ((long)Math.Round(d, MidpointRounding.AwayFromZero)).ToString(ci);
+                }
+                if (a[0].IsScalar) return new MValue(one(a[0].Scalar));
+                var sb2 = new StringBuilder();
+                for (int i = 0; i < a[0].Rows; i++) {
+                    if (i > 0) sb2.Append("\n");
+                    for (int j = 0; j < a[0].Cols; j++) { if (j > 0) sb2.Append("  "); sb2.Append(one(a[0].At(i, j))); }
+                }
+                return new MValue(sb2.ToString());
+            };
+            // erase(s, match): quita todas las ocurrencias (= strrep con vacio)
+            _builtins["erase"] = a => {
+                if (a.Length < 2 || !a[0].IsString || !a[1].IsString)
+                    throw new MatlabRuntimeException("erase(s, match) requires strings");
+                return new MValue(a[0].StringValue.Replace(a[1].StringValue, ""));
+            };
+            // deblank: quita SOLO los blancos del final
+            _builtins["deblank"] = a => new MValue(a[0].IsString ? a[0].StringValue.TrimEnd() : a[0].ToString());
+            // blanks(n): cadena de n espacios
+            _builtins["blanks"] = a => new MValue(new string(' ', Math.Max(0, (int)a[0].Scalar)));
+            // pad(s[, n[, side]]): rellena con espacios hasta longitud n. side: right(def)|left|both
+            _builtins["pad"] = a => {
+                if (!a[0].IsString) return a[0];
+                var s = a[0].StringValue;
+                int n = a.Length >= 2 && !a[1].IsString ? (int)a[1].Scalar : s.Length;
+                string side = a.Length >= 3 && a[2].IsString ? a[2].StringValue.ToLowerInvariant() : "right";
+                if (s.Length >= n) return new MValue(s);
+                int total = n - s.Length;
+                if (side == "left") return new MValue(new string(' ', total) + s);
+                if (side == "both") { int l = total / 2; return new MValue(new string(' ', l) + s + new string(' ', total - l)); }
+                return new MValue(s + new string(' ', total));
+            };
             // Regex
             _builtins["regexp"] = a => {
                 if (a.Length < 2 || !a[0].IsString || !a[1].IsString)
@@ -11463,6 +11516,13 @@ namespace Calcpad.Core.Matlab
                 // s.a.b = val → ensure s.a is a struct, recurse
                 var parentRoot = ResolveOrCreateStruct(parent, scope);
                 parentRoot.Fields[fa.FieldName] = val;
+                // cb.Label.String='d_x [mm]' -> renderizar la etiqueta del colorbar (=MATLAB)
+                if (fa.FieldName == "String" && parentRoot.Fields != null
+                    && parentRoot.Fields.ContainsKey("__iscblabel") && val != null && val.IsString)
+                {
+                    var scr = MatlabPlots.SetColorbarLabelRestyle(val.StringValue);
+                    if (scr != null) _htmlOut?.Invoke(scr);
+                }
                 return;
             }
             // res(k).field = val → struct-array: crecer hasta k y setear el campo del elemento.
