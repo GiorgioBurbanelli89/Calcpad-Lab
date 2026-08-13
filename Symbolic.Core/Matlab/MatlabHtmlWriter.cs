@@ -540,7 +540,7 @@ namespace Calcpad.Core.Matlab
                 if (nm == "diff" && k == 1) return true;   // Δv (diff >=2 args = simbolico d/dx)
                 if (k == 1)
                     return nm is "sqrt" or "abs" or "norm" or "det" or "inv"
-                        or "transpose" or "sum" or "prod";
+                        or "transpose" or "trace" or "sum" or "prod";
                 if (k == 2)
                     return nm is "nthroot" or "dot" or "cross";
             }
@@ -1198,7 +1198,7 @@ namespace Calcpad.Core.Matlab
                     {
                         "laplace" => "&#8466;", "ilaplace" => "&#8466;<sup>-1</sup>",   // ℒ
                         "fourier" => "&#8497;", "ifourier" => "&#8497;<sup>-1</sup>",   // ℱ
-                        "ztrans"  => "&#119894;", "iztrans" => "&#119894;<sup>-1</sup>",// 𝒵
+                        "ztrans"  => "&#x1D4B5;", "iztrans" => "&#x1D4B5;<sup>-1</sup>",// 𝒵
                         _ => null
                     };
                     if (top != null && c.Args.Count >= 1)
@@ -1283,6 +1283,8 @@ namespace Calcpad.Core.Matlab
                     return $"{RenderExpression(c.Args[0])} × {RenderExpression(c.Args[1])}";
                 if (laId.Name == "det" && c.Args.Count == 1)
                     return $"<b class=\"b0\">|</b>&hairsp;{RenderExpression(c.Args[0])}&hairsp;<b class=\"b0\">|</b>";
+                if (laId.Name == "trace" && c.Args.Count == 1)
+                    return $"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:normal\">tr</span>({RenderExpression(c.Args[0])})";
                 if (laId.Name == "inv" && c.Args.Count == 1)
                     return $"{RenderExpression(c.Args[0])}<sup>−1</sup>";
                 if (laId.Name == "transpose" && c.Args.Count == 1)

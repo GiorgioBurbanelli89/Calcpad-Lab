@@ -1002,6 +1002,11 @@ namespace Calcpad.Core.Matlab
                 // Escalón de Heaviside e impulso de Dirac
                 case "heaviside": return $"{MathName("H")}({a})";
                 case "dirac":     return $"<span style=\"font-family:'Cambria Math',serif;font-style:italic\">δ</span>({a})";
+                // Función gamma → Γ(x)
+                case "gamma":     return $"<span style=\"font-family:'Cambria Math',serif;font-style:normal\">Γ</span>({a})";
+                // Factorial → x!  (con paréntesis si el argumento es compuesto)
+                case "factorial":
+                    return (Arg is SymConst || Arg is SymVar) ? $"{a}!" : $"({a})!";
                 // Resto (sin, cos, tan, sinh, csc, atan, …): nombre en ROMANO matemático
                 default:      return $"{MathName(Name)}({a})";
             }

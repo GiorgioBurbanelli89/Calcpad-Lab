@@ -7810,9 +7810,9 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 return MapUnary(a[0], x => x <= 0 ? 0 :
                     Math.Pow(x, k - 1) * Math.Exp(-x / theta) / (Math.Pow(theta, k) * GammaFn(k)));
             };
-            _builtins["gamma"] = a => MapUnary(a[0], GammaFn);
+            _builtins["gamma"] = a => MapUnary(a[0], GammaFn, "gamma");
             _builtins["beta"] = a => new MValue(BetaFn(a[0].Scalar, a[1].Scalar));
-            _builtins["factorial"] = a => MapUnary(a[0], x => Factorial((int)x));
+            _builtins["factorial"] = a => MapUnary(a[0], x => Factorial((int)x), "factorial");
             _builtins["nchoosek"] = a => new MValue(BinomCoef(a[0].Scalar, a[1].Scalar));
 
             static double GammaFn(double x)
