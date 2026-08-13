@@ -3999,8 +3999,28 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             // Numerical
             _builtins["polyval"] = a => {
                 if (a.Length < 2) throw new MatlabRuntimeException("polyval(p, x)");
-                var coefs = a[0].Data;  // [a_n, a_{n-1}, ..., a_0]
                 var x = a[1];
+                // SIMBOLICO (como MATLAB): si x o los coeficientes son simbolicos, evalua por
+                // Horner en el algebra simbolica -> devuelve la expresion (p.ej. polyval([1 -5 6], s)
+                // = s^2 - 5*s + 6). Requiere que 'p' sea un vector fila de coefs.
+                if (x.IsSymbolic || a[0].IsSymbolic || a[0].IsSymMatrix)
+                {
+                    SymNode X = x.IsSymbolic ? x.Symbolic : new SymConst(x.Scalar);
+                    SymNode[] cs;
+                    if (a[0].IsSymMatrix)
+                    {
+                        var cells = a[0].SymCells; int nc = cells.Length; cs = new SymNode[nc]; int t = 0;
+                        for (int i = 0; i < cells.GetLength(0); i++) for (int j = 0; j < cells.GetLength(1); j++) cs[t++] = cells[i, j];
+                    }
+                    else if (a[0].IsSymbolic) cs = new[] { a[0].Symbolic };
+                    else { var d = a[0].Data; cs = new SymNode[d.Length]; for (int i = 0; i < d.Length; i++) cs[i] = new SymConst(d[i]); }
+                    SymNode y = new SymConst(0);
+                    foreach (var c in cs) y = new SymAdd(new SymMul(y, X), c);
+                    // Forma estandar de libro (s^2 - 5*s + 6), no Horner, como MATLAB.
+                    try { return MValue.NewSymbolic(SymNode.Expand(y)); }
+                    catch { return MValue.NewSymbolic(y.Simplify()); }
+                }
+                var coefs = a[0].Data;  // [a_n, a_{n-1}, ..., a_0]
                 MValue Apply(double xv)
                 {
                     double y = 0;
@@ -4026,6 +4046,253 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 var result = new MValue(1, n + 1);
                 for (int i = 0; i <= n; i++) result.Data[i] = p.At(i, 0);
                 return result;
+            };
+            // polyder(p): derivada de un polinomio (coefs de mayor a menor grado). MATLAB.
+            _builtins["polyder"] = a => {
+                if (a.Length < 1) throw new MatlabRuntimeException("polyder(p)");
+                var p = a[0].Data; int L = p.Length;
+                if (L <= 1) return new MValue(0.0);
+                var d = new MValue(1, L - 1);
+                for (int i = 0; i < L - 1; i++) d.Data[i] = p[i] * (L - 1 - i);
+                return d;
+            };
+            // polyint(p, k): integral de un polinomio (k = constante, por defecto 0). MATLAB.
+            _builtins["polyint"] = a => {
+                if (a.Length < 1) throw new MatlabRuntimeException("polyint(p, k)");
+                var p = a[0].Data; int L = p.Length;
+                double k = a.Length > 1 ? a[1].Scalar : 0.0;
+                var r = new MValue(1, L + 1);
+                for (int i = 0; i < L; i++) r.Data[i] = p[i] / (L - i);
+                r.Data[L] = k;
+                return r;
+            };
+            // deconv(a, b): division de polinomios -> cociente (single-output). MATLAB.
+            _builtins["deconv"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("deconv(a, b)");
+                var A = (double[])a[0].Data.Clone(); var B = a[1].Data;
+                int la = A.Length, lb = B.Length;
+                if (lb == 0 || B[0] == 0) throw new MatlabRuntimeException("deconv: el coef lider de b es 0");
+                if (la < lb) return new MValue(0.0);
+                int lq = la - lb + 1;
+                var qv = new MValue(1, lq);
+                for (int i = 0; i < lq; i++) {
+                    double coef = A[i] / B[0];
+                    qv.Data[i] = coef;
+                    for (int j = 0; j < lb; j++) A[i + j] -= coef * B[j];
+                }
+                return qv;
+            };
+            // [q, r] = deconv(a, b): cociente y RESTO (r del mismo largo que a). MATLAB.
+            _multiOutBuiltins["deconv"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("deconv(a, b)");
+                var A = (double[])a[0].Data.Clone(); var B = a[1].Data;
+                int la = A.Length, lb = B.Length;
+                if (lb == 0 || B[0] == 0) throw new MatlabRuntimeException("deconv: el coef lider de b es 0");
+                MValue qv;
+                if (la < lb) { qv = new MValue(0.0); }   // q = 0, r = a
+                else {
+                    int lq = la - lb + 1; qv = new MValue(1, lq);
+                    for (int i = 0; i < lq; i++) {
+                        double coef = A[i] / B[0];
+                        qv.Data[i] = coef;
+                        for (int j = 0; j < lb; j++) A[i + j] -= coef * B[j];
+                    }
+                }
+                var rv = new MValue(1, la);   // r = a - conv(q,b), mismo largo que a (MATLAB)
+                Array.Copy(A, rv.Data, la);
+                return new[] { qv, rv };
+            };
+            // poly(v): si v es vector de raices -> coefs del polinomio (mayor a menor grado);
+            // si v es matriz cuadrada -> polinomio caracteristico. MATLAB. Devuelve real si las
+            // raices vienen en pares conjugados (imag residual ~0).
+            _builtins["poly"] = a => {
+                if (a.Length < 1) throw new MatlabRuntimeException("poly(v)");
+                var v = a[0];
+                double[] rre, rim;
+                if (v.Rows > 1 && v.Cols > 1) {
+                    if (v.Rows != v.Cols) throw new MatlabRuntimeException("poly: la matriz debe ser cuadrada");
+                    var ev = EigValuesComplex(v);
+                    rre = ev.Data; rim = ev.IsComplex ? ev.Imag : new double[ev.Data.Length];
+                } else {
+                    rre = v.Data; rim = v.IsComplex ? v.Imag : new double[v.Data.Length];
+                }
+                int n = rre.Length;
+                var cre = new double[n + 1]; var cim = new double[n + 1];
+                cre[0] = 1.0; int len = 1;   // c empieza en [1], grado 0
+                for (int k = 0; k < n; k++) {
+                    double rr = rre[k], ri = rim[k];
+                    var nre = new double[len + 1]; var nim = new double[len + 1];
+                    for (int t = 0; t <= len; t++) {
+                        double are = 0, aim = 0;
+                        if (t < len) { are += cre[t]; aim += cim[t]; }               // c[t]*1
+                        if (t - 1 >= 0 && t - 1 < len) {                             // c[t-1]*(-root)
+                            double br = cre[t - 1], bi = cim[t - 1];
+                            are += -(br * rr - bi * ri); aim += -(br * ri + bi * rr);
+                        }
+                        nre[t] = are; nim[t] = aim;
+                    }
+                    cre = nre; cim = nim; len++;
+                }
+                double maxim = 0, maxre = 0;
+                for (int i = 0; i <= n; i++) { if (Math.Abs(cim[i]) > maxim) maxim = Math.Abs(cim[i]); if (Math.Abs(cre[i]) > maxre) maxre = Math.Abs(cre[i]); }
+                if (maxim <= 1e-10 * Math.Max(maxre, 1.0)) {
+                    var pr = new MValue(1, n + 1); Array.Copy(cre, pr.Data, n + 1); return pr;
+                }
+                return new MValue(1, n + 1, cre, cim);
+            };
+            // polyvalm(p, X): evaluacion MATRICIAL de un polinomio, p(X) con X cuadrada (Horner). MATLAB.
+            _builtins["polyvalm"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("polyvalm(p, X)");
+                var p = a[0].Data; var X = a[1];
+                if (X.Rows != X.Cols) throw new MatlabRuntimeException("polyvalm: X debe ser cuadrada");
+                if (a[0].IsComplex || X.IsComplex) throw new MatlabRuntimeException("polyvalm: solo real por ahora");
+                int n = X.Rows;
+                var Y = new MValue(n, n);   // Y = 0
+                foreach (var c in p) {
+                    var T = new MValue(n, n);   // T = Y*X
+                    for (int i = 0; i < n; i++)
+                        for (int j = 0; j < n; j++) {
+                            double s = 0;
+                            for (int t = 0; t < n; t++) s += Y.At(i, t) * X.At(t, j);
+                            T.Set(i, j, s);
+                        }
+                    for (int i = 0; i < n; i++)
+                        for (int j = 0; j < n; j++)
+                            Y.Set(i, j, T.At(i, j) + (i == j ? c : 0.0));   // Y = T + c*I
+                }
+                return Y;
+            };
+            // [r, p, k] = residue(b, a): expansion en fracciones parciales. MATLAB.
+            // Soporta polos repetidos y complejos. b/a = sum r_i/(s-p_i)^{..} + k(s).
+            _multiOutBuiltins["residue"] = a => {
+                if (a.Length < 2) throw new MatlabRuntimeException("residue(b, a)");
+                // complejos como (re, im)
+                (double, double) CMul((double, double) x, (double, double) y) => (x.Item1 * y.Item1 - x.Item2 * y.Item2, x.Item1 * y.Item2 + x.Item2 * y.Item1);
+                (double, double) CAdd((double, double) x, (double, double) y) => (x.Item1 + y.Item1, x.Item2 + y.Item2);
+                (double, double) CSub((double, double) x, (double, double) y) => (x.Item1 - y.Item1, x.Item2 - y.Item2);
+                (double, double) CDiv((double, double) x, (double, double) y) { double d = y.Item1 * y.Item1 + y.Item2 * y.Item2; return ((x.Item1 * y.Item1 + x.Item2 * y.Item2) / d, (x.Item2 * y.Item1 - x.Item1 * y.Item2) / d); }
+
+                double[] bRaw = a[0].Data; double[] aRaw = a[1].Data;
+                // k (termino directo) por division si grado(b) >= grado(a)
+                double[] kArr = null; double[] bcur = (double[])bRaw.Clone();
+                if (bRaw.Length >= aRaw.Length && aRaw.Length >= 1) {
+                    var A = (double[])bRaw.Clone(); int la = A.Length, lb = aRaw.Length;
+                    int lq = la - lb + 1; kArr = new double[lq];
+                    for (int i = 0; i < lq; i++) { double c = A[i] / aRaw[0]; kArr[i] = c; for (int j = 0; j < lb; j++) A[i + j] -= c * aRaw[j]; }
+                    int rem = lb - 1; bcur = new double[Math.Max(rem, 1)];
+                    if (rem > 0) Array.Copy(A, la - rem, bcur, 0, rem); else bcur[0] = 0.0;
+                }
+                // polos = roots(a)
+                MValue rootsOf(double[] pc) {
+                    int nn = pc.Length - 1;
+                    if (nn <= 0) return new MValue(0, 0);
+                    if (nn == 1) return new MValue(-pc[1] / pc[0]);
+                    var C = new MValue(nn, nn);
+                    for (int i = 0; i < nn; i++) C.Set(0, i, -pc[i + 1] / pc[0]);
+                    for (int i = 1; i < nn; i++) C.Set(i, i - 1, 1);
+                    return EigValuesComplex(C);
+                }
+                var pv = rootsOf(aRaw);
+                int np = pv.Rows * pv.Cols;
+                var pre = pv.Data; var pim = pv.IsComplex ? pv.Imag : new double[np];
+                // agrupar polos iguales (multiplicidad). Tolerancia RELATIVA como MATLAB mpoles
+                // (~1e-3): el QR devuelve raices repetidas ligeramente separadas (p.ej. -1 y
+                // -0.999999); si no se agrupan, la formula de polo simple divide por ~0 y explota.
+                double relTol = 1e-3;
+                var used = new bool[np];
+                var rOut = new List<(double, double)>();
+                var pOut = new List<(double, double)>();
+                // Taylor de un polinomio real (coefs mayor->menor) alrededor de a0 complejo, lowest-first
+                (double, double)[] taylor(double[] poly, (double, double) a0, int upto) {
+                    int deg = poly.Length - 1;
+                    var coeffs = new (double, double)[poly.Length];
+                    for (int i = 0; i < poly.Length; i++) coeffs[i] = (poly[i], 0.0);
+                    var T = new (double, double)[Math.Min(upto, deg) + 1];
+                    for (int jj = 0; jj < T.Length; jj++) {
+                        int d = coeffs.Length - 1;
+                        var q = new (double, double)[d + 1];
+                        q[0] = coeffs[0];
+                        for (int i = 1; i <= d; i++) q[i] = CAdd(coeffs[i], CMul(a0, q[i - 1]));
+                        T[jj] = q[d];
+                        var nq = new (double, double)[d];
+                        for (int i = 0; i < d; i++) nq[i] = q[i];
+                        coeffs = nq;
+                    }
+                    return T;
+                }
+                for (int i = 0; i < np; i++) {
+                    if (used[i]) continue;
+                    var idxs = new List<int> { i }; used[i] = true;
+                    double scale = Math.Max(1.0, Math.Sqrt(pre[i] * pre[i] + pim[i] * pim[i]));
+                    for (int j = i + 1; j < np; j++) {
+                        double dr = pre[j] - pre[i], di = pim[j] - pim[i];
+                        if (!used[j] && Math.Sqrt(dr * dr + di * di) < relTol * scale) { used[j] = true; idxs.Add(j); }
+                    }
+                    int m = idxs.Count;
+                    double sar = 0, sai = 0; foreach (var ix in idxs) { sar += pre[ix]; sai += pim[ix]; }
+                    var a0 = (sar / m, sai / m);   // polo representativo = media del clúster
+                    // d(s) = a(s) deflactado m veces por (s - a0)
+                    var dcur = new (double, double)[aRaw.Length];
+                    for (int t = 0; t < aRaw.Length; t++) dcur[t] = (aRaw[t], 0.0);
+                    for (int rep = 0; rep < m; rep++) {
+                        int d = dcur.Length - 1; var q = new (double, double)[d];
+                        q[0] = dcur[0];
+                        for (int t = 1; t < d; t++) q[t] = CAdd(dcur[t], CMul(a0, q[t - 1]));
+                        dcur = q;   // cociente (resto = 0 porque a0 es raiz)
+                    }
+                    var dPoly = dcur;   // d como coefs complejos mayor->menor
+                    // Taylor de b y d alrededor de a0 (lowest-first, hasta orden m-1)
+                    var Bt = taylor(bcur, a0, m - 1);
+                    // d es complejo: Taylor por division sintetica compleja
+                    (double, double)[] taylorC((double, double)[] poly, (double, double) c0, int upto) {
+                        var coeffs = (( double, double)[])poly.Clone();
+                        var T = new (double, double)[Math.Min(upto, poly.Length - 1) + 1];
+                        for (int jj = 0; jj < T.Length; jj++) {
+                            int d = coeffs.Length - 1; var q = new (double, double)[d + 1];
+                            q[0] = coeffs[0];
+                            for (int t = 1; t <= d; t++) q[t] = CAdd(coeffs[t], CMul(c0, q[t - 1]));
+                            T[jj] = q[d];
+                            var nq = new (double, double)[d];
+                            for (int t = 0; t < d; t++) nq[t] = q[t];
+                            coeffs = nq;
+                        }
+                        return T;
+                    }
+                    var Dt = taylorC(dPoly, a0, m - 1);
+                    // C(t) = Bt / Dt (serie de potencias) hasta t^{m-1}
+                    var Cc = new (double, double)[m];
+                    for (int jj = 0; jj < m; jj++) {
+                        var num = jj < Bt.Length ? Bt[jj] : (0.0, 0.0);
+                        var acc = num;
+                        for (int t = 1; t <= jj; t++) {
+                            var Dtt = t < Dt.Length ? Dt[t] : (0.0, 0.0);
+                            acc = CSub(acc, CMul(Dtt, Cc[jj - t]));
+                        }
+                        Cc[jj] = CDiv(acc, Dt[0]);
+                    }
+                    // residuos: r para 1/(s-a0)^power, power=1..m  ->  C[m-power]
+                    for (int power = 1; power <= m; power++) {
+                        rOut.Add(Cc[m - power]);
+                        pOut.Add(a0);
+                    }
+                }
+                // ensamblar salidas (columna). Real si imag residual ~0.
+                bool allRealR = true, allRealP = true;
+                foreach (var z in rOut) if (Math.Abs(z.Item2) > 1e-9) allRealR = false;
+                foreach (var z in pOut) if (Math.Abs(z.Item2) > 1e-9) allRealP = false;
+                MValue col(List<(double, double)> xs, bool re) {
+                    int n2 = xs.Count;
+                    if (re) { var mv = new MValue(n2, 1); for (int t = 0; t < n2; t++) mv.Data[t] = xs[t].Item1; return mv; }
+                    var rearr = new double[n2]; var imarr = new double[n2];
+                    for (int t = 0; t < n2; t++) { rearr[t] = xs[t].Item1; imarr[t] = xs[t].Item2; }
+                    return new MValue(n2, 1, rearr, imarr);
+                }
+                var rMv = col(rOut, allRealR);
+                var pMv = col(pOut, allRealP);
+                MValue kMv;
+                if (kArr == null || kArr.Length == 0) kMv = new MValue(0, 0);
+                else { kMv = new MValue(1, kArr.Length); Array.Copy(kArr, kMv.Data, kArr.Length); }
+                return new[] { rMv, pMv, kMv };
             };
             // Integración numérica adaptive. Soporta la opción MATLAB
             // 'ArrayValued', true (integrando vectorial/matricial — R2012a+), que
@@ -5320,7 +5587,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 var C = new MValue(n, n);
                 for (int i = 0; i < n; i++) C.Set(0, i, -p[i + 1] / p[0]);
                 for (int i = 1; i < n; i++) C.Set(i, i - 1, 1);
-                return MatlabLinAlg.Eig(C).eigenvalues;
+                return EigValuesComplex(C);
             };
             _builtins["var"] = a => {
                 var v = a[0]; double mean = 0;
@@ -5476,12 +5743,13 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             _builtins["coeffs"] = a => {
                 // coeffs(poly, var) → vector de coeficientes [c0, c1, c2, ...]
                 if (a.Length == 0 || !a[0].IsSymbolic) throw new MatlabRuntimeException("coeffs(symExpr[, var])");
-                string varName = "x";
+                string varName = null;
                 if (a.Length >= 2)
                 {
                     if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
                     else if (a[1].IsString) varName = a[1].StringValue;
                 }
+                if (varName == null) varName = AutoSymVar(a[0].Symbolic);   // symvar: auto-detecta la variable
                 // Extraer coefs via Taylor (mismo método interno que SolvePoly)
                 var coefs = ExtractPolyCoeffs(a[0].Symbolic, varName, 12);
                 if (coefs == null) throw new MatlabRuntimeException("coeffs: expresión no polinómica");
@@ -5495,12 +5763,13 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             _builtins["sym2poly"] = a => {
                 // sym2poly(expr, var) → vector de coefs [a_n, ..., a_1, a_0] (orden inverso)
                 if (a.Length == 0 || !a[0].IsSymbolic) throw new MatlabRuntimeException("sym2poly(symExpr)");
-                string varName = "x";
+                string varName = null;
                 if (a.Length >= 2)
                 {
                     if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) varName = sv.Name;
                     else if (a[1].IsString) varName = a[1].StringValue;
                 }
+                if (varName == null) varName = AutoSymVar(a[0].Symbolic);   // symvar: auto-detecta la variable
                 var coefs = ExtractPolyCoeffs(a[0].Symbolic, varName, 12);
                 if (coefs == null) throw new MatlabRuntimeException("sym2poly: no polinómica");
                 int deg = coefs.Length - 1;
@@ -11585,6 +11854,57 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             return d;
         }
 
+        /// <summary>Detecta la variable por defecto de una expresion simbolica (regla symvar de
+        /// MATLAB: la variable cuya inicial esta mas cerca de 'x'; empate -> ultima alfabetica).
+        /// Sirve para sym2poly/coeffs sin argumento de variable (p.ej. sym2poly(s^2-5*s+6) -> 's').</summary>
+        private static string AutoSymVar(SymNode n)
+        {
+            if (n == null) return "x";
+            string s = n.ToInfix();
+            var names = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            var reserved = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+                { "pi", "e", "i", "j", "Inf", "NaN", "eps" };
+            var ms = System.Text.RegularExpressions.Regex.Matches(s, "[A-Za-z_][A-Za-z_0-9]*");
+            foreach (System.Text.RegularExpressions.Match mm in ms)
+            {
+                int end = mm.Index + mm.Length;
+                if (end < s.Length && s[end] == '(') continue;   // es una funcion (sin(, cos(...)
+                if (reserved.Contains(mm.Value)) continue;
+                names.Add(mm.Value);
+            }
+            if (names.Count == 0) return "x";
+            string best = null; int bestScore = int.MaxValue;
+            foreach (var nm in names)
+            {
+                int score = Math.Abs(char.ToLower(nm[0]) - 'x');
+                if (score < bestScore || (score == bestScore && (best == null || string.CompareOrdinal(nm, best) > 0)))
+                { bestScore = score; best = nm; }
+            }
+            return best ?? "x";
+        }
+
+        /// <summary>Autovalores de una matriz real cuadrada CON parte imaginaria (via LAPACK dgeev).
+        /// El QR en C# (MatlabLinAlg.Eig) descarta lo complejo; esto lo conserva. Lo usan
+        /// roots/poly/residue para dar raices complejas como MATLAB. Fallback: Eig del core.</summary>
+        private static MValue EigValuesComplex(MValue m)
+        {
+            if (!m.IsSymMatrix && !m.IsComplex && !m.HasAnyUnit
+                && m.Rows == m.Cols && m.Rows >= 2
+                && Calcpad.Core.LapackInterop.Available && Calcpad.Core.LapackInterop.HasGeev)
+            {
+                try
+                {
+                    int ne = m.Rows;
+                    var (wr, wi) = Calcpad.Core.LapackInterop.Geev(ne, ToRowMajor(m));
+                    bool anyIm = false;
+                    foreach (var im in wi) if (im != 0.0) { anyIm = true; break; }
+                    return anyIm ? new MValue(ne, 1, wr, wi) : new MValue(ne, 1, wr);
+                }
+                catch { /* cae al QR del core */ }
+            }
+            return MatlabLinAlg.Eig(m).eigenvalues;
+        }
+
         /// <summary>True si la matriz es cuadrada (n≥2), real y simétrica (A=Aᵀ con tolerancia).</summary>
         private static bool IsSymmetricM(MValue m)
         {
@@ -14059,16 +14379,25 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 if (p.Rows != rows) throw new MatlabRuntimeException("Horz-concat row mismatch");
                 totalCols += p.Cols;
             }
-            var r = new MValue(rows, totalCols);
+            // Si algun operando es complejo, la matriz resultante debe conservar la parte
+            // imaginaria (antes se perdia: [1+2i, 3+4i] daba real). MATLAB.
+            bool anyC = false;
+            foreach (var p in filtered) if (p.IsComplex) { anyC = true; break; }
+            var re = new double[rows * totalCols];
+            var im = anyC ? new double[rows * totalCols] : null;
             int colOffset = 0;
             foreach (var p in filtered)
             {
                 for (int i = 0; i < p.Rows; i++)
                     for (int j = 0; j < p.Cols; j++)
-                        r.Set(i, colOffset + j, p.At(i, j));
+                    {
+                        int lin = i * totalCols + (colOffset + j);
+                        re[lin] = p.At(i, j);
+                        if (anyC) im[lin] = p.IsComplex ? p.Imag[i * p.Cols + j] : 0.0;
+                    }
                 colOffset += p.Cols;
             }
-            return r;
+            return anyC ? new MValue(rows, totalCols, re, im) : new MValue(rows, totalCols, re);
         }
         private static MValue VertConcat(List<MValue> pieces)
         {
@@ -14087,16 +14416,23 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 if (p.Cols != cols) throw new MatlabRuntimeException("Vert-concat col mismatch");
                 totalRows += p.Rows;
             }
-            var r = new MValue(totalRows, cols);
+            bool anyC = false;
+            foreach (var p in filtered) if (p.IsComplex) { anyC = true; break; }
+            var re = new double[totalRows * cols];
+            var im = anyC ? new double[totalRows * cols] : null;
             int rowOffset = 0;
             foreach (var p in filtered)
             {
                 for (int i = 0; i < p.Rows; i++)
                     for (int j = 0; j < p.Cols; j++)
-                        r.Set(rowOffset + i, j, p.At(i, j));
+                    {
+                        int lin = (rowOffset + i) * cols + j;
+                        re[lin] = p.At(i, j);
+                        if (anyC) im[lin] = p.IsComplex ? p.Imag[i * p.Cols + j] : 0.0;
+                    }
                 rowOffset += p.Rows;
             }
-            return r;
+            return anyC ? new MValue(totalRows, cols, re, im) : new MValue(totalRows, cols, re);
         }
 
         // ─── Delaunay triangulation (Bowyer-Watson) ──────────────────────────
