@@ -886,6 +886,27 @@ namespace Calcpad.Core.Matlab
             return P("(") + inner + P(")");
         }
 
+        /// <summary>Barras verticales (|·| det/abs, ‖·‖ norma) que ESCALAN a la altura del
+        /// contenido. Si el contenido es una MATRIZ o FRACCIÓN (alto), usa barras de borde
+        /// en un flex-container que se estira a su altura (sin contar filas); si es un
+        /// escalar, usa el glifo simple. bars=1 → |·|, bars=2 → ‖·‖.</summary>
+        private static string ScaleBars(string inner, int bars)
+        {
+            bool tall = inner.Contains("class=\"matrix\"") || inner.Contains("class=\"dvc\"");
+            if (!tall)
+            {
+                string g = bars == 2 ? "‖" : "|";
+                return $"<b class=\"b0\">{g}</b>&hairsp;{inner}&hairsp;<b class=\"b0\">{g}</b>";
+            }
+            string barCss = bars == 2
+                ? "border-left:1.4px solid currentColor;border-right:1.4px solid currentColor;width:3px"
+                : "border-left:1.4px solid currentColor;width:1px";
+            string L = $"<span style=\"align-self:stretch;{barCss};margin-right:3px\"></span>";
+            string R = $"<span style=\"align-self:stretch;{barCss};margin-left:3px\"></span>";
+            return $"<span style=\"display:inline-flex;align-items:stretch;vertical-align:middle\">{L}"
+                 + $"<span style=\"display:flex;align-items:center\">{inner}</span>{R}</span>";
+        }
+
         private static string RenderBinary(BinaryOp b)
         {
             // Pretty-print: a/b → fracción vertical; a^b → superíndice; sqrt → raíz
@@ -1257,10 +1278,7 @@ namespace Calcpad.Core.Matlab
                     return $"&ensp;&hairsp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{inner}</span>";
                 }
                 if (pid.Name == "abs")
-                {
-                    var inner = RenderExpression(c.Args[0]);
-                    return $"<b class=\"b0\">|</b>&hairsp;{inner}&hairsp;<b class=\"b0\">|</b>";
-                }
+                    return ScaleBars(RenderExpression(c.Args[0]), 1);
                 if (pid.Name == "exp")
                     return $"<span style=\"font-style:italic;font-family:'Cambria Math','Times New Roman',serif\">e</span><sup>{RenderExpression(c.Args[0])}</sup>";
             }
@@ -1276,13 +1294,13 @@ namespace Calcpad.Core.Matlab
             if (PrettyMath && c.Target is IdentRef laId)
             {
                 if (laId.Name == "norm" && c.Args.Count == 1)
-                    return $"<b class=\"b0\">‖</b>&hairsp;{RenderExpression(c.Args[0])}&hairsp;<b class=\"b0\">‖</b>";
+                    return ScaleBars(RenderExpression(c.Args[0]), 2);
                 if (laId.Name == "dot" && c.Args.Count == 2)
                     return $"{RenderExpression(c.Args[0])} · {RenderExpression(c.Args[1])}";
                 if (laId.Name == "cross" && c.Args.Count == 2)
                     return $"{RenderExpression(c.Args[0])} × {RenderExpression(c.Args[1])}";
                 if (laId.Name == "det" && c.Args.Count == 1)
-                    return $"<b class=\"b0\">|</b>&hairsp;{RenderExpression(c.Args[0])}&hairsp;<b class=\"b0\">|</b>";
+                    return ScaleBars(RenderExpression(c.Args[0]), 1);
                 if (laId.Name == "trace" && c.Args.Count == 1)
                     return $"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:normal\">tr</span>({RenderExpression(c.Args[0])})";
                 if (laId.Name == "inv" && c.Args.Count == 1)
