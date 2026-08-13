@@ -698,39 +698,39 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             };
 
             // Elementary math (element-wise on matrices)
-            _builtins["sin"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Sin) : MapUnaryVml(a[0], 3, Math.Sin);
-            _builtins["cos"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Cos) : MapUnaryVml(a[0], 4, Math.Cos);
-            _builtins["tan"] = a => MapUnary(a[0], Math.Tan);
-            _builtins["asin"] = a => MapUnary(a[0], Math.Asin);
-            _builtins["acos"] = a => MapUnary(a[0], Math.Acos);
-            _builtins["atan"] = a => MapUnary(a[0], Math.Atan);
-            _builtins["sinh"] = a => MapUnary(a[0], Math.Sinh);
-            _builtins["cosh"] = a => MapUnary(a[0], Math.Cosh);
-            _builtins["tanh"] = a => MapUnary(a[0], Math.Tanh);
-            _builtins["asinh"] = a => MapUnary(a[0], Math.Asinh);
-            _builtins["acosh"] = a => MapUnary(a[0], Math.Acosh);
-            _builtins["atanh"] = a => MapUnary(a[0], Math.Atanh);
+            _builtins["sin"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Sin, "sin") : MapUnaryVml(a[0], 3, Math.Sin, "sin");
+            _builtins["cos"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Cos, "cos") : MapUnaryVml(a[0], 4, Math.Cos, "cos");
+            _builtins["tan"] = a => MapUnary(a[0], Math.Tan, "tan");
+            _builtins["asin"] = a => MapUnary(a[0], Math.Asin, "asin");
+            _builtins["acos"] = a => MapUnary(a[0], Math.Acos, "acos");
+            _builtins["atan"] = a => MapUnary(a[0], Math.Atan, "atan");
+            _builtins["sinh"] = a => MapUnary(a[0], Math.Sinh, "sinh");
+            _builtins["cosh"] = a => MapUnary(a[0], Math.Cosh, "cosh");
+            _builtins["tanh"] = a => MapUnary(a[0], Math.Tanh, "tanh");
+            _builtins["asinh"] = a => MapUnary(a[0], Math.Asinh, "asinh");
+            _builtins["acosh"] = a => MapUnary(a[0], Math.Acosh, "acosh");
+            _builtins["atanh"] = a => MapUnary(a[0], Math.Atanh, "atanh");
             // Trig recíprocas (MATLAB las tiene; el keypad y el toggle Inv/Hyp las generan).
-            _builtins["csc"] = a => MapUnary(a[0], x => 1.0 / Math.Sin(x));
-            _builtins["sec"] = a => MapUnary(a[0], x => 1.0 / Math.Cos(x));
-            _builtins["cot"] = a => MapUnary(a[0], x => 1.0 / Math.Tan(x));
-            _builtins["acsc"] = a => MapUnary(a[0], x => Math.Asin(1.0 / x));
-            _builtins["asec"] = a => MapUnary(a[0], x => Math.Acos(1.0 / x));
-            _builtins["acot"] = a => MapUnary(a[0], x => Math.Atan(1.0 / x));
-            _builtins["csch"] = a => MapUnary(a[0], x => 1.0 / Math.Sinh(x));
-            _builtins["sech"] = a => MapUnary(a[0], x => 1.0 / Math.Cosh(x));
-            _builtins["coth"] = a => MapUnary(a[0], x => 1.0 / Math.Tanh(x));
-            _builtins["acsch"] = a => MapUnary(a[0], x => Math.Asinh(1.0 / x));
-            _builtins["asech"] = a => MapUnary(a[0], x => Math.Acosh(1.0 / x));
-            _builtins["acoth"] = a => MapUnary(a[0], x => Math.Atanh(1.0 / x));
+            _builtins["csc"] = a => MapUnary(a[0], x => 1.0 / Math.Sin(x), "csc");
+            _builtins["sec"] = a => MapUnary(a[0], x => 1.0 / Math.Cos(x), "sec");
+            _builtins["cot"] = a => MapUnary(a[0], x => 1.0 / Math.Tan(x), "cot");
+            _builtins["acsc"] = a => MapUnary(a[0], x => Math.Asin(1.0 / x), "acsc");
+            _builtins["asec"] = a => MapUnary(a[0], x => Math.Acos(1.0 / x), "asec");
+            _builtins["acot"] = a => MapUnary(a[0], x => Math.Atan(1.0 / x), "acot");
+            _builtins["csch"] = a => MapUnary(a[0], x => 1.0 / Math.Sinh(x), "csch");
+            _builtins["sech"] = a => MapUnary(a[0], x => 1.0 / Math.Cosh(x), "sech");
+            _builtins["coth"] = a => MapUnary(a[0], x => 1.0 / Math.Tanh(x), "coth");
+            _builtins["acsch"] = a => MapUnary(a[0], x => Math.Asinh(1.0 / x), "acsch");
+            _builtins["asech"] = a => MapUnary(a[0], x => Math.Acosh(1.0 / x), "asech");
+            _builtins["acoth"] = a => MapUnary(a[0], x => Math.Atanh(1.0 / x), "acoth");
             // nthroot(x,n): raíz n-ésima real (MATLAB admite x<0 con n impar). xor: o-exclusivo lógico.
             _builtins["nthroot"] = a => MapBinary(a[0], a[1], (x, n) => x < 0 ? -Math.Pow(-x, 1.0 / n) : Math.Pow(x, 1.0 / n));
             _builtins["xor"] = a => MapBinary(a[0], a[1], (x, y) => ((x != 0) ^ (y != 0)) ? 1.0 : 0.0);
-            _builtins["exp"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Exp) : MapUnaryVml(a[0], 1, Math.Exp);
-            _builtins["log"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Log) : MapUnaryVml(a[0], 2, Math.Log);
-            _builtins["log2"] = a => MapUnary(a[0], x => Math.Log(x, 2));
-            _builtins["log10"] = a => MapUnary(a[0], Math.Log10);
-            _builtins["sqrt"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Sqrt) : MapUnaryVml(a[0], 0, Math.Sqrt);
+            _builtins["exp"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Exp, "exp") : MapUnaryVml(a[0], 1, Math.Exp, "exp");
+            _builtins["log"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Log, "log") : MapUnaryVml(a[0], 2, Math.Log, "log");
+            _builtins["log2"] = a => MapUnary(a[0], x => Math.Log(x, 2), "log2");
+            _builtins["log10"] = a => MapUnary(a[0], Math.Log10, "log10");
+            _builtins["sqrt"] = a => a[0].IsComplex ? MapUnary(a[0], Math.Sqrt, "sqrt") : MapUnaryVml(a[0], 0, Math.Sqrt, "sqrt");
             _builtins["abs"] = a => {
                 var v = a[0];
                 if (v.IsComplex)
@@ -740,7 +740,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                         r[i] = Math.Sqrt(v.Data[i] * v.Data[i] + v.Imag[i] * v.Imag[i]);
                     return new MValue(v.Rows, v.Cols, r);
                 }
-                return MapUnary(v, Math.Abs);
+                return MapUnary(v, Math.Abs, "abs");
             };
             _builtins["real"] = a => {
                 var v = a[0];
@@ -1192,7 +1192,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 }
                 return im != null ? new MValue(v.Rows, v.Cols, re, im) : new MValue(v.Rows, v.Cols, re);
             };
-            _builtins["sign"] = a => MapUnary(a[0], x => Math.Sign(x));
+            _builtins["sign"] = a => MapUnary(a[0], x => (double)Math.Sign(x), "sign");
             _builtins["floor"] = a => MapUnary(a[0], Math.Floor);
             _builtins["ceil"] = a => MapUnary(a[0], Math.Ceiling);
             _builtins["round"] = a => MapUnary(a[0], Math.Round);
@@ -6098,7 +6098,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                             double val;
                             if (cell is SymConst scc) val = scc.Value;
                             else { try { val = cell.Eval(empty); } catch { throw new MatlabRuntimeException("double: symbolic matrix has unbound variables"); } }
-                            data[c * rr + r] = val;   // column-major
+                            data[r * cc + c] = val;   // FILA-mayor (MValue.Data es row-major: Data[r*Cols+c])
                         }
                     return new MValue(rr, cc, data);
                 }
@@ -9331,10 +9331,10 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             return flat;
         }
 
-        private static MValue MapUnary(MValue v, Func<double, double> f)
+        private static MValue MapUnary(MValue v, Func<double, double> f, string symName = null)
         {
             if (v.IsScalar) return new MValue(f(v.Scalar));
-            if (v.IsSymbolic) return MValue.NewSymbolic(MapSymUnary(v.Symbolic, f));
+            if (v.IsSymbolic) return MValue.NewSymbolic(MapSymUnary(v.Symbolic, f, symName));
             var r = new MValue(v.Rows, v.Cols);
             for (int i = 0; i < v.Data.Length; i++) r.Data[i] = f(v.Data[i]);
             return r;
@@ -9540,9 +9540,17 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         /// Mapea la función numérica a la equivalente simbólica via test-point heurístico.
         /// Detecta sin/cos/exp/etc. por valores específicos.
         /// </summary>
-        private static SymNode MapSymUnary(SymNode arg, Func<double, double> f)
+        private static SymNode MapSymUnary(SymNode arg, Func<double, double> f, string symName = null)
         {
-            // Heurística por valores en puntos de prueba
+            // Nombre EXPLÍCITO (lo pasa el builtin): no se adivina. Si el argumento es
+            // constante se evalúa numéricamente con el propio delegado (así funciona
+            // aunque SymFunc.Eval no soporte esa función, p.ej. log2/sign).
+            if (symName != null)
+            {
+                if (arg is SymConst kc) { try { return new SymConst(f(kc.Value)); } catch { } }
+                return new SymFunc(symName, arg);
+            }
+            // Heurística por valores en puntos de prueba (fallback para llamadores sin nombre)
             double t1 = 0;
             try { t1 = f(0); } catch { }
             double t2 = 0;
@@ -9723,7 +9731,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
 
         // op(a) element-wise via VML (0=sqrt 1=exp 2=ln 3=sin 4=cos) para a real grande;
         // si no aplica devuelve el camino administrado MapUnary(scalar).
-        private static MValue MapUnaryVml(MValue a, int fn, Func<double, double> scalar)
+        private static MValue MapUnaryVml(MValue a, int fn, Func<double, double> scalar, string symName = null)
         {
             if (!a.IsComplex && !a.IsSparseReal && !a.IsString && !a.HasAnyUnit
                 && a.Data != null && a.Data.Length >= Calcpad.Core.BlasInterop.VmlThreshold
@@ -9733,7 +9741,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 if (Calcpad.Core.BlasInterop.VmlUnary(fn, a.Data.Length, a.Data, r.Data))
                     return r;
             }
-            return MapUnary(a, scalar);
+            return MapUnary(a, scalar, symName);
         }
 
         private static MValue MapBinary(MValue a, MValue b, Func<double, double, double> f)

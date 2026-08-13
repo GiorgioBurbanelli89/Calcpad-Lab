@@ -494,7 +494,8 @@ namespace Calcpad.Core.Matlab
                     or "simplify" or "solve" or "taylor" or "limit" or "subs"
                     or "dsolve" or "laplace" or "fourier" or "trigsimplify"
                     or "ilaplace" or "ifourier" or "ztrans" or "iztrans"
-                    or "collect" or "coeffs" or "symsum" or "symprod";
+                    or "collect" or "coeffs" or "symsum" or "symprod"
+                    or "jacobian" or "hessian" or "curl" or "divergence" or "laplacian";
             }
             return false;
         }
@@ -1017,6 +1018,33 @@ namespace Calcpad.Core.Matlab
                     else { num = dd; den = $"{dd}{vExpr}"; }
                     return $"<span class=\"dvc\"><span class=\"dvc-num\">{num}</span><span class=\"dvl\"></span><span class=\"dvc-den\">{den}</span></span>&thinsp;{fExpr}";
                 }
+                // jacobian(f, v) -> ∂f/∂v  (matriz Jacobiana como notación de cálculo, NO
+                // el nombre "jacobian" en texto plano). Igual mecánica que diff pero con ∂ y
+                // la lista de variables compacta:  ∂/∂(x, y) f.
+                if (fname == "jacobian" && c.Args.Count >= 2)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    var vExpr = RenderVarListCompact(c.Args[1]);
+                    return $"<span class=\"dvc\"><span class=\"dvc-num\">∂</span><span class=\"dvl\"></span><span class=\"dvc-den\">∂{vExpr}</span></span>&thinsp;{fExpr}";
+                }
+                // hessian(f, v) -> ∂²f/∂v²  (matriz Hessiana). Segundas derivadas.
+                if (fname == "hessian" && c.Args.Count >= 2)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    var vExpr = RenderVarListCompact(c.Args[1]);
+                    return $"<span class=\"dvc\"><span class=\"dvc-num\">∂<sup>2</sup></span><span class=\"dvl\"></span><span class=\"dvc-den\">∂{vExpr}<sup>2</sup></span></span>&thinsp;{fExpr}";
+                }
+                // curl(F) -> ∇×F ,  divergence(F) -> ∇·F ,  laplacian(f) -> ∇²f  (operadores
+                // vectoriales como notación, no el nombre en texto).
+                if ((fname == "curl" || fname == "divergence" || fname == "laplacian") && c.Args.Count >= 1)
+                {
+                    var fExpr = RenderExpression(c.Args[0]);
+                    string nabla = "<span style=\"font-family:'Cambria Math',serif;font-style:normal\">∇</span>";
+                    string op = fname == "curl" ? nabla + "&hairsp;×&hairsp;"
+                              : fname == "divergence" ? nabla + "&hairsp;·&hairsp;"
+                              : nabla + "<sup>2</sup>&hairsp;";
+                    return $"{op}{fExpr}";
+                }
                 // int (indefinida o definida) — formato identico al HtmWriter de Calcpad:
                 //   <span class="dvr"><small>SUP</small><span class="nary">∫</span><small>SUB</small></span>
                 //   {f}&thinsp;<var>d{x}</var>
@@ -1258,6 +1286,11 @@ namespace Calcpad.Core.Matlab
                 if (laId.Name == "prod" && c.Args.Count == 1)
                     return NaryIndexed("∏", c.Args[0]);
             }
+            // Pretty: funciones matemáticas comunes en ROMANO de libro (no el sans-serif
+            // morado de "código"). log→ln, log2/log10 con subíndice, sign→sgn, trig y
+            // hiperbólicas en romano. Igual criterio que el render SIMBÓLICO (SymFunc.ToHtml).
+            if (PrettyMath && c.Target is IdentRef mfId && c.Args.Count == 1 && IsMathFunc(mfId.Name))
+                return MathFuncNameHtml(mfId.Name) + "(" + RenderExpression(c.Args[0]) + ")";
             var sb = new StringBuilder();
             // Funciones builtin: sans-serif bold morado para diferenciacion clara
             // de variables (que estan en italic serif).
@@ -1280,6 +1313,39 @@ namespace Calcpad.Core.Matlab
             }
             sb.Append(")");
             return sb.ToString();
+        }
+        // Lista de variables compacta para jacobian/hessian: [x, y] o [x; y] -> (x, y).
+        private static string RenderVarListCompact(MatlabNode e)
+        {
+            if (e is MatrixLit m)
+            {
+                var items = new System.Collections.Generic.List<string>();
+                foreach (var row in m.Rows)
+                    foreach (var el in row)
+                        items.Add(RenderExpression(el));
+                return "(" + string.Join(", ", items) + ")";
+            }
+            return RenderExpression(e);
+        }
+        // ¿Es una función matemática con notación de libro? (unaria)
+        private static bool IsMathFunc(string n) => n.ToLowerInvariant() is
+            "sin" or "cos" or "tan" or "cot" or "sec" or "csc"
+            or "sinh" or "cosh" or "tanh" or "coth" or "sech" or "csch"
+            or "asin" or "acos" or "atan" or "acot" or "asec" or "acsc"
+            or "asinh" or "acosh" or "atanh" or "acoth" or "asech" or "acsch"
+            or "log" or "log2" or "log10" or "sign";
+        // Nombre de la función en ROMANO matemático (con ln / log₂ / log₁₀ / sgn).
+        private static string MathFuncNameHtml(string name)
+        {
+            static string Roman(string s) => $"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:normal\">{HttpUtility.HtmlEncode(s)}</span>";
+            return name.ToLowerInvariant() switch
+            {
+                "log"   => Roman("ln"),
+                "log2"  => Roman("log") + "<sub>2</sub>",
+                "log10" => Roman("log") + "<sub>10</sub>",
+                "sign"  => Roman("sgn"),
+                _       => Roman(name.ToLowerInvariant())
+            };
         }
         private static string RenderRange(Range r)
         {

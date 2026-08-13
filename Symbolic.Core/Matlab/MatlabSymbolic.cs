@@ -969,19 +969,65 @@ namespace Calcpad.Core.Matlab
             };
         }
         public override string ToInfix() => $"{Name}({Arg.ToInfix()})";
+        // Nombre de función en tipografía MATEMÁTICA de libro (romano recto serif), NO en
+        // el sans-serif morado de "código". Como en los libros: sin, cos, ln… en romano.
+        private static string MathName(string n) =>
+            $"<span style=\"font-family:'Cambria Math','Times New Roman',serif;font-style:normal\">{System.Net.WebUtility.HtmlEncode(n)}</span>";
         public override string ToHtml()
         {
-            // sqrt/sqr → radical Calcpad (√ con vínculo sobre el radicando), no "sqrt(...)"
-            // texto plano. Mismo markup que HtmWriter.FormatRoot nivel 0.
+            // Regla: NINGUNA función se muestra con su nombre en "texto plano" (sans-serif
+            // morado de código). Todas salen en forma matemática de libro.
             var lname = Name.ToLowerInvariant();
-            if (lname == "sqrt" || lname == "sqr")
-                return $"&ensp;&hairsp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{Arg.ToHtml()}</span>";
-            // exp(x) → e^x (la exponencial es e elevado al argumento, no texto "exp(...)")
-            if (lname == "exp")
-                return $"<span style=\"font-style:italic;font-family:'Cambria Math','Times New Roman',serif\">e</span><sup>{Arg.ToHtml()}</sup>";
-            return $"<span style=\"font-family:'Segoe UI',sans-serif;font-weight:600;font-style:normal;color:#7c2bb2\">{System.Net.WebUtility.HtmlEncode(Name)}</span>({Arg.ToHtml()})";
+            var a = Arg.ToHtml();
+            switch (lname)
+            {
+                // Radical √ con vinculum (nivel 0 de Calcpad)
+                case "sqrt":
+                case "sqr":
+                    return $"&ensp;&hairsp;&hairsp;<span class=\"o0\"><span class=\"r\">√</span>&hairsp;{a}</span>";
+                // Exponencial: e^arg (no "exp(...)")
+                case "exp":
+                    return $"<span style=\"font-style:italic;font-family:'Cambria Math','Times New Roman',serif\">e</span><sup>{a}</sup>";
+                // Valor absoluto |arg| y norma ‖arg‖ (barras, no "abs(...)"/"norm(...)")
+                case "abs":
+                    return $"<b class=\"b0\">|</b>&hairsp;{a}&hairsp;<b class=\"b0\">|</b>";
+                case "norm":
+                    return $"<b class=\"b0\">‖</b>&hairsp;{a}&hairsp;<b class=\"b0\">‖</b>";
+                // Logaritmos: natural → ln, base 2/10 → subíndice (NO se pierde la base)
+                case "log":   return $"{MathName("ln")}({a})";
+                case "log2":  return $"{MathName("log")}<sub>2</sub>({a})";
+                case "log10": return $"{MathName("log")}<sub>10</sub>({a})";
+                // Signo → sgn
+                case "sign":  return $"{MathName("sgn")}({a})";
+                // Escalón de Heaviside e impulso de Dirac
+                case "heaviside": return $"{MathName("H")}({a})";
+                case "dirac":     return $"<span style=\"font-family:'Cambria Math',serif;font-style:italic\">δ</span>({a})";
+                // Resto (sin, cos, tan, sinh, csc, atan, …): nombre en ROMANO matemático
+                default:      return $"{MathName(Name)}({a})";
+            }
         }
-        public override string ToLatex() => $"\\{Name}\\left({Arg.ToLatex()}\\right)";   // \sin(x), \cos(x), etc.
+        public override string ToLatex()
+        {
+            var l = Name.ToLowerInvariant();
+            var a = Arg.ToLatex();
+            return l switch
+            {
+                "abs"   => $"\\left|{a}\\right|",
+                "norm"  => $"\\left\\|{a}\\right\\|",
+                "log"   => $"\\ln\\left({a}\\right)",
+                "log2"  => $"\\log_{{2}}\\left({a}\\right)",
+                "log10" => $"\\log_{{10}}\\left({a}\\right)",
+                "sign"  => $"\\operatorname{{sgn}}\\left({a}\\right)",
+                "sqrt" or "sqr" => $"\\sqrt{{{a}}}",
+                "exp"   => $"e^{{{a}}}",
+                "asin"  => $"\\arcsin\\left({a}\\right)",
+                "acos"  => $"\\arccos\\left({a}\\right)",
+                "atan"  => $"\\arctan\\left({a}\\right)",
+                "sin" or "cos" or "tan" or "sinh" or "cosh" or "tanh"
+                    or "sec" or "csc" or "cot" => $"\\{l}\\left({a}\\right)",
+                _       => $"\\operatorname{{{Name}}}\\left({a}\\right)"
+            };
+        }
         public override SymNode Subs(string var, SymNode val) => new SymFunc(Name, Arg.Subs(var, val)).Simplify();
         public override SymNode Simplify()
         {
