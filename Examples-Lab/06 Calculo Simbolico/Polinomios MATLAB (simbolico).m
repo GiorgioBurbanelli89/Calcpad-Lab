@@ -7,9 +7,9 @@
 syms s
 
 % #md
-% ## 1. El polinomio  p(s)
+% ## 1. El polinomio  p(s)   (desde sus coeficientes)
 % #endmd
-p = expand(s^2 - 5*s + 6)
+p = poly2sym([1 -5 6], s)
 
 % #md
 % ## 2. Derivada  (equivale a polyder)
@@ -32,9 +32,9 @@ pf = factor(p)
 r = solve(p == 0, s)
 
 % #md
-% ## 6. Evaluacion simbolica  polyval([1 -5 6], s)
+% ## 6. Evaluacion simbolica de OTRO polinomio  polyval([2 -3 0 5], s)
 % #endmd
-q = polyval([1 -5 6], s)
+q = polyval([2 -3 0 5], s)
 
 % #md
 % ## 7. Evaluacion en  s = 4   ->  16 - 20 + 6 = 2
