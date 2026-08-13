@@ -24,4 +24,5 @@ Symbolic.Cli/Examples/Matlab/*.html
 # Binarios nativos de cálculo (Intel MKL ~388 MB + OpenBLAS ~51 MB).
 # Van SOLO en el instalador (publish self-contained), NO en el repo de código.
 Symbolic.Core/Native/mkl/
+Symbolic.Core/Native/mkl_2024.2_backup/
 Symbolic.Core/Native/libopenblas.dll
