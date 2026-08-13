@@ -7813,7 +7813,24 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             _builtins["gamma"] = a => MapUnary(a[0], GammaFn, "gamma");
             _builtins["beta"] = a => new MValue(BetaFn(a[0].Scalar, a[1].Scalar));
             _builtins["factorial"] = a => MapUnary(a[0], x => Factorial((int)x), "factorial");
-            _builtins["nchoosek"] = a => new MValue(BinomCoef(a[0].Scalar, a[1].Scalar));
+            _builtins["nchoosek"] = a => {
+                // SIMBÓLICO: nchoosek(n, k) con n simbólico y k entero → n(n-1)…(n-k+1)/k!
+                // (polinomio de grado k en n). Antes usaba n.Scalar → 0 con n simbólico.
+                if (a[0].IsSymbolic && a[1].IsScalar && a[1].Scalar == Math.Floor(a[1].Scalar) && a[1].Scalar >= 0)
+                {
+                    int k = (int)a[1].Scalar;
+                    SymNode nsym = a[0].Symbolic;
+                    SymNode num = new SymConst(1);
+                    double kfact = 1;
+                    for (int j = 0; j < k; j++)
+                    {
+                        num = new SymMul(num, new SymSub(nsym, new SymConst(j)));   // (n-j)
+                        kfact *= (j + 1);
+                    }
+                    return MValue.NewSymbolic(SymNode.Expand(new SymDiv(num, new SymConst(kfact))));
+                }
+                return new MValue(BinomCoef(a[0].Scalar, a[1].Scalar));
+            };
 
             static double GammaFn(double x)
             {
@@ -8342,6 +8359,18 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             _builtins["mkoctfile"] = _builtins["mex"];
             _builtins["norm"] = a => {
                 var v = a[0];
+                // SIMBÓLICO: 2-norma = √(Σ de cuadrados) de las celdas (vector) o del escalar.
+                // Antes caía al bucle sobre v.Data (vacío en simbólico) → devolvía 0.
+                if (v.IsSymMatrix || v.IsSymbolic)
+                {
+                    SymNode ssum = new SymConst(0);
+                    if (v.IsSymMatrix)
+                        foreach (var cell in v.SymCells)
+                            ssum = new SymAdd(ssum, new SymPow(cell, new SymConst(2)));
+                    else
+                        ssum = new SymPow(v.Symbolic, new SymConst(2));
+                    return MValue.NewSymbolic(new SymFunc("sqrt", ssum.Simplify()));
+                }
                 // 2º arg: numérico (1,2,p), inf, o string 'fro'/'inf'. Antes hacía
                 // (int)a[1].Scalar → crash con norm(A,'fro') (string, Data vacío) y
                 // usaba la p-norma VECTORIAL para matrices (incorrecto).
