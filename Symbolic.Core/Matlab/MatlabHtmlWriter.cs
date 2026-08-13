@@ -93,18 +93,29 @@ namespace Calcpad.Core.Matlab
                             sb.Append(" = ");
                             sb.Append(RenderValue(result.Value));
                         }
-                        else if (symbolicResult)
-                        {
-                            // (2) Solo valor (evita duplicacion polinomica)
-                            sb.Append(RenderValue(result.Value));
-                        }
                         else if (asg.Rhs is CallOrIndex && PrettyMath && IsPrettyMathCall(asg.Rhs))
                         {
                             // (3a') RHS = función MATEMÁTICA con notación pretty (√, ∑, ∏, ‖·‖,
                             // |·|, ⁻¹, ᵀ, ∛): SÍ mostrar la fórmula seguida del valor — igual que
                             // Calcpad muestra `a = √2 = 1.41`. Es la info útil (qué se calculó).
-                            sb.Append(RenderExpression(asg.Rhs));
-                            sb.Append(" = ");
+                            // Va ANTES de symbolicResult: así det(M)->|M|=x²-y² e inv(M)->M⁻¹=[...]
+                            // muestran la NOTACIÓN aunque el resultado sea simbólico.
+                            var prettyLhs = RenderExpression(asg.Rhs);
+                            var prettyVal = RenderValue(result.Value);
+                            // Guarda anti-duplicación: si la fórmula y el valor se renderean IGUAL
+                            // (p.ej. s = sqrt(x) -> √x = √x), mostrar solo una vez.
+                            if (prettyLhs == prettyVal)
+                                sb.Append(prettyVal);
+                            else
+                            {
+                                sb.Append(prettyLhs);
+                                sb.Append(" = ");
+                                sb.Append(prettyVal);
+                            }
+                        }
+                        else if (symbolicResult)
+                        {
+                            // (2) Solo valor (evita duplicacion polinomica)
                             sb.Append(RenderValue(result.Value));
                         }
                         else if (asg.Rhs is CallOrIndex)
