@@ -295,6 +295,17 @@ namespace Calcpad.Core.Matlab
         public static void SetXLim(double lo, double hi) { _figXMin = lo; _figXMax = hi; _cvXlim = (lo, hi); }
         public static void SetYLim(double lo, double hi) { _figYMin = lo; _figYMax = hi; _cvYlim = (lo, hi); }
         public static void SetZLim(double lo, double hi) { _cvZlim = (lo, hi); }
+        /// <summary>Límites del marco actual (los que fijó axis([x0 x1 y0 y1]) o el auto-escalado del
+        /// último dibujo). Los usa ginput como sistema de coordenadas del canvas, igual que el ginput
+        /// real usa los límites de la figura. Devuelve false si no hay nada dibujado (usa defaults).</summary>
+        public static bool TryGetAxisLimits(out double x0, out double x1, out double y0, out double y1)
+        {
+            if (_cvXlim.HasValue && _cvYlim.HasValue)
+            { x0 = _cvXlim.Value.lo; x1 = _cvXlim.Value.hi; y0 = _cvYlim.Value.lo; y1 = _cvYlim.Value.hi; return true; }
+            if (_cvXmax >= _cvXmin && _cvYmax >= _cvYmin && _cvXmax > double.MinValue)
+            { x0 = _cvXmin; x1 = _cvXmax; y0 = _cvYmin; y1 = _cvYmax; return true; }
+            x0 = 0; x1 = 40; y0 = -22; y1 = 0; return false;
+        }
         private static (double lo, double hi)? _cvXlim, _cvYlim, _cvZlim;
 
         private static double? _caxisMin, _caxisMax;
@@ -845,12 +856,17 @@ return {make:make};
                 if (_figXLabel != null) xparts.Add($"title:{{text:'{EscapeJs(_figXLabel)}'}}");
                 if (_figXMin.HasValue) xparts.Add($"range:[{_figXMin.Value.ToString(Inv)}, {_figXMax.Value.ToString(Inv)}]");
                 xparts.Add($"color:'{PlotFg}'"); xparts.Add($"gridcolor:'{PlotGrid}'"); xparts.Add($"zerolinecolor:'{PlotGrid}'"); xparts.Add("automargin:true");
+                // "Cuadro" estilo MATLAB: caja de ejes en los 4 lados (mirror) + ticks HACIA ADENTRO.
+                xparts.Add($"showline:true"); xparts.Add($"mirror:true"); xparts.Add($"linecolor:'{PlotFg}'"); xparts.Add("linewidth:1");
+                xparts.Add("ticks:'inside'"); xparts.Add($"tickcolor:'{PlotFg}'"); xparts.Add("ticklen:5");
                 sb.Append(", xaxis:{").Append(string.Join(", ", xparts)).Append("}");
                 // yaxis: igual + aspecto cuadrado (scaleanchor)
                 var yparts = new System.Collections.Generic.List<string>();
                 if (_figYLabel != null) yparts.Add($"title:{{text:'{EscapeJs(_figYLabel)}'}}");
                 if (_figYMin.HasValue) yparts.Add($"range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
                 yparts.Add($"color:'{PlotFg}'"); yparts.Add($"gridcolor:'{PlotGrid}'"); yparts.Add($"zerolinecolor:'{PlotGrid}'"); yparts.Add("automargin:true");
+                yparts.Add($"showline:true"); yparts.Add($"mirror:true"); yparts.Add($"linecolor:'{PlotFg}'"); yparts.Add("linewidth:1");
+                yparts.Add("ticks:'inside'"); yparts.Add($"tickcolor:'{PlotFg}'"); yparts.Add("ticklen:5");
                 if (_figAxisEqual) { yparts.Add("scaleanchor:'x'"); yparts.Add("scaleratio:1"); }  // solo si axis('equal')
                 sb.Append(", yaxis:{").Append(string.Join(", ", yparts)).Append("}");
             }

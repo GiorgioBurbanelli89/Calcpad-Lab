@@ -147,6 +147,13 @@ namespace Calcpad.Core.Matlab
             get => _evaluator.ControlValues;
             set => _evaluator.ControlValues = value;
         }
+        /// <summary>Geometría dibujada con el cursor (canal 'geom' del Piso 3): por Tag, la matriz de
+        /// vértices que ginput devuelve. Vive en la WPF y sobrevive a re-runs, igual que ControlValues.</summary>
+        public System.Collections.Generic.Dictionary<string, double[][]> GeomValues
+        {
+            get => _evaluator.GeomValues;
+            set => _evaluator.GeomValues = value;
+        }
 
         /// <summary>Modo Octave: habilita las extensiones de sintaxis Octave sobre el motor
         /// MATLAB (comentarios <c>#</c>, <c>+= ++ --</c>, <c>endfor/endif/...</c>, <c>!</c>,
@@ -624,7 +631,7 @@ namespace Calcpad.Core.Matlab
                 // no-comentario cierra el bloque y se procesa normal.
                 if (mdMode)
                 {
-                    if (stmt is CommentStmt csMd && !csMd.IsHeading) { mdBuf.Add(csMd.Text); continue; }
+                    if (stmt is CommentStmt csMd && !csMd.IsHeading) { mdBuf.Add(SubstituteMdVarsPlain(csMd.Text)); continue; }
                     FlushMd();
                 }
 
@@ -762,7 +769,9 @@ namespace Calcpad.Core.Matlab
                                 // HTML CRUDO: %'<table>…</table>, %'<svg>…, %'<b>…  -> se renderiza
                                 // tal cual (tablas, figuras, etc.). Va dentro de un comentario, asi
                                 // que MATLAB lo ignora y el .m no da error de char-array.
-                                sb.Append(t0);
+                                // Si ADEMAS lleva @nombre/@{expr}, se sustituyen los valores SIN escapar
+                                // las etiquetas (asi "<b>γ =</b> @{g1}" muestra el valor y conserva el HTML).
+                                sb.Append(t0.IndexOf('@') >= 0 ? RenderInlineVarRefsRaw(t0) : t0);
                                 sb.Append('\n');
                                 lastEmittedPLine = stmtLine;
                             }
@@ -825,7 +834,10 @@ namespace Calcpad.Core.Matlab
                                 // El prefijo va DESPUES de baseStyle -> en text-align gana el prefijo (subtitulo izq).
                                 string finalStyle = baseStyle + style;
                                 // @nombre / @{expr} → ecuación inline (combinar variables en la línea visible).
-                                var enc = RenderInlineVarRefs(t.Trim());
+                                // Texto con HTML inline (<b>…</b>, entidades &xi;) + tokens (N_1→N₁, N''→N″):
+                                // se aplican subíndices/primas y luego se sustituye @ SIN escapar las etiquetas,
+                                // para que el HTML incrustado a mitad de línea se renderice (no salga literal).
+                                var enc = RenderInlineVarRefsRaw(ConvertSubscripts(ConvertPrimes(t.Trim())));
                                 if (finalStyle.Length > 0)
                                     sb.Append($"<p class=\"line\" id=\"line-{stmtLine}\"><span class=\"eq\" style=\"display:block;{finalStyle}\">{enc}</span></p>\n");
                                 else
@@ -1396,27 +1408,107 @@ namespace Calcpad.Core.Matlab
                 if (at > i) outSb.Append(System.Net.WebUtility.HtmlEncode(text.Substring(i, at - i)));
                 int k = at + 1;
                 string expr = null;
-                if (k < text.Length && text[k] == '{')                       // @{expr}
+                bool brace = false;
+                if (k < text.Length && text[k] == '{')                       // @{expr} → SOLO valor
                 {
                     int close = text.IndexOf('}', k);
-                    if (close > k) { expr = text.Substring(k + 1, close - k - 1); k = close + 1; }
+                    if (close > k) { expr = text.Substring(k + 1, close - k - 1); k = close + 1; brace = true; }
                 }
-                else                                                          // @nombre
+                else                                                          // @nombre → "nombre = valor"
                 {
                     int s = k;
                     while (k < text.Length && (char.IsLetterOrDigit(text[k]) || text[k] == '_')) k++;
                     if (k > s) expr = text.Substring(s, k - s);
                 }
                 if (string.IsNullOrEmpty(expr)) { outSb.Append('@'); i = at + 1; continue; }   // @ suelto = literal
-                outSb.Append(RenderVarRefEq(expr));
+                outSb.Append(RenderVarRefEq(expr, brace));
                 i = k;
+            }
+            return outSb.ToString();
+        }
+
+        /// <summary>Igual que RenderInlineVarRefs pero para líneas de HTML CRUDO: sustituye
+        /// @nombre/@{expr} conservando el resto VERBATIM (no escapa &lt; &gt; ni aplica subíndices),
+        /// para poder mezclar etiquetas (&lt;b&gt;…&lt;/b&gt;, entidades) con valores de variables.</summary>
+        private string RenderInlineVarRefsRaw(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('@') < 0) return text ?? "";
+            var outSb = new StringBuilder();
+            int i = 0;
+            while (i < text.Length)
+            {
+                int at = text.IndexOf('@', i);
+                if (at < 0) { outSb.Append(text.Substring(i)); break; }
+                if (at > i) outSb.Append(text.Substring(i, at - i));          // VERBATIM (conserva etiquetas)
+                int k = at + 1;
+                string expr = null;
+                bool brace = false;
+                if (k < text.Length && text[k] == '{')                       // @{expr} → SOLO valor
+                {
+                    int close = text.IndexOf('}', k);
+                    if (close > k) { expr = text.Substring(k + 1, close - k - 1); k = close + 1; brace = true; }
+                }
+                else                                                          // @nombre → "nombre = valor"
+                {
+                    int s = k;
+                    while (k < text.Length && (char.IsLetterOrDigit(text[k]) || text[k] == '_')) k++;
+                    if (k > s) expr = text.Substring(s, k - s);
+                }
+                if (string.IsNullOrEmpty(expr)) { outSb.Append('@'); i = at + 1; continue; }
+                outSb.Append(RenderVarRefEq(expr, brace));
+                i = k;
+            }
+            return outSb.ToString();
+        }
+
+        /// <summary>Sustituye SOLO @{expr} por su valor escalar como TEXTO PLANO (sin HTML), para
+        /// usar dentro de bloques Markdown (% #md … % #endmd): permite tablas/listas con valores en
+        /// vivo. Deja @ suelto (sin llave) intacto para no corromper texto con arrobas.</summary>
+        private string SubstituteMdVarsPlain(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('@') < 0) return text ?? "";
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            string fmt(double d) => d.ToString("0.###############", ci);
+            var outSb = new StringBuilder();
+            int i = 0;
+            while (i < text.Length)
+            {
+                int at = text.IndexOf('@', i);
+                if (at < 0) { outSb.Append(text.Substring(i)); break; }
+                if (at > i) outSb.Append(text.Substring(i, at - i));
+                int k = at + 1;
+                if (k >= text.Length || text[k] != '{') { outSb.Append('@'); i = at + 1; continue; }
+                int close = text.IndexOf('}', k);
+                if (close <= k) { outSb.Append('@'); i = at + 1; continue; }
+                string expr = text.Substring(k + 1, close - k - 1);
+                string valStr = null;
+                try
+                {
+                    if (System.Text.RegularExpressions.Regex.IsMatch(expr, @"^[A-Za-z_]\w*$"))
+                    {
+                        if (_evaluator.Globals.Vars.TryGetValue(expr, out var v0) && v0.IsScalar) valStr = fmt(v0.Scalar);
+                        else if (_previewScope != null && _previewScope.Vars.TryGetValue(expr, out var vp) && vp.IsScalar) valStr = fmt(vp.Scalar);
+                    }
+                    else
+                    {
+                        var toks = MatlabTokenizer.Tokenize(expr);
+                        var node = new MatlabParser(toks).ParseExpression();
+                        MValue res = null;
+                        try { res = _evaluator.Eval(node, _evaluator.Globals); } catch { }
+                        if ((res == null || !res.IsScalar) && _previewScope != null) try { res = _evaluator.Eval(node, _previewScope); } catch { }
+                        if (res != null && res.IsScalar) valStr = fmt(res.Scalar);
+                    }
+                }
+                catch { }
+                outSb.Append(valStr ?? expr);
+                i = close + 1;
             }
             return outSb.ToString();
         }
 
         /// <summary>Renderiza «expr = valor» como ecuación inline. `expr` = identificador (lookup
         /// directo) o expresión (se evalúa con el motor). Si no hay valor escalar, muestra solo el símbolo.</summary>
-        private string RenderVarRefEq(string expr)
+        private string RenderVarRefEq(string expr, bool valueOnly = false)
         {
             var ci = System.Globalization.CultureInfo.InvariantCulture;
             string fmt(double d) => d.ToString("0.###############", ci);
@@ -1444,7 +1536,7 @@ namespace Calcpad.Core.Matlab
                 }
             }
             catch { }
-            string eqSrc = valStr != null ? $"{expr} = {valStr}" : expr;
+            string eqSrc = valStr != null ? (valueOnly ? valStr : $"{expr} = {valStr}") : expr;
             return $"<span class=\"eq\">{MatlabHtmlWriter.RenderEquation(eqSrc)}</span>";
         }
 

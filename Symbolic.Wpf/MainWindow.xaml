@@ -875,13 +875,21 @@
                 ToolTip="{x:Static wpf:MainWindowResources.OpenWithWord}" >
             <TextBlock Text="W" FontFamily="Cambria, Georgia, serif" FontWeight="Bold" FontSize="15" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
-        <Button Grid.Row="0" Click="PdfButton_Click" x:Name="PdfButton" 
-                VerticalAlignment="Top" HorizontalAlignment="Right" 
+        <Button Grid.Row="0" Click="PdfButton_Click" x:Name="PdfButton"
+                VerticalAlignment="Top" HorizontalAlignment="Right"
                 Height="24" Width="24" Margin="0,24,5,0"
-                Focusable="false" IsTabStop="false" 
+                Focusable="false" IsTabStop="false"
                 Background="{x:Null}" BorderBrush="{x:Null}"
                 ToolTip="{x:Static wpf:MainWindowResources.SaveAsPDF}">
             <TextBlock Text="PDF" FontFamily="Segoe UI, Arial" FontWeight="Bold" FontSize="8.5" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Button>
+        <Button Grid.Row="0" Click="ExportPngButton_Click" x:Name="ExportPngButton"
+                VerticalAlignment="Top" HorizontalAlignment="Right"
+                Height="24" Width="24" Margin="0,24,135,0"
+                Focusable="false" IsTabStop="false"
+                Background="{x:Null}" BorderBrush="{x:Null}"
+                ToolTip="Exportar el Output como imagen PNG">
+            <TextBlock Text="PNG" FontFamily="Segoe UI, Arial" FontWeight="Bold" FontSize="8.5" Foreground="{DynamicResource ThemeAccentGold}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Button>
         <ToggleButton Grid.Row="0" x:Name="MathCanvasToggle"
                 HorizontalAlignment="Right" VerticalAlignment="Top"

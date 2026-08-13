@@ -321,6 +321,199 @@ namespace Calcpad.Core.Matlab
         /// Un control lee su valor de aquí (si existe) o usa su default; al moverlo, la WPF actualiza
         /// este diccionario y re-ejecuta el script → el control devuelve el nuevo valor. = "Piso 3".</summary>
         public System.Collections.Generic.Dictionary<string, double> ControlValues { get; set; }
+        /// <summary>Geometría dibujada con el cursor en el WebView2 (Piso 3, canal 'geom'): por Tag,
+        /// una matriz de vértices [[x,z],…]. La llena el canvas interactivo (uidraw) al pulsar "Enviar
+        /// al script"; sobrevive a re-runs igual que ControlValues. uidraw('tag') la devuelve como N×2.</summary>
+        public System.Collections.Generic.Dictionary<string, double[][]> GeomValues { get; set; }
+        private int _ginputCounter = 0;   // clava cada llamada a ginput por sitio (estable entre re-runs)
+
+        // Canvas de dibujo con el cursor para ginput (Piso 3). Se define UNA vez (window.__hktdraw) y
+        // se crea el lienzo en la barra persistente #hkt-controls (sobrevive a los re-runs). Rejilla,
+        // snap a rejilla y a vértice, ángulo/pendiente en vivo, ortogonal, y "Enviar al script" que
+        // postMessage({type:'geom',...}) → la WPF guarda los vértices y re-ejecuta → ginput los devuelve.
+        private const string HktDrawJs = @"
+if(!window.__hktdraw){window.__hktdraw=function(spec){
+ var host=document.getElementById('hkt-controls');
+ if(!host){host=document.createElement('div');host.id='hkt-controls';var o=document.getElementById('matlab-output');if(o&&o.parentNode){o.parentNode.insertBefore(host,o);}else{document.body.appendChild(host);}}
+ if(document.getElementById(spec.id)){return;}
+ var wrap=document.createElement('div');wrap.id=spec.id;wrap.style.cssText='margin:6px 0;font:13px sans-serif;color:#333';
+ var oId=spec.id+'_o',rId=spec.id+'_r';
+ wrap.innerHTML='<div style=""margin-bottom:6px""><b>Talud</b> (doble clic=vertice, clic=editar cota) ('+spec.key+') <button data-a=""undo"" title=""Ctrl+Z"">Deshacer (Ctrl+Z)</button> <button data-a=""clear"">Limpiar</button> <button data-a=""fin"">Terminar</button> <button data-a=""send"" style=""font-weight:600"">Enviar al script</button> <button data-a=""phase"" style=""margin-left:8px;font-weight:600;background:#eef6ff;border:1px solid #9fbfe0"">▶ Fase 2: suelos</button> <label style=""margin-left:6px""><input id=""'+oId+'"" type=""checkbox"" checked> orto</label> <span id=""'+rId+'"" style=""margin-left:8px;color:#1560a8;font-family:monospace""></span></div>';
+ var cv=document.createElement('canvas');cv.width=640;cv.height=330;cv.tabIndex=0;cv.style.cssText='width:100%;height:auto;border:1px solid #bbb;background:#fff;cursor:crosshair;display:block';wrap.appendChild(cv);
+ var info=document.createElement('div');info.style.cssText='font-family:monospace;font-size:12px;margin-top:4px;color:#555';wrap.appendChild(info);
+ host.appendChild(wrap);
+ wrap.style.position='relative';
+ var inp=document.createElement('input');inp.type='number';inp.step='0.5';inp.style.cssText='position:absolute;display:none;width:72px;font:12px monospace;border:2px solid #d33;border-radius:3px;padding:1px 3px;z-index:6;background:#fffbe6;color:#a00;font-weight:bold';wrap.appendChild(inp);
+ var kb=document.createElement('input');kb.type='text';kb.setAttribute('aria-hidden','true');kb.tabIndex=0;kb.readOnly=true;kb.style.cssText='position:absolute;left:-2000px;top:0;width:1px;height:1px;opacity:0;';wrap.appendChild(kb);
+ function grabKb(){setTimeout(function(){try{kb.focus({preventScroll:true});}catch(_){try{kb.focus();}catch(__){}}},0);}
+ inp.addEventListener('keydown',function(e){if(e.key==='Enter'){applyEdit();grabKb();}else if(e.key==='Escape'){inp.style.display='none';selIdx=-1;selKind='';draw();grabKb();}});
+ inp.addEventListener('blur',function(){setTimeout(function(){if(document.activeElement!==inp){inp.style.display='none';selIdx=-1;selKind='';draw();}},120);});
+ var ctx=cv.getContext('2d'),W=cv.width,H=cv.height,pL=44,pR=16,pT=14,pB=28;
+ function sizeCanvas(){var cw=(host&&host.clientWidth)||(wrap&&wrap.clientWidth)||700;var w=Math.max(360,cw-8);cv.width=w;cv.height=Math.min(640,Math.max(280,Math.round(w*0.42)));W=cv.width;H=cv.height;draw();}
+ window.addEventListener('resize',sizeCanvas);
+ if(window.ResizeObserver){try{new ResizeObserver(function(){sizeCanvas();}).observe(host);}catch(e){}}
+ var xMin=spec.xMin,xMax=spec.xMax,zMin=spec.zMin,zMax=spec.zMax;
+ var pts=(spec.pts||[]).map(function(p){return {x:p[0],z:p[1]};});
+ var hov=null,sv=-1,done=false,selKind='',selIdx=-1,rawW=null,he=null,hist=[],bsnap=false;
+ // FLUJO EN DOS FASES (paso a paso, como en MATLAB):
+ //  fase 'talud'  -> se dibuja el perfil del talud (pts). El area se cierra a la base.
+ //  fase 'suelos' -> ya dibujado el talud, se divide el terreno en SUELOS = areas (poligonos
+ //                   libres, NO lineales). Cada poligono cerrado = un suelo; se cuentan.
+ var phase='talud',soils=[],cur=[];
+ // Colores DISTINTOS por suelo (tierra pero contrastados) para ver claro donde cambia cada capa.
+ var SOILCOL=['rgba(232,214,168,0.80)','rgba(168,190,120,0.78)','rgba(214,150,92,0.78)','rgba(148,182,208,0.74)','rgba(196,120,112,0.76)','rgba(204,184,116,0.80)','rgba(160,138,184,0.72)'];
+ function soilColor(i){return SOILCOL[((i%SOILCOL.length)+SOILCOL.length)%SOILCOL.length];}
+ function cp(p){return {x:p.x,z:p.z};}
+ function snap(){return {pts:pts.map(cp),cur:cur.map(cp),soils:soils.map(function(a){return a.map(cp);}),zMin:zMin,phase:phase};}
+ function restore(s){pts=s.pts.map(cp);cur=(s.cur||[]).map(cp);soils=(s.soils||[]).map(function(a){return a.map(cp);});zMin=s.zMin;if(s.phase){phase=s.phase;}}
+ function activePts(){return (phase==='talud')?pts:cur;}
+ function domX(){if(!pts.length){return [xMin,xMax];}var lo=pts[0].x,hi=pts[0].x;for(var i=1;i<pts.length;i++){if(pts[i].x<lo){lo=pts[i].x;}if(pts[i].x>hi){hi=pts[i].x;}}return [lo,hi];}
+ // Traza el poligono del dominio (talud cerrado a la base) en el contexto actual.
+ function domainPath(){ctx.beginPath();ctx.moveTo(SX(pts[0].x),SZ(pts[0].z));for(var i=1;i<pts.length;i++){ctx.lineTo(SX(pts[i].x),SZ(pts[i].z));}ctx.lineTo(SX(pts[pts.length-1].x),SZ(zMin));ctx.lineTo(SX(pts[0].x),SZ(zMin));ctx.closePath();}
+ function avgZ(a){var s=0;for(var i=0;i<a.length;i++){s+=a[i].z;}return a.length?s/a.length:0;}
+ // z de una polilinea (ordenada por x) interpolada en x (extremos = constante).
+ function zAt(poly,x){if(!poly.length){return 0;}if(x<=poly[0].x){return poly[0].z;}for(var i=1;i<poly.length;i++){if(x<=poly[i].x){var w=poly[i].x-poly[i-1].x;var t=w>1e-9?(x-poly[i-1].x)/w:0;return poly[i-1].z+t*(poly[i].z-poly[i-1].z);}}return poly[poly.length-1].z;}
+ // Extiende la linea de contacto a todo el ancho del dominio (izq/der) para partir bien las franjas.
+ function normIface(a){var d=domX(),lo=d[0],hi=d[1];var b=a.slice().sort(function(p,q){return p.x-q.x;});if(b.length){if(b[0].x>lo){b.unshift({x:lo,z:b[0].z});}if(b[b.length-1].x<hi){b.push({x:hi,z:b[b.length-1].z});}}return b;}
+ // Poligono CERRADO del dominio (superficie L->R, lado derecho a la base, base R->L; el lado izq cierra solo).
+ function domainPoly(){var surf=pts.slice().sort(function(p,q){return p.x-q.x;});var poly=[];for(var i=0;i<surf.length;i++){poly.push({x:surf[i].x,z:surf[i].z});}poly.push({x:surf[surf.length-1].x,z:zMin});poly.push({x:surf[0].x,z:zMin});return poly;}
+ function ptInPoly(poly,px,pz){var inside=false,n=poly.length;for(var i=0,j=n-1;i<n;j=i++){var zi=poly[i].z,zj=poly[j].z;if(((zi>pz)!=(zj>pz))&&(px<(poly[j].x-poly[i].x)*(pz-zi)/(zj-zi)+poly[i].x)){inside=!inside;}}return inside;}
+ // Arista de 'poly' (cerrado) sobre la que cae 'pt' (la mas cercana).
+ function edgeOn(poly,pt){var best=0,bd=1e18,n=poly.length;for(var i=0;i<n;i++){var q=projSeg(pt.x,pt.z,poly[i],poly[(i+1)%n]);if(q.d<bd){bd=q.d;best=i;}}return best;}
+ // Parte una cara (poligono) con un chord (polilinea con extremos sobre el borde) -> [caraA, caraB].
+ function splitFace(face,chord){if(chord.length<2){return null;}var n=face.length,A=chord[0],B=chord[chord.length-1];var ia=edgeOn(face,A),ib=edgeOn(face,B);
+  function arcFwd(a,b){var r=[],i=(a+1)%n,g=0;while(g++<=n+1){r.push(face[i]);if(i===b){break;}i=(i+1)%n;}return r;}
+  var mid=chord.slice(1,chord.length-1);
+  return [[A].concat(mid,[B],arcFwd(ib,ia)), [B].concat(mid.slice().reverse(),[A],arcFwd(ia,ib))];}
+ // Particiona el dominio con TODAS las lineas: cada una corta la cara que la contiene (por su punto medio).
+ function computeFaces(){var faces=[domainPoly()];for(var s=0;s<soils.length;s++){var ch=soils[s];if(ch.length<2){continue;}var mx=0,mz=0;for(var i=0;i<ch.length;i++){mx+=ch[i].x;mz+=ch[i].z;}mx/=ch.length;mz/=ch.length;var fi=-1;for(var f=0;f<faces.length;f++){if(ptInPoly(faces[f],mx,mz)){fi=f;break;}}if(fi<0){fi=faces.length-1;}var sp=splitFace(faces[fi],ch);if(sp){faces.splice(fi,1,sp[0],sp[1]);}}return faces;}
+ function polyCentroid(poly){var a=0,cx=0,cz=0,n=poly.length;for(var i=0;i<n;i++){var j=(i+1)%n,cr=poly[i].x*poly[j].z-poly[j].x*poly[i].z;a+=cr;cx+=(poly[i].x+poly[j].x)*cr;cz+=(poly[i].z+poly[j].z)*cr;}if(Math.abs(a)<1e-9){var sx=0,sz=0;for(var i=0;i<n;i++){sx+=poly[i].x;sz+=poly[i].z;}return {x:sx/n,z:sz/n};}a*=0.5;return {x:cx/(6*a),z:cz/(6*a)};}
+ // Rellena cada CARA (region cerrada por las lineas de contacto + el borde) como un suelo distinto.
+ function fillSoils(){
+  if(pts.length<2){return;}
+  var faces=computeFaces();
+  var order=faces.map(function(f){return {f:f,c:polyCentroid(f)};}).sort(function(a,b){return b.c.z-a.c.z;});   // arriba->abajo
+  for(var k=0;k<order.length;k++){var f=order[k].f;if(f.length<3){continue;}ctx.beginPath();ctx.moveTo(SX(f[0].x),SZ(f[0].z));for(var i=1;i<f.length;i++){ctx.lineTo(SX(f[i].x),SZ(f[i].z));}ctx.closePath();ctx.fillStyle=soilColor(k);ctx.fill();}
+  for(var s=0;s<soils.length;s++){var a=soils[s];if(a.length<2){continue;}ctx.beginPath();ctx.moveTo(SX(a[0].x),SZ(a[0].z));for(var j=1;j<a.length;j++){ctx.lineTo(SX(a[j].x),SZ(a[j].z));}ctx.strokeStyle='#5a3a1a';ctx.lineWidth=1.8;ctx.stroke();}
+  for(var k=0;k<order.length;k++){var c=order[k].c;ctx.fillStyle='rgba(40,25,10,0.92)';ctx.font='bold 12px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Suelo '+(k+1),SX(c.x),SZ(c.z));}
+ }
+ // Dibuja la LINEA de contacto en curso, extendida (punteado) a los bordes del dominio, para ver como
+ // parte el terreno en franjas de arriba hacia abajo. El relleno de estratos lo hace fillSoils al cerrar.
+ function drawCur(){
+  if(!cur.length){return;}
+  var pl=cur.slice();if(hov&&phase==='suelos'){pl.push({x:hov.x,z:hov.z});}
+  ctx.strokeStyle='#7a5230';ctx.lineWidth=2.2;ctx.beginPath();ctx.moveTo(SX(pl[0].x),SZ(pl[0].z));for(var i=1;i<pl.length;i++){ctx.lineTo(SX(pl[i].x),SZ(pl[i].z));}ctx.stroke();
+  for(var i=0;i<cur.length;i++){ctx.beginPath();ctx.arc(SX(cur[i].x),SZ(cur[i].z),4,0,6.2832);ctx.fillStyle='#7a5230';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.2;ctx.stroke();}
+ }
+ // Termina el trazo: en 'talud' detiene el perfil; en 'suelos' ENGANCHA los extremos al borde y cierra un suelo.
+ function snapToPoly(pt){var dp=domainPoly();var e=edgeOn(dp,pt);var q=projSeg(pt.x,pt.z,dp[e],dp[(e+1)%dp.length]);return {x:q.x,z:q.z};}
+ function finishCur(){
+  if(phase==='talud'){if(pts.length>=2){done=!done;}hov=null;return;}
+  if(cur.length>=2){hist.push(snap());var c=cur.slice();c[0]=snapToPoly(c[0]);c[c.length-1]=snapToPoly(c[c.length-1]);soils.push(c);}   // extremos al borde -> cierra 2 areas
+  cur=[];hov=null;
+ }
+ // Etiqueta del boton 'Terminar' segun el paso.
+ function updFinLabel(){var b=wrap.querySelector('[data-a=fin]');if(!b){return;}b.textContent=(phase==='suelos')?'Cerrar suelo':(done?'✎ Editar borde':'✔ OK: generar area');}
+ var mgx=(xMax-xMin)*0.11,mgz=(zMax-zMin)*0.11,vx0=xMin-mgx,vx1=xMax+mgx,vz0=zMin-mgz,vz1=zMax+mgz;
+ function SX(x){return pL+(x-vx0)/(vx1-vx0)*(W-pL-pR);}
+ function SZ(z){var m=(zMax-zMin)*0.11,a=zMin-m,b=zMax+m;return pT+(b-z)/(b-a)*(H-pT-pB);}
+ function iX(s){return vx0+(s-pL)/(W-pL-pR)*(vx1-vx0);}
+ function iZ(s){var m=(zMax-zMin)*0.11,a=zMin-m,b=zMax+m;return b-(s-pT)/(H-pT-pB)*(b-a);}
+ function cotaSeg(a,b,off,col){var dx=b.x-a.x,dz=b.z-a.z,L=Math.hypot(dx,dz);if(L<1e-6){return;}var ux=dx/L,uz=dz/L,nx=-uz,ny=ux;var a2x=a.x+nx*off,a2z=a.z+ny*off,b2x=b.x+nx*off,b2z=b.z+ny*off;ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(SX(a2x),SZ(a2z));ctx.lineTo(SX(b2x),SZ(b2z));ctx.moveTo(SX(a.x),SZ(a.z));ctx.lineTo(SX(a2x),SZ(a2z));ctx.moveTo(SX(b.x),SZ(b.z));ctx.lineTo(SX(b2x),SZ(b2z));ctx.stroke();var sx=SX((a2x+b2x)/2),sz=SZ((a2z+b2z)/2),an=Math.atan2(SZ(b2z)-SZ(a2z),SX(b2x)-SX(a2x));ctx.save();ctx.translate(sx,sz);ctx.rotate(an);ctx.fillStyle=col;ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(L.toFixed(1),0,-2);ctx.restore();}
+ function cotaV(x,zt,zb,off,col){var xo=x+off;ctx.strokeStyle=col;ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(SX(xo),SZ(zt));ctx.lineTo(SX(xo),SZ(zb));ctx.stroke();ctx.setLineDash([3,3]);ctx.lineWidth=0.9;ctx.beginPath();ctx.moveTo(SX(x),SZ(zt));ctx.lineTo(SX(xo),SZ(zt));ctx.moveTo(SX(x),SZ(zb));ctx.lineTo(SX(xo),SZ(zb));ctx.stroke();ctx.setLineDash([]);ctx.save();ctx.translate(SX(xo),SZ((zt+zb)/2));ctx.rotate(-Math.PI/2);ctx.fillStyle=col;ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(Math.abs(zt-zb).toFixed(1)+' m',0,-2);ctx.restore();}
+ function cotaH(x0,x1,z,off,col){var zo=z+off;ctx.strokeStyle=col;ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(SX(x0),SZ(zo));ctx.lineTo(SX(x1),SZ(zo));ctx.stroke();ctx.setLineDash([3,3]);ctx.lineWidth=0.9;ctx.beginPath();ctx.moveTo(SX(x0),SZ(z));ctx.lineTo(SX(x0),SZ(zo));ctx.moveTo(SX(x1),SZ(z));ctx.lineTo(SX(x1),SZ(zo));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=col;ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(Math.abs(x1-x0).toFixed(1)+' m',SX((x0+x1)/2),SZ(zo)-2);}
+ function orto(p,x,z){var c=document.getElementById(oId);if(!c||!c.checked||!p){return {x:x,z:z};}var dx=x-p.x,dz=z-p.z,t=Math.tan(6*Math.PI/180);if(Math.abs(dz)<Math.abs(dx)*t){z=p.z;}else if(Math.abs(dx)<Math.abs(dz)*t){x=p.x;}return {x:x,z:z};}
+ function nearV(x,z){var b=-1,bd=(xMax-xMin)*0.04;for(var i=0;i<pts.length;i++){var d=Math.hypot(pts[i].x-x,pts[i].z-z);if(d<bd){bd=d;b=i;}}return b;}
+ // Punto mas cercano SOBRE un segmento [a,b] a (px,pz), con su distancia.
+ function projSeg(px,pz,a,b){var dx=b.x-a.x,dz=b.z-a.z,L2=dx*dx+dz*dz;if(L2<1e-9){return {x:a.x,z:a.z,d:Math.hypot(px-a.x,pz-a.z)};}var t=((px-a.x)*dx+(pz-a.z)*dz)/L2;t=Math.max(0,Math.min(1,t));var qx=a.x+t*dx,qz=a.z+t*dz;return {x:qx,z:qz,d:Math.hypot(px-qx,pz-qz)};}
+ // Engancha al BORDE del talud (superficie + lados verticales + base): devuelve el punto de conexion o null.
+ function snapBoundary(px,pz){if(pts.length<2){return null;}var thr=(xMax-xMin)*0.05,last=pts.length-1,best=null;
+  var segs=[];for(var i=0;i<pts.length-1;i++){segs.push([pts[i],pts[i+1]]);}
+  segs.push([pts[0],{x:pts[0].x,z:zMin}]);segs.push([pts[last],{x:pts[last].x,z:zMin}]);segs.push([{x:pts[0].x,z:zMin},{x:pts[last].x,z:zMin}]);
+  for(var i=0;i<segs.length;i++){var q=projSeg(px,pz,segs[i][0],segs[i][1]);if(q.d<thr&&(!best||q.d<best.d)){best=q;}}
+  return best;}
+ function seg(a,b){var dx=b.x-a.x,dz=b.z-a.z,L=Math.hypot(dx,dz),an=Math.abs(Math.atan2(dz,dx)*180/Math.PI);if(an>90){an=180-an;}var r=(Math.abs(dz)<1e-6)?'horiz':(Math.abs(dx)<1e-6)?'vert':(Math.abs(dx/dz)).toFixed(2)+'H:1V';return L.toFixed(1)+' m  '+an.toFixed(1)+'°  '+r;}
+ function distSeg(px,pz,a,b){var dx=b.x-a.x,dz=b.z-a.z,L2=dx*dx+dz*dz;if(L2<1e-9){return Math.hypot(px-a.x,pz-a.z);}var t=((px-a.x)*dx+(pz-a.z)*dz)/L2;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(a.x+t*dx),pz-(a.z+t*dz));}
+ function pickSeg(px,pz,lim){var best=-1,bd=(xMax-xMin)*0.035;var n=(lim===undefined?pts.length-1:lim);for(var i=0;i<n;i++){var d=distSeg(px,pz,pts[i],pts[i+1]);if(d<bd){bd=d;best=i;}}return best;}
+ function hitCota(px,pz){if(pts.length<1){return null;}var thrN=(xMax-xMin)*0.028,bn=-1,bd=thrN;for(var i=0;i<pts.length;i++){var d=Math.hypot(px-pts[i].x,pz-pts[i].z);if(d<bd){bd=d;bn=i;}}if(bn>=0){return {kind:'N',idx:bn};}if(pts.length<2){return null;}var xo=(xMax-xMin)*0.06,last=pts.length-1,thr=(xMax-xMin)*0.05;var dL=distSeg(px,pz,{x:pts[0].x-xo,z:pts[0].z},{x:pts[0].x-xo,z:zMin});var dR=distSeg(px,pz,{x:pts[last].x+xo,z:pts[last].z},{x:pts[last].x+xo,z:zMin});if(dL<thr&&dL<=dR){return {kind:'H',idx:0};}if(dR<thr){return {kind:'H',idx:last};}var si=pickSeg(px,pz,last);if(si>=0){return {kind:'L',idx:si};}return null;}
+ function showEdit(kind,idx){selKind=kind;selIdx=idx;var vtxt,px,pz,xo=(xMax-xMin)*0.06;if(kind==='L'){var a=pts[idx],b=pts[idx+1];vtxt=Math.hypot(b.x-a.x,b.z-a.z).toFixed(1);px=(a.x+b.x)/2;pz=(a.z+b.z)/2;inp.type='number';inp.style.width='74px';}else if(kind==='H'){px=pts[idx].x+((idx===0)?-xo:xo);pz=(pts[idx].z+zMin)/2;vtxt=(pts[idx].z-zMin).toFixed(1);inp.type='number';inp.style.width='74px';}else{px=pts[idx].x;pz=pts[idx].z;vtxt=pts[idx].x.toFixed(1)+', '+(pts[idx].z-zMin).toFixed(1);inp.type='text';inp.style.width='120px';}var scx=cv.clientWidth/cv.width,scy=cv.clientHeight/cv.height;var mx=SX(px)*scx,mz=SZ(pz)*scy;inp.value=vtxt;var col=(kind==='H')?['#2a8a3a','#eaffea','#176']:(kind==='N')?['#1560a8','#e8f2ff','#14639e']:['#d33','#fffbe6','#a00'];inp.style.borderColor=col[0];inp.style.background=col[1];inp.style.color=col[2];inp.style.left=(cv.offsetLeft+mx-((kind==='N')?58:36))+'px';inp.style.top=(cv.offsetTop+mz-12)+'px';inp.style.display='block';info.textContent='Editando '+((kind==='H')?'ALTURA (m sobre base)':(kind==='N')?'COORDENADAS del nodo (x, altura sobre base)':'LONGITUD (m)')+' — teclea y Enter (Esc cancela)';setTimeout(function(){try{inp.focus();inp.select();}catch(e){}},30);draw();}
+ function applyEdit(){if(selIdx<0){return;}var k=selKind,idx=selIdx,v=inp.value;inp.style.display='none';selIdx=-1;selKind='';hist.push(snap());if(k==='N'){var p=v.split(/[ ,;]+/).map(function(s){return parseFloat(s);});if(p.length>=2&&!isNaN(p[0])&&!isNaN(p[1])){pts[idx]={x:p[0],z:zMin+p[1]};}upd();return;}var nl=parseFloat(v);if(isNaN(nl)){draw();return;}if(k==='L'){var a=pts[idx],b=pts[idx+1];var L0=Math.hypot(b.x-a.x,b.z-a.z);if(nl<=0||L0<1e-9){draw();return;}var ux=(b.x-a.x)/L0,uz=(b.z-a.z)/L0,nbx=a.x+ux*nl,nbz=a.z+uz*nl,ddx=nbx-b.x,ddz=nbz-b.z;pts[idx+1]={x:nbx,z:nbz};for(var j=idx+2;j<pts.length;j++){pts[j]={x:pts[j].x+ddx,z:pts[j].z+ddz};}}else{zMin=pts[idx].z-nl;}upd();}
+ function draw(){
+  ctx.clearRect(0,0,W,H);ctx.strokeStyle='#e4e4e4';ctx.fillStyle='#999';ctx.font='10px sans-serif';ctx.lineWidth=1;
+  var gx=(xMax-xMin)>60?10:5,gz=(zMax-zMin)>60?10:5;
+  ctx.textAlign='center';ctx.textBaseline='top';
+  for(var x=Math.ceil(xMin/gx)*gx;x<=xMax;x+=gx){ctx.beginPath();ctx.moveTo(SX(x),pT);ctx.lineTo(SX(x),H-pB);ctx.stroke();ctx.fillText(x,SX(x),H-pB+3);}
+  ctx.textAlign='right';ctx.textBaseline='middle';
+  for(var z=Math.ceil(zMin/gz)*gz;z<=zMax;z+=gz){ctx.beginPath();ctx.moveTo(pL,SZ(z));ctx.lineTo(W-pR,SZ(z));ctx.stroke();ctx.fillText(z,pL-4,SZ(z));}
+  // El AREA total se genera (rellena) solo cuando el borde esta confirmado (done) o en fase suelos.
+  // Mientras trazas el borde se ve SOLO la linea (paso a paso: dibujar -> OK -> generar area).
+  if(done||phase==='suelos'){fillSoils();}
+  if(pts.length>1){ctx.beginPath();ctx.moveTo(SX(pts[0].x),SZ(pts[0].z));for(var i=1;i<pts.length;i++){ctx.lineTo(SX(pts[i].x),SZ(pts[i].z));}ctx.strokeStyle='#1560a8';ctx.lineWidth=2.2;ctx.stroke();}
+  drawCur();
+  if(pts.length>1){var so=(zMax-zMin)*0.055,xo=(xMax-xMin)*0.06,zo=(zMax-zMin)*0.06,last=pts.length-1;for(var i=0;i<pts.length-1;i++){cotaSeg(pts[i],pts[i+1],so,(selKind==='L'&&i===selIdx)?'#d33':(he&&he.kind==='L'&&he.idx===i)?'#e67e22':'#666');}cotaV(pts[0].x,pts[0].z,zMin,-xo,(selKind==='H'&&selIdx===0)?'#d33':(he&&he.kind==='H'&&he.idx===0)?'#e67e22':'#237a32');cotaV(pts[last].x,pts[last].z,zMin,xo,(selKind==='H'&&selIdx===last)?'#d33':(he&&he.kind==='H'&&he.idx===last)?'#e67e22':'#237a32');cotaH(pts[0].x,pts[last].x,zMin,-zo,'#8a5a1a');}
+  for(var i=0;i<pts.length;i++){var nr=(he&&he.kind==='N'&&he.idx===i);ctx.beginPath();ctx.arc(SX(pts[i].x),SZ(pts[i].z),nr?6:4,0,6.2832);ctx.fillStyle=(selKind==='N'&&selIdx===i)?'#d33':nr?'#e67e22':'#1560a8';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.3;ctx.stroke();}
+  if(hov&&!he&&(phase!=='talud'||!done)){var hx=SX(hov.x),hz=SZ(hov.z);
+   if(bsnap){ctx.strokeStyle='#e67e22';ctx.fillStyle='rgba(230,126,34,0.25)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(hx,hz,7,0,6.2832);ctx.fill();ctx.stroke();}   // ENGANCHE al borde del talud (naranja)
+   ctx.strokeStyle=bsnap?'#e67e22':(sv>=0)?'#d33':'#1560a8';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(hx-7,hz);ctx.lineTo(hx+7,hz);ctx.moveTo(hx,hz-7);ctx.lineTo(hx,hz+7);ctx.stroke();var lb1='('+hov.x.toFixed(1)+', '+hov.z.toFixed(1)+')',lb2='';var ap=activePts();if(ap.length){var p=ap[ap.length-1];ctx.setLineDash([4,4]);ctx.strokeStyle='#1560a8';ctx.beginPath();ctx.moveTo(SX(p.x),SZ(p.z));ctx.lineTo(hx,hz);ctx.stroke();ctx.setLineDash([]);var L=Math.hypot(hov.x-p.x,hov.z-p.z);lb2='L = '+L.toFixed(1)+' m';}
+   // Etiqueta flotante JUNTO al cursor (estilo CAD): coordenadas y longitud del tramo en vivo.
+   ctx.font='bold 12px monospace';var tw=Math.max(ctx.measureText(lb1).width,lb2?ctx.measureText(lb2).width:0),th=lb2?32:18;var tx=hx+12,ty=hz-th-6;if(tx+tw+10>W-pR){tx=hx-tw-22;}if(ty<pT+2){ty=hz+12;}ctx.fillStyle='rgba(255,255,240,0.92)';ctx.fillRect(tx-5,ty,tw+12,th);ctx.strokeStyle=(sv>=0)?'#d33':'#1560a8';ctx.lineWidth=1;ctx.strokeRect(tx-5,ty,tw+12,th);ctx.fillStyle=(sv>=0)?'#d33':'#1560a8';ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText(lb1,tx,ty+3);if(lb2){ctx.fillText(lb2,tx,ty+17);}}
+ }
+ function area(){if(pts.length<2){return 0;}var poly=pts.concat([{x:pts[pts.length-1].x,z:zMin},{x:pts[0].x,z:zMin}]);var a=0;for(var i=0;i<poly.length;i++){var j=(i+1)%poly.length;a+=poly[i].x*poly[j].z-poly[j].x*poly[i].z;}return Math.abs(a)/2;}
+ function upd(){updFinLabel();
+  if(phase==='suelos'){info.textContent='FASE 2 — SUELOS: traza la LINEA de contacto entre capas (clic derecho o Cerrar suelo). Los suelos van de ARRIBA hacia ABAJO: Suelo 1 (superficie), 2, 3... hasta la base.   Suelos: '+(soils.length+1)+(cur.length?('   (trazando contacto '+(soils.length+1)+': '+cur.length+' puntos)'):'');}
+  else if(!pts.length){info.textContent='FASE 1 — TALUD: traza el BORDE del terreno con clics (de izquierda a derecha).';}
+  else if(!done){info.textContent='FASE 1 — TALUD: borde en curso ('+pts.length+' vertices). Cuando termines pulsa ✔ OK: generar area (o clic derecho).';}
+  else{info.textContent='AREA del terreno generada: '+area().toFixed(0)+' m². Pulsa ▶ Fase 2: suelos para dividirla   (o ✎ Editar borde para corregir).';}
+  draw();}
+ cv.addEventListener('mousemove',function(e){var r=cv.getBoundingClientRect();var sx=(e.clientX-r.left)*(W/r.width),sz=(e.clientY-r.top)*(H/r.height);var rx=iX(sx),rz=iZ(sz);rawW={x:rx,z:rz};he=(phase==='talud')?hitCota(rx,rz):null;cv.style.cursor=he?'pointer':'crosshair';var ap=activePts();bsnap=false;
+  if(phase==='suelos'){var bd=snapBoundary(rx,rz);if(bd){hov={x:Math.round(bd.x*10)/10,z:Math.round(bd.z*10)/10};bsnap=true;sv=-1;}else{var p=ap.length?ap[ap.length-1]:null;var o=orto(p,rx,rz);hov={x:Math.max(xMin,Math.min(xMax,Math.round(o.x))),z:Math.max(zMin,Math.min(zMax,Math.round(o.z)))};sv=-1;}}
+  else{var nv=nearV(rx,rz);if(nv>=0){hov={x:pts[nv].x,z:pts[nv].z};sv=nv;}else{var p=ap.length?ap[ap.length-1]:null;var o=orto(p,rx,rz);hov={x:Math.max(xMin,Math.min(xMax,Math.round(o.x))),z:Math.max(zMin,Math.min(zMax,Math.round(o.z)))};sv=-1;}}
+  var rd=document.getElementById(rId);if(rd){rd.textContent='x='+hov.x.toFixed(1)+' z='+hov.z.toFixed(1)+(bsnap?'  (en el borde)':'')+(ap.length?('  '+seg(ap[ap.length-1],hov)):'');}draw();});
+ cv.addEventListener('mouseleave',function(){hov=null;sv=-1;draw();});
+ // MODO Dibujar (done=false): clic pone vertice. MODO Editar (done=true): clic edita la cota.
+ cv.addEventListener('click',function(){if(phase==='talud'){if(he){showEdit(he.kind,he.idx);return;}if(!hov){return;}hist.push(snap());if(done){done=false;}pts.push({x:hov.x,z:hov.z});upd();grabKb();return;}if(pts.length<2){return;}if(!hov){return;}hist.push(snap());cur.push({x:hov.x,z:hov.z});upd();grabKb();});
+ var _lu=0;function doUndo(){var t=+new Date();if(t-_lu<150){return;}_lu=t;if(hist.length){restore(hist.pop());inp.style.display='none';selIdx=-1;selKind='';upd();}grabKb();}
+ function undoKey(e){if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.keyCode===90)){doUndo();e.preventDefault();e.stopPropagation();}}
+ cv.addEventListener('mousedown',function(){grabKb();if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage('focusweb');}});
+ kb.addEventListener('keydown',undoKey,true);
+ cv.addEventListener('keydown',undoKey,true);
+ document.addEventListener('keydown',undoKey,true);
+ window.addEventListener('keydown',undoKey,true);
+ window.__hktUndo=doUndo;
+ cv.addEventListener('contextmenu',function(e){e.preventDefault();finishCur();upd();});   // clic derecho = Terminar (talud o suelo)
+ wrap.addEventListener('click',function(e){var t=e.target,a=t&&t.getAttribute?t.getAttribute('data-a'):null;if(a==='undo'){selIdx=-1;selKind='';inp.style.display='none';if(hist.length){restore(hist.pop());}upd();grabKb();}else if(a==='clear'){hist.push(snap());done=false;selIdx=-1;selKind='';inp.style.display='none';if(phase==='talud'){pts=[];cur=[];soils=[];}else{cur=[];soils=[];}upd();grabKb();}else if(a==='fin'){finishCur();inp.style.display='none';selIdx=-1;selKind='';upd();grabKb();}else if(a==='phase'){setPhase(phase==='talud'?'suelos':'talud',t);grabKb();}else if(a==='send'){if(window.chrome&&window.chrome.webview){window.chrome.webview.postMessage(JSON.stringify({type:'geom',name:spec.key,points:pts.map(function(p){return [p.x,p.z];}),base:zMin,soils:soils.map(function(s){return s.map(function(p){return [p.x,p.z];});})}));}}});
+ function setPhase(p,btn){if(p==='suelos'&&pts.length<2){info.textContent='Primero traza el BORDE del talud (al menos 2 vertices) y pulsa ✔ OK: generar area.';return;}if(cur.length){finishCur();}phase=p;if(p==='suelos'){done=true;}selIdx=-1;selKind='';inp.style.display='none';var b=btn||wrap.querySelector('[data-a=phase]');if(b){b.textContent=(p==='talud')?'▶ Fase 2: suelos':'◀ Volver al talud';}upd();}
+ sizeCanvas();upd();
+}}
+";
+
+        /// <summary>Núcleo de ginput: emite el canvas de dibujo y devuelve [x, z] (vectores columna)
+        /// con los vértices que el usuario ya dibujó y envió (de GeomValues). Sin dibujo aún → vacíos.</summary>
+        private MValue[] GinputImpl()
+        {
+            string key = "ginput_" + (++_ginputCounter);
+            double x0, x1, y0, y1;
+            MatlabPlots.TryGetAxisLimits(out x0, out x1, out y0, out y1);
+            double[][] pts = (GeomValues != null && GeomValues.TryGetValue(key, out var gp) && gp != null) ? gp : null;
+            int n = pts?.Length ?? 0;
+            var xData = new double[n]; var zData = new double[n];
+            for (int i = 0; i < n; i++) { xData[i] = pts[i][0]; zData[i] = pts[i].Length > 1 ? pts[i][1] : 0; }
+            if (_htmlOut != null)
+            {
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                string Inv(double d) => d.ToString("0.######", ci);
+                string J(string s) => System.Text.Json.JsonSerializer.Serialize(s ?? "");
+                var pb = new System.Text.StringBuilder("[");
+                if (pts != null) for (int i = 0; i < pts.Length; i++) { if (i > 0) pb.Append(','); pb.Append("[" + Inv(pts[i][0]) + "," + Inv(pts[i].Length > 1 ? pts[i][1] : 0) + "]"); }
+                pb.Append("]");
+                string sid = "hktdraw_" + key;
+                string spec = "{id:" + J(sid) + ",key:" + J(key) + ",xMin:" + Inv(x0) + ",xMax:" + Inv(x1) +
+                              ",zMin:" + Inv(y0) + ",zMax:" + Inv(y1) + ",pts:" + pb + "}";
+                _htmlOut.Invoke("<script>" + HktDrawJs + "window.__hktdraw&&window.__hktdraw(" + spec + ");</script>");
+            }
+            return new[] { new MValue(n, 1, xData), new MValue(n, 1, zData) };
+        }
+
         private int _uiCounter = 0;    // contador por-run para clavear uicontrols sin Tag (Piso 3)
         private int _vizCounter = 0;   // ids unicos para visores 3D interactivos (solidmesh)
         // Canal para FRAMES de animación (drawnow): se emite EN VIVO por iteración y el host
@@ -3059,6 +3252,13 @@ namespace Calcpad.Core.Matlab
                 return h;
             };
             _builtins["uipanel"] = a => MkGfxHandle(a);
+            // ═══ ginput NATIVO de MATLAB 2017a → dibujar con el cursor en el WebView2 (Piso 3) ═══
+            //   [x,z] = ginput   → clic en la figura y devuelve las coordenadas.
+            // En MATLAB 2017a abre la figura y bloquea hasta Enter; en Hekatan Lab abre un canvas
+            // interactivo (rejilla, snap a rejilla y a vértice, ángulo/pendiente, ortogonal) y devuelve
+            // los vértices que dibujaste y enviaste con "Enviar al script". El MISMO .m corre en ambos.
+            _builtins["ginput"] = a => { var o = GinputImpl(); return o[0]; };                 // x = ginput → columna x
+            _multiOutBuiltins["ginput"] = a => GinputImpl();                                    // [x,z] = ginput
             _builtins["addlistener"] = a => MkGfxHandle(System.Array.Empty<MValue>());
             // ancestor(h,'figure') -> handle (Lab usa un contenedor implícito; devolvemos el mismo
             // handle para que get/set/appdata hagan round-trip dentro de la función).
@@ -11046,7 +11246,16 @@ namespace Calcpad.Core.Matlab
             // Multi-output: [a, b] = func(...)
             if (asg.Targets.Count > 1)
             {
-                if (asg.Rhs is not CallOrIndex call || call.Target is not IdentRef ident)
+                CallOrIndex call; IdentRef ident;
+                if (asg.Rhs is CallOrIndex c0 && c0.Target is IdentRef id0) { call = c0; ident = id0; }
+                else if (asg.Rhs is IdentRef bareId)
+                {
+                    // `[x,z] = ginput` SIN paréntesis: en MATLAB es una llamada de 0 argumentos
+                    // (válido para funciones nargin 0). Se sintetiza el CallOrIndex vacío.
+                    ident = bareId;
+                    call = new CallOrIndex { Target = bareId, Args = new List<MatlabNode>() };
+                }
+                else
                     throw new MatlabRuntimeException("Multi-output requires function call on RHS");
                 MValue[] outs;
                 // Si `ident` es una VARIABLE con un function handle (p.ej. FITabk compartido por

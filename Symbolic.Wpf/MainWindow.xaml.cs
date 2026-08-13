@@ -316,6 +316,15 @@ namespace Calcpad.Wpf
             Mark("HTML templates loaded (template.html, jquery, calcpad-viz, source.html)");
             InvButton.Tag = false;
             HypButton.Tag = false;
+            // Ctrl+Z global: si hay un canvas de dibujo (talud/ginput) en el WebView2, deshace el
+            // ultimo vertice pase lo que pase con el foco del teclado (que no siempre esta en el WebView2).
+            // __hktUndo no existe si no hay dibujo -> no-op inofensivo, el editor hace su propio undo.
+            this.AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler((s, e) => {
+                if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
+                {
+                    try { WebViewer?.CoreWebView2?.ExecuteScriptAsync("window.__hktUndo&&window.__hktUndo()"); } catch { }
+                }
+            }), true);
             RichTextBox.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(RichTextBox_Scroll));
             DataObject.AddPastingHandler(RichTextBox, RichTextBox_Paste);
             _document = RichTextBox.Document;
@@ -1539,12 +1548,25 @@ namespace Calcpad.Wpf
                 // Pre-parse cleanup: forzar GC + compact LOH para que MatlabPipeline
                 // arranque con heap limpio. Reduce el riesgo de corrupcion bajo WPF+
                 // WebView2 (FEM scripts grandes generan muchas allocaciones managed).
-                GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-                System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
-                    System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-                GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-                GC.WaitForPendingFinalizers();
-                DiagLog("Pre-parse GC done");
+                // CONDICIONAL (perf): la compactación completa (bloqueante + LOH) solo cuando el heap
+                // ya está grande — típico tras un FEM pesado, que es el caso que puede corromper memoria
+                // nativa bajo WPF+WebView2. En scripts chicos / edición interactiva se hace un GC LIGERO
+                // no bloqueante, para no añadir latencia por tecla (antes se compactaba en CADA re-run).
+                long _heapNow = GC.GetTotalMemory(false);
+                if (_heapNow > 200L * 1024 * 1024)     // > 200 MB → FEM grande: compactar como antes
+                {
+                    GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                    System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
+                        System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                    GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+                    GC.WaitForPendingFinalizers();
+                    DiagLog($"Pre-parse GC done (full compaction, heap={_heapNow / (1024 * 1024)} MB)");
+                }
+                else
+                {
+                    GC.Collect(0, GCCollectionMode.Optimized, blocking: false);   // ligero, no bloquea
+                    DiagLog($"Pre-parse GC done (light, heap={_heapNow / (1024 * 1024)} MB)");
+                }
                 // Hint de auto-run: si el .m es solo funciones, invocar la que se llama igual
                 // que el archivo (la primaria en MATLAB). Se lee en el hilo UI antes del Task.Run.
                 var entryHint = string.IsNullOrWhiteSpace(CurrentFileName)
@@ -1583,6 +1605,7 @@ namespace Calcpad.Wpf
                     if (!string.IsNullOrEmpty(scriptDir)) pipeline.SetScriptDirectory(scriptDir, CurrentFileName);
                     pipeline.StreamingMode = true;  // chunks vivos al WebView2
                     pipeline.ControlValues = _controlValues;  // Piso 3: valores vivos de sliders/etc.
+                    pipeline.GeomValues = _geomValues;        // Piso 3: geometría dibujada con el cursor (ginput)
                     // Pre-split del source en lineas para mostrar la linea actual en el banner.
                     var sourceLines = sourceCapture.Replace("\r\n", "\n").Split('\n');
                     var parseStart = DateTime.UtcNow;
@@ -2982,6 +3005,9 @@ namespace Calcpad.Wpf
         // Piso 3: valores VIVOS de los controles interactivos (slider/numbox/checkbox). Vive en la
         // WPF y sobrevive a re-runs (el motor/pipeline es NUEVO cada cálculo). Se inyecta por run.
         private readonly Dictionary<string, double> _controlValues = new();
+        // Piso 3, canal 'geom': geometría dibujada con el cursor (ginput). Por Tag, la matriz de
+        // vértices [x,z]. Sobrevive a re-runs (el motor es nuevo cada cálculo) igual que _controlValues.
+        private readonly Dictionary<string, double[][]> _geomValues = new();
         private bool _recalcFromControl;              // el próximo cálculo viene de un control → saltar el guard
         private System.Windows.Threading.DispatcherTimer _ctrlDebounce;   // debounce de re-runs por arrastre
 
@@ -3783,6 +3809,42 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             }
             catch { }
             Application.Current.Shutdown();
+        }
+
+        // Boton interactivo: exporta el render ACTUAL del WebView2 a un PNG que el usuario
+        // elige con un dialogo. Reusa la misma captura de --shot (Page.captureScreenshot,
+        // pagina completa), pero SIN cerrar la app. Guarda la imagen limpia del Output.
+        private async void ExportPngButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (WebViewer?.CoreWebView2 == null) { await WebViewer.EnsureCoreWebView2Async(); }
+                string suggested = "salida.png";
+                if (!string.IsNullOrEmpty(CurrentFileName))
+                    suggested = Path.GetFileNameWithoutExtension(CurrentFileName) + ".png";
+                var dlg = new SaveFileDialog
+                {
+                    FileName = suggested,
+                    DefaultExt = ".png",
+                    Filter = "PNG (*.png)|*.png",
+                    Title = "Exportar el Output como PNG"
+                };
+                if (dlg.ShowDialog() != true) return;
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                var wStr = await WebViewer.CoreWebView2.ExecuteScriptAsync("Math.max(document.body.scrollWidth,document.documentElement.scrollWidth)");
+                var hStr = await WebViewer.CoreWebView2.ExecuteScriptAsync("Math.max(document.body.scrollHeight,document.documentElement.scrollHeight)");
+                int w = (int)double.Parse(wStr, ci), h = (int)double.Parse(hStr, ci);
+                var prm = "{\"format\":\"png\",\"captureBeyondViewport\":true,\"clip\":{\"x\":0,\"y\":0,\"width\":" + w + ",\"height\":" + h + ",\"scale\":1}}";
+                var res = await WebViewer.CoreWebView2.CallDevToolsProtocolMethodAsync("Page.captureScreenshot", prm);
+                using var jd = System.Text.Json.JsonDocument.Parse(res);
+                File.WriteAllBytes(dlg.FileName, Convert.FromBase64String(jd.RootElement.GetProperty("data").GetString()));
+                try { Title = AppInfo.Title + "  [PNG guardado: " + Path.GetFileName(dlg.FileName) + "]"; } catch { }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("No se pudo exportar el PNG:\n" + ex.Message, "Exportar PNG",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         // Vuelca _gifFrames capturas PNG numeradas a <dir> cada _gifIntervalMs ms, para
@@ -5229,6 +5291,8 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
         }
         private async void WebViewer_NavigationCompleted(object sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
         {
+          try
+          {
            if (!await _wv2Warper.CheckIsReportAsync())
                 return;
 
@@ -5268,6 +5332,14 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 await ScrollOutputToLine(_scrollOutputToLine, _scrollOffset);
                 _scrollOutputToLine = 0;
             }
+          }
+          catch (Exception ex)
+          {
+                // Nunca dejar que una excepción del handler de navegación (async void) escale a
+                // CriticalShutdown (que además dispara el FileNotFound de System.Diagnostics.Tracing
+                // del logger de telemetría de WPF al cerrar). Se traga y se sigue.
+                System.Diagnostics.Debug.WriteLine("WebViewer_NavigationCompleted swallowed: " + ex.Message);
+          }
         }
 
         private void WebViewer_KeyUp(object sender, KeyEventArgs e)
@@ -5397,6 +5469,13 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             else if (e.Key == Key.Escape && _webOnlyMode)
             {
                 ToggleWebOnlyMode();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                // Ctrl+Z con foco en el WebView2 → deshacer del canvas de dibujo (talud/ginput),
+                // si existe. Evita que el comando Undo del editor de código se lo lleve.
+                try { WebViewer?.CoreWebView2?.ExecuteScriptAsync("window.__hktUndo&&window.__hktUndo()"); } catch { }
                 e.Handled = true;
             }
         }
@@ -5650,6 +5729,11 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 WebViewer_LinkClicked();
             else if (message == "focused")
                 IsWebView2Focused = true;
+            else if (message == "focusweb")   // el canvas de dibujo pide foco de teclado (para Ctrl+Z)
+            {
+                IsWebView2Focused = true;
+                try { WebViewer.Focus(); Keyboard.Focus(WebViewer); } catch { }
+            }
             else if (message != null && message.StartsWith("{"))
                 OnControlMessage(message);   // Piso 3: {type:'ctrl',name,value}
         }
@@ -5662,11 +5746,29 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(json);
                 var root = doc.RootElement;
-                if (!root.TryGetProperty("type", out var t) || t.GetString() != "ctrl") return;
-                var name = root.GetProperty("name").GetString();
-                var val  = root.GetProperty("value").GetDouble();
-                if (string.IsNullOrEmpty(name)) return;
-                _controlValues[name] = val;
+                if (!root.TryGetProperty("type", out var t)) return;
+                var ty = t.GetString();
+                if (ty == "ctrl")
+                {
+                    var name = root.GetProperty("name").GetString();
+                    var val  = root.GetProperty("value").GetDouble();
+                    if (string.IsNullOrEmpty(name)) return;
+                    _controlValues[name] = val;
+                }
+                else if (ty == "geom")   // Piso 3: geometría dibujada con el cursor (ginput)
+                {
+                    var name = root.GetProperty("name").GetString();
+                    if (string.IsNullOrEmpty(name)) return;
+                    var list = new System.Collections.Generic.List<double[]>();
+                    foreach (var pt in root.GetProperty("points").EnumerateArray())
+                    {
+                        double px = 0, pz = 0; int k = 0;
+                        foreach (var c in pt.EnumerateArray()) { if (k == 0) px = c.GetDouble(); else if (k == 1) pz = c.GetDouble(); k++; }
+                        list.Add(new[] { px, pz });
+                    }
+                    _geomValues[name] = list.ToArray();
+                }
+                else return;
             }
             catch { return; }
             // THROTTLE (no debounce): mientras se ARRASTRA el slider llegan mensajes sin parar;
