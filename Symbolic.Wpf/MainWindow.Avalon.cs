@@ -29,7 +29,6 @@ namespace Calcpad.Wpf
     public partial class MainWindow
     {
         private FoldingManager _foldingManager;
-        private readonly MatlabFoldingStrategy _foldingStrategy = new();
         private CompletionWindow _avalonCompletion;
         private bool _desdeAvalon;      // el cambio de texto lo origino AvalonEdit
         private bool _haciaAvalon;      // estamos escribiendo EN AvalonEdit desde la app
@@ -123,10 +122,21 @@ namespace Calcpad.Wpf
 
         // ---------- plegado ----------
 
+        /// <summary>Quien SABE donde estan los bloques es el motor
+        /// (<see cref="Calcpad.Core.Matlab.MatlabBlocks"/>); aqui solo se traducen sus
+        /// tramos al +/- de AvalonEdit. Asi otra piel (Avalonia) pliega identico.
+        /// UpdateFoldings conserva los que ya estaban cerrados: plegar no se deshace al escribir.</summary>
         private void ActualizarPlegado()
         {
             if (_foldingManager is null) return;
-            try { _foldingStrategy.UpdateFoldings(_foldingManager, AvalonEditor.Document); }
+            try
+            {
+                var tramos = Calcpad.Core.Matlab.MatlabBlocks.Find(AvalonEditor.Text);
+                var pliegues = tramos
+                    .Select(t => new ICSharpCode.AvalonEdit.Folding.NewFolding(t.Start, t.End) { Name = t.Label })
+                    .ToList();
+                _foldingManager.UpdateFoldings(pliegues, -1);
+            }
             catch { /* con un bloque a medio escribir puede no cuadrar: no es critico */ }
         }
 
