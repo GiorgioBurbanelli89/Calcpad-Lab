@@ -235,7 +235,10 @@ namespace Calcpad.Core.Matlab
             : Name == "e" ? Math.E
             : throw new MatlabRuntimeException($"Symbolic var '{Name}' not bound");
         public override string ToInfix() => Name;
-        public override string ToLatex() => Name;
+        // Mismo criterio de nombres que el resto del .tex: `sigma_adm` → \sigma_{adm},
+        // `x__y` → \frac{x}{y}. Devolver el nombre crudo dejaba `sigma_adm` en modo
+        // matemático (se leía "sigma_a dm") y perdía las griegas.
+        public override string ToLatex() => MatlabLatexWriter.IdentToLatex(Name);
 
         // Nombres griegos comunes en notación matemática. Mapeo solo se aplica
         // en ToHtml (render Calcpad-Lab) — ToInfix sigue devolviendo el nombre

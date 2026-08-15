@@ -119,6 +119,22 @@
     <None Update="doc\calcpad-viz.umd.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- Libs que el motor/JS pide en runtime via https://calcpad.local/ (Plotly para
+         surf/contour, three+OrbitControls para los visores 3D). Sin ellas en bin\doc
+         el HTML del CLI abre con las graficas en blanco. -->
+    <None Update="doc\plotly-2.35.2.min.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="doc\three-0.145.0.min.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="doc\OrbitControls-0.145.0.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- Render headless HTML a PNG + .errores.txt (flag png). -->
+    <None Update="doc\render_html.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <PropertyGroup>

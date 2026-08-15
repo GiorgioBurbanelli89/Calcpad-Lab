@@ -22,6 +22,38 @@ CalcpadLabCli.exe mi_calculo.m salida.html
 El primer argumento es el `.m` de entrada; el segundo, el `.html` de salida. La app de
 escritorio (WPF) exporta además a **PDF** y **Word**.
 
+### Salidas
+
+```bash
+CalcpadLabCli.exe calculo.m salida.html      # reporte HTML (abre el navegador)
+CalcpadLabCli.exe calculo.m salida.html -s   # silencioso: no abre nada
+CalcpadLabCli.exe calculo.m txt              # texto plano Unicode + figuras a .png
+CalcpadLabCli.exe calculo.m --png            # HTML + captura PNG de lo que SE VE
+CalcpadLabCli.exe calculo.m --latex          # .tex (LaTeX real) + figuras .png externas
+```
+
+**`--png`** — el CLI no tiene navegador embebido (el WPF sí: WebView2), así que el HTML
+solo *dice* qué habría que dibujar. Con `--png` se abre el HTML en **Chromium headless**
+(Playwright, vía `doc/render_html.py`) y se guardan dos archivos junto al reporte:
+
+| archivo | qué contiene |
+|---|---|
+| `salida.png` | la página **como se ve**: gráficas dibujadas, ecuaciones, errores |
+| `salida.errores.txt` | consola JS, excepciones y recursos que no cargaron |
+
+Un reporte con gráficas **no se aprueba mirando el HTML crudo**: hay que ver el PNG *y*
+el `.errores.txt`. El CLI resume al final cuántos errores de consola hubo.
+
+Requiere Python con Playwright:
+`pip install playwright && python -m playwright install chromium`.
+El script se busca en `HEKATAN_RENDER_HTML`, junto al `.exe`, en `doc/` y en
+`%USERPROFILE%\.claude\render_html.py`.
+
+**`--latex`** (o `--tex`, o dar una salida `.tex`) — exporta la memoria a LaTeX real:
+texto, ecuaciones (`\frac`, `^{}`, `\sigma_{adm}`…) y las figuras como PNG externos
+(`salida_img01.png`) referenciados con `\includegraphics`. Es *headless*: no necesita
+navegador. El `.tex` compila con `pdflatex` (usa `amsmath`, `graphicx`, `geometry`).
+
 ---
 
 ## El archivo `.m` (MATLAB)

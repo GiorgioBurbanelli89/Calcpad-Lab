@@ -11,6 +11,7 @@ namespace Calcpad.Cli
     {
         private readonly StringBuilder _sb = new();
         private readonly string _htmlWorksheet;
+        private readonly string _docUrl;
         private readonly bool _isSilent;
 
         internal Converter(bool isSilent)
@@ -22,6 +23,15 @@ namespace Calcpad.Cli
             // Embed JS files inline instead of referencing via file:// (browsers block cross-origin file:// scripts)
             template = EmbedScript(template, "jquery-3.6.3.min.js", docPath);
             template = EmbedScript(template, "calcpad-viz.umd.js", docPath);
+
+            // El resto de `https://calcpad.local/...` (plotly, three, OrbitControls — los
+            // inyecta el motor o el propio JS en runtime) es un host VIRTUAL de WebView2:
+            // sólo existe dentro del WPF. En un navegador/Playwright no resuelve y las
+            // gráficas que dependen de esas libs quedan en blanco. Igual que el WPF,
+            // apuntamos a la carpeta doc\ real (file:///, ya URL-encoded con Uri).
+            _docUrl = new Uri(docPath).AbsoluteUri;
+            if (!_docUrl.EndsWith('/'))
+                _docUrl += '/';
 
             _htmlWorksheet = template;
             _isSilent = isSilent;
@@ -111,11 +121,14 @@ namespace Calcpad.Cli
 
         private string HtmlApplyWorksheet(string s)
         {
-            
+
             _sb.Append(_htmlWorksheet);
             _sb.Append(s);
             _sb.Append(" </body></html>");
-            return _sb.ToString();
+            // Resolver el host virtual DESPUÉS de pegar el cuerpo: el motor inyecta el
+            // <script> de Plotly en el cuerpo, y MatlabPlots pide three.js/OrbitControls
+            // desde JS en runtime. Si no se traduce, el navegador da ERR_NAME_NOT_RESOLVED.
+            return _sb.ToString().Replace("https://calcpad.local/", _docUrl);
         }
 
         private static string GetHtmlData(string html)

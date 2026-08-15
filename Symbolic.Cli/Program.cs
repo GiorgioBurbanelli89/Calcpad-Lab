@@ -211,6 +211,28 @@ namespace Calcpad.Cli
             }
         }
 
+        /// <summary>
+        /// Quita un flag del final de la cola de argumentos. Acepta las dos formas:
+        /// con archivo de salida delante (<c>"out.html --png"</c>) y sin él
+        /// (<c>"--png"</c> solo, cuando el usuario no dio salida). Antes sólo se
+        /// reconocía la primera, así que `script.m --latex` moría con
+        /// "Invalid output extension".
+        /// </summary>
+        private static bool StripFlag(ref string args, string flag)
+        {
+            if (args.EndsWith(' ' + flag, StringComparison.Ordinal))
+            {
+                args = args[..^(flag.Length + 1)].TrimEnd();
+                return true;
+            }
+            if (string.Equals(args, flag, StringComparison.Ordinal))
+            {
+                args = string.Empty;
+                return true;
+            }
+            return false;
+        }
+
         internal static string AddCultureExt(string ext) => string.Equals(_currentCultureName, "en", StringComparison.Ordinal) ?
                 $".{ext}" :
                 $".{_currentCultureName}.{ext}";
@@ -297,7 +319,12 @@ namespace Calcpad.Cli
 
             if (OperatingSystem.IsWindows())
                 fileName = fileName.ToLower();
-            
+
+            // UTF-8 en la consola: en modo conversión los mensajes salen ANTES de que Main
+            // fije la codificación, y los ✓/⚠ se veían como '?'. UTF-8 (no UTF-16) para
+            // que además funcione con la salida redirigida a un archivo o a otro proceso.
+            try { Console.OutputEncoding = Encoding.UTF8; } catch { /* consola sin soporte */ }
+
             // Calcpad Lab es MATLAB-only: SÓLO acepta .m. Cualquier otra extensión es error.
             int extLen = 2; // ".m"
             int i = fileName.IndexOf(".m ", StringComparison.OrdinalIgnoreCase);
@@ -317,20 +344,19 @@ namespace Calcpad.Cli
             bool isPureMatlab = true;   // DEFAULT: motor MATLAB puro
             bool isStreamDebug = false; // --stream-debug: imprime chunks via StatementCompleted
             bool isTaskRun = false;     // --task-run: ejecuta pipeline en Task.Run (replica WPF)
+            bool wantPng = false;       // --png: renderiza el HTML headless -> PNG + .errores.txt
+            bool wantLatex = false;     // --latex/--tex: exporta .tex (ecuaciones LaTeX + PNG)
             while (true)
             {
-                if (outFile.EndsWith(" --task-run", StringComparison.Ordinal))
-                { isTaskRun = true; outFile = outFile[..^11].TrimEnd(); continue; }
-                if (outFile.EndsWith(" --stream-debug", StringComparison.Ordinal))
-                { isStreamDebug = true; outFile = outFile[..^15].TrimEnd(); continue; }
-                if (outFile.EndsWith(" -s", StringComparison.Ordinal))
-                { isSilent = true; outFile = outFile[..^3].TrimEnd(); continue; }
-                if (outFile.EndsWith(" --pure", StringComparison.Ordinal))
-                { isPureMatlab = true; outFile = outFile[..^7].TrimEnd(); continue; }
-                if (outFile.EndsWith(" -p", StringComparison.Ordinal))
-                { isPureMatlab = true; outFile = outFile[..^3].TrimEnd(); continue; }
-                if (outFile.EndsWith(" --legacy", StringComparison.Ordinal))
-                { isPureMatlab = false; outFile = outFile[..^9].TrimEnd(); continue; }
+                if (StripFlag(ref outFile, "--png")) { wantPng = true; continue; }
+                if (StripFlag(ref outFile, "--latex")) { wantLatex = true; continue; }
+                if (StripFlag(ref outFile, "--tex")) { wantLatex = true; continue; }
+                if (StripFlag(ref outFile, "--task-run")) { isTaskRun = true; continue; }
+                if (StripFlag(ref outFile, "--stream-debug")) { isStreamDebug = true; continue; }
+                if (StripFlag(ref outFile, "-s")) { isSilent = true; continue; }
+                if (StripFlag(ref outFile, "--pure")) { isPureMatlab = true; continue; }
+                if (StripFlag(ref outFile, "-p")) { isPureMatlab = true; continue; }
+                if (StripFlag(ref outFile, "--legacy")) { isPureMatlab = false; continue; }
                 break;
             }
 
@@ -349,10 +375,17 @@ namespace Calcpad.Cli
                      string.Equals(outFile, "htm") ||
                      string.Equals(outFile, "docx") ||
                      string.Equals(outFile, "pdf") ||
+                     string.Equals(outFile, "tex") ||
                      string.Equals(outFile, "txt"))
                 outFile = Path.ChangeExtension(fileName, "." + outFile);
 
+            // --latex fuerza la extension .tex; y pedir un `.tex` de salida implica --latex.
+            if (wantLatex && !string.Equals(Path.GetExtension(outFile), ".tex", StringComparison.OrdinalIgnoreCase))
+                outFile = Path.ChangeExtension(outFile, ".tex");
+
             var ext = Path.GetExtension(outFile);
+            if (string.Equals(ext, ".tex", StringComparison.OrdinalIgnoreCase))
+                wantLatex = true;
             bool isTxt = ext == ".txt";
             // Modo TXT → gráficas a PNG (sin navegador): activar la captura antes de correr.
             if (isTxt)
@@ -381,8 +414,19 @@ namespace Calcpad.Cli
                 string unwrappedCode = File.ReadAllText(fileName);
                 // MATLAB path resolution: auto-incluir function-files de la misma carpeta.
                 unwrappedCode = MatlabFolderLoader.Load(unwrappedCode, fileName);
+
+                // ─── EXPORT LaTeX (--latex / --tex / salida .tex) ───
+                // El motor ya lo tiene (MatlabLatexWriter): texto + ecuaciones LaTeX reales
+                // y las figuras como PNG externos junto al .tex. Headless: sin navegador.
+                if (wantLatex)
+                {
+                    ExportLatex(unwrappedCode, fileName, outFile, isSilent);
+                    return true;
+                }
+
                 string htmlResult;
-                Converter converter = new(isSilent);
+                // Con --png no se abre el navegador: la salida visual es el PNG.
+                Converter converter = new(isSilent || wantPng);
                 if (isPureMatlab)
                 {
                     // ─── PIPELINE MATLAB-PURO (sin ExpressionParser/MathParser de Calcpad) ───
@@ -457,9 +501,18 @@ namespace Calcpad.Cli
                 else
                     WriteErrorAndWait(Messages.InvalidOutputExtensionMustBeHtmlDocxOrPdf);
 
+                // ── Render headless a PNG (--png) ──
+                // Chromium (Playwright) abre el HTML, deja dibujar el JS y captura lo que se
+                // VE de verdad + la consola. Es la unica forma de aprobar un reporte con
+                // graficas desde el CLI: el HTML crudo no dice si el JS dibujo o no.
+                if (wantPng && !isTxt && File.Exists(outFile))
+                {
+                    Console.WriteLine($"✓ Reporte generado: {outFile}");
+                    RenderPngHeadless(outFile);
+                }
                 // ── Abrir el reporte en el navegador ──
                 // NUNCA para .txt (texto plano, sin navegador). Tampoco con -s (silencioso).
-                if (!isSilent && !isTxt && File.Exists(outFile))
+                else if (!isSilent && !isTxt && File.Exists(outFile))
                 {
                     Console.WriteLine($"✓ Reporte generado: {outFile}");
                     OpenInBrowser(outFile);
@@ -474,6 +527,152 @@ namespace Calcpad.Cli
                 WriteErrorAndWait(ex.Message);
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Exporta el `.m` a un `.tex` (texto + ecuaciones LaTeX reales + figuras como PNG
+        /// externos junto al `.tex`). Reusa el motor: MatlabPipeline.RunLatex →
+        /// MatlabLatexWriter. Headless — no necesita navegador ni WebView2.
+        /// </summary>
+        private static void ExportLatex(string source, string mFile, string texPath, bool isSilent)
+        {
+            var pipeline = new Calcpad.Core.Matlab.MatlabPipeline
+            {
+                // Auto-run de archivo-función, igual que en el modo HTML.
+                EntryFunctionHint = Path.GetFileNameWithoutExtension(mFile)
+            };
+            var scriptDir = Path.GetDirectoryName(Path.GetFullPath(mFile));
+            if (!string.IsNullOrEmpty(scriptDir))
+                pipeline.SetScriptDirectory(scriptDir, mFile);
+
+            var written = pipeline.RunLatex(source, texPath);
+            if (isSilent)
+                return;
+
+            Console.WriteLine($"✓ LaTeX generado: {written}");
+            try
+            {
+                var dir = Path.GetDirectoryName(Path.GetFullPath(written));
+                var pngs = Directory.GetFiles(dir ?? ".", Path.GetFileNameWithoutExtension(written) + "_img*.png");
+                if (pngs.Length > 0)
+                    Console.WriteLine($"  {pngs.Length} figura(s) PNG junto al .tex");
+            }
+            catch { /* el .tex ya está escrito; el conteo de figuras es informativo */ }
+        }
+
+        /// <summary>
+        /// Renderiza el HTML generado en Chromium headless (Playwright, vía
+        /// <c>render_html.py</c>) y deja `&lt;salida&gt;.png` + `&lt;salida&gt;.errores.txt`.
+        /// Es lo que le falta al CLI frente al WPF (WebView2): ver si el JS dibujó de
+        /// verdad las gráficas/ecuaciones y qué errores soltó la consola.
+        /// </summary>
+        private static void RenderPngHeadless(string htmlFile)
+        {
+            var script = FindRenderScript();
+            if (script is null)
+            {
+                WriteError("⚠  --png: no encuentro render_html.py (busqué en HEKATAN_RENDER_HTML, " +
+                           $"{AppPath}, {AppPath}doc y %USERPROFILE%\\.claude).", true);
+                return;
+            }
+            var png = Path.ChangeExtension(htmlFile, ".png");
+            var errLog = Path.ChangeExtension(png, ".errores.txt");
+            foreach (var python in new[] { "python", "py", "python3" })
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = python,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8,
+                    };
+                    psi.ArgumentList.Add(script);
+                    psi.ArgumentList.Add(htmlFile);
+                    psi.ArgumentList.Add(png);
+                    using var proc = Process.Start(psi);
+                    if (proc is null)
+                        continue;
+
+                    var stdout = proc.StandardOutput.ReadToEnd();
+                    var stderr = proc.StandardError.ReadToEnd();
+                    proc.WaitForExit();
+                    if (proc.ExitCode != 0)
+                    {
+                        WriteError($"⚠  --png: {python} falló (código {proc.ExitCode}).", true);
+                        if (!string.IsNullOrWhiteSpace(stderr))
+                            WriteError(stderr.TrimEnd(), true);
+                        if (stderr.Contains("playwright", StringComparison.OrdinalIgnoreCase))
+                            Console.WriteLine("   Instalar:  pip install playwright  &&  python -m playwright install chromium");
+                        return;
+                    }
+                    if (!string.IsNullOrWhiteSpace(stdout))
+                        Console.Write(stdout);
+
+                    ReportRenderErrors(png, errLog);
+                    return;
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // ese intérprete no está en el PATH — probar el siguiente
+                }
+                catch (Exception ex)
+                {
+                    WriteError($"⚠  --png: {ex.Message}", true);
+                    return;
+                }
+            }
+            WriteError("⚠  --png: no encontré Python en el PATH (probé python, py, python3).", true);
+        }
+
+        /// <summary>Veredicto corto: ¿salió el PNG? ¿la consola tiró errores?</summary>
+        private static void ReportRenderErrors(string png, string errLog)
+        {
+            if (!File.Exists(png))
+            {
+                WriteError($"⚠  --png: no se generó {png}", true);
+                return;
+            }
+            var errors = 0;
+            if (File.Exists(errLog))
+            {
+                foreach (var line in File.ReadLines(errLog))
+                {
+                    if (line.StartsWith("[error", StringComparison.Ordinal) ||
+                        line.StartsWith("[pageerror", StringComparison.Ordinal) ||
+                        line.StartsWith("[reqfail", StringComparison.Ordinal))
+                        ++errors;
+                }
+            }
+            if (errors > 0)
+                WriteError($"⚠  {errors} error(es) de consola/JS — revisar {errLog}", true);
+            else
+                Console.WriteLine("✓ Render sin errores de consola/JS.");
+        }
+
+        /// <summary>Localiza render_html.py: variable de entorno → junto al .exe → doc\ → ~/.claude.</summary>
+        private static string FindRenderScript()
+        {
+            var candidates = new List<string>();
+            var fromEnv = Environment.GetEnvironmentVariable("HEKATAN_RENDER_HTML");
+            if (!string.IsNullOrWhiteSpace(fromEnv))
+                candidates.Add(fromEnv);
+
+            candidates.Add($"{AppPath}render_html.py");
+            candidates.Add($"{AppPath}doc{_dirSeparator}render_html.py");
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(home))
+                candidates.Add($"{home}{_dirSeparator}.claude{_dirSeparator}render_html.py");
+
+            foreach (var c in candidates)
+            {
+                if (File.Exists(c))
+                    return Path.GetFullPath(c);
+            }
+            return null;
         }
 
         // Sub/super-índices a Unicode (para ecuaciones en TXT sin HTML).

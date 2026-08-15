@@ -21,6 +21,14 @@ namespace Calcpad.Core.Matlab
     {
         private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
+        /// <summary>Activo mientras se exporta un .tex. Lo consulta el evaluador para que
+        /// `char(symExpr)` devuelva LaTeX en vez de HTML (misma marca PUA en ambos casos).</summary>
+        public static bool LatexExportMode { get; private set; }
+
+        // Marcas PUA que el evaluador pone alrededor del render de una expresión simbólica.
+        private const char SymOpen = '';
+        private const char SymClose = '';
+
         // ─────────────────────────────────────────────────────────────────────
         //  Punto de entrada: ejecuta los statements con el evaluador (para tener
         //  los valores calculados) y escribe el documento .tex. Las figuras se
@@ -74,7 +82,20 @@ namespace Calcpad.Core.Matlab
             var exported = MatlabPlots.ExportedPngs;
             int lastPngCount = exported.Count;
             MatlabPlots.PngExportMode = true;
-            ev.Output = _ => { };      // disp/fprintf: silenciado en v1
+            // disp/fprintf: se CAPTURAN. Hay memorias enteras escritas con fprintf
+            // (prosa + `char(expr)` simbolico): silenciarlas dejaba el .tex vacio.
+            // `char(sym)` emite LaTeX (no HTML) mientras dure la exportación.
+            LatexExportMode = true;
+            var dispBuf = new StringBuilder();
+            // fprintf ya trae sus propios '\n' (y el '\n\n' con el que el autor separa
+            // párrafos). AppendLine añadiría uno de más y partiría cada línea en un
+            // párrafo suelto: sólo se completa la última línea si venía sin salto.
+            ev.Output = msg =>
+            {
+                if (string.IsNullOrEmpty(msg)) return;
+                dispBuf.Append(msg);
+                if (!msg.EndsWith('\n')) dispBuf.Append('\n');
+            };
             ev.HtmlOut = _ => { };     // HTML inline: silenciado (las figuras van por ExportedPngs)
 
             // Pre-cálculo de escalares para @nombre que aparecen ANTES de su definición.
@@ -83,9 +104,23 @@ namespace Calcpad.Core.Matlab
             // Vuelca los PNG nuevos acumulados desde la última comprobación.
             void FlushNewPngs()
             {
+                if (lastPngCount == exported.Count) return;
+                FlushDisp();   // el texto impreso va ANTES de la figura que lo acompaña
                 for (int i = lastPngCount; i < exported.Count; i++)
                     body.Append(EmitPng(exported[i]));
                 lastPngCount = exported.Count;
+            }
+
+            // Vuelca lo que disp/fprintf hayan impreso desde el statement anterior.
+            // Prosa → párrafo LaTeX normal (reflow). Salida ALINEADA (matrices, tablas:
+            // líneas con 2+ espacios o tabs) → verbatim, que es donde el alineado ES el dato.
+            void FlushDisp()
+            {
+                if (dispBuf.Length == 0) return;
+                var text = dispBuf.ToString();
+                dispBuf.Clear();
+                foreach (var block in SplitParagraphs(text))
+                    body.Append(BlockToLatex(block));
             }
 
             try
@@ -96,6 +131,10 @@ namespace Calcpad.Core.Matlab
                     // ── Comentarios / directivas de texto ──
                     if (stmt is CommentStmt cs)
                     {
+                        // Volcar lo impreso hasta aquí: fprintf consecutivos forman UN
+                        // párrafo; sólo se corta cuando aparece otra cosa (texto del
+                        // autor, ecuación o figura).
+                        FlushDisp();
                         EmitComment(cs, body, ev, preview, EmitDataUri);
                         continue;
                     }
@@ -112,6 +151,9 @@ namespace Calcpad.Core.Matlab
 
                     // Void (fprintf/plot/figure/…) o suprimido → sin ecuación.
                     if (IsVoid(stmt) || GetSuppressed(stmt)) continue;
+
+                    // Va a salir una ecuación: primero el texto impreso que la precede.
+                    FlushDisp();
 
                     // ── @ PEGADO: si el SIGUIENTE stmt es un comentario inline (MISMA linea) con un
                     //    @ suelto (placeholder), fusionar: el @ = ESTA ecuacion, y NO emitirla aparte.
@@ -140,6 +182,8 @@ namespace Calcpad.Core.Matlab
                     EmitStatement(stmt, result, body);
                 }
 
+                FlushDisp();   // lo que imprimió el último statement
+
                 // Cerrar la figura que quedó abierta (patch/line sin saveas) → último PNG.
                 try
                 {
@@ -154,6 +198,7 @@ namespace Calcpad.Core.Matlab
             finally
             {
                 MatlabPlots.PngExportMode = prevPng;
+                LatexExportMode = false;
             }
 
             // ── Ensamblar el documento ──
@@ -880,6 +925,98 @@ namespace Calcpad.Core.Matlab
             "mkdir","save","saveas","load","clear","format","echo","pkg","tic","toc",
             "syms","global","persistent","subplot","tight_layout",
         };
+
+        // ─────────────────────────────────────────────────────────────────────
+        //  Salida de disp/fprintf → LaTeX
+        // ─────────────────────────────────────────────────────────────────────
+        /// <summary>Parte el texto impreso en bloques separados por líneas en blanco
+        /// (= párrafos en MATLAB, donde `\n\n` es el separador habitual).</summary>
+        private static List<string> SplitParagraphs(string text)
+        {
+            var blocks = new List<string>();
+            var current = new List<string>();
+            foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+            {
+                if (raw.Trim().Length == 0)
+                {
+                    if (current.Count > 0) { blocks.Add(string.Join("\n", current)); current.Clear(); }
+                }
+                else
+                    current.Add(raw);
+            }
+            if (current.Count > 0) blocks.Add(string.Join("\n", current));
+            return blocks;
+        }
+
+        /// <summary>Un bloque impreso a LaTeX. Se decide LÍNEA A LÍNEA: una línea
+        /// ALINEADA (matriz/tabla: 2+ espacios seguidos o tabs, y sin ecuación dentro)
+        /// va a `verbatim`, porque ahí el alineado ES el dato. Las de prosa se juntan en
+        /// un párrafo y LaTeX las reajusta. Un `disp(A)` seguido de un `fprintf` en el
+        /// mismo bloque conserva cada uno su forma.</summary>
+        private static string BlockToLatex(string block)
+        {
+            var lines = block.Split('\n');
+            var outSb = new StringBuilder();
+            var run = new List<string>();
+            bool runAligned = false;
+
+            void FlushRun()
+            {
+                if (run.Count == 0) return;
+                if (runAligned)
+                {
+                    outSb.Append("\\begin{verbatim}\n");
+                    foreach (var l in run) outSb.Append(l.TrimEnd()).Append('\n');
+                    outSb.Append("\\end{verbatim}\n\n");
+                }
+                else
+                {
+                    for (int i = 0; i < run.Count; i++)
+                    {
+                        if (i > 0) outSb.Append(' ');
+                        outSb.Append(EscapeTextKeepingMath(run[i].Trim()));
+                    }
+                    outSb.Append("\n\n");
+                }
+                run.Clear();
+            }
+
+            foreach (var l in lines)
+            {
+                bool aligned = l.IndexOf(SymOpen) < 0 &&
+                               (l.Contains('\t') || l.TrimStart().Contains("  ", StringComparison.Ordinal));
+                if (run.Count > 0 && aligned != runAligned) FlushRun();
+                runAligned = aligned;
+                run.Add(l);
+            }
+            FlushRun();
+            return outSb.ToString();
+        }
+
+        /// <summary>Escapa el texto impreso, pero lo que va entre las marcas PUA es LaTeX
+        /// que puso `char(symExpr)`: pasa tal cual dentro de `$…$`.</summary>
+        private static string EscapeTextKeepingMath(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            if (s.IndexOf(SymOpen) < 0) return EscapeText(s);
+
+            var sb = new StringBuilder(s.Length + 16);
+            int pos = 0;
+            while (pos < s.Length)
+            {
+                int open = s.IndexOf(SymOpen, pos);
+                if (open < 0) { sb.Append(EscapeText(s[pos..])); break; }
+                sb.Append(EscapeText(s[pos..open]));
+                int close = s.IndexOf(SymClose, open + 1);
+                if (close < 0)   // marca sin cerrar: no inventar, escapar el resto
+                { sb.Append(EscapeText(s[(open + 1)..])); break; }
+                var math = s[(open + 1)..close].Trim();
+                if (math.Length > 0)
+                    sb.Append('$').Append(math).Append('$');
+                pos = close + 1;
+            }
+            return sb.ToString();
+        }
 
         private static bool IsVoid(MatlabNode s)
         {

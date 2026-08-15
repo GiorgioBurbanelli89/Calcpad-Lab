@@ -3933,6 +3933,10 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                     // Para render HTML: envolver en sentinels PUA Unicode (..)
                     // que MatlabPipeline reconoce al flushear dispBuffer y deja pasar
                     // como HTML crudo (con clases CSS Calcpad: .dvc, .dvl, <sup>, etc).
+                    // En export .tex el destino NO es HTML: se emite LaTeX real entre
+                    // los MISMOS sentinels; MatlabLatexWriter los pasa a $…$.
+                    if (MatlabLatexWriter.LatexExportMode)
+                        return new MValue("" + a[0].Symbolic.ToLatex() + "");
                     return new MValue("" + a[0].Symbolic.ToHtml() + "");
                 }
                 if (a[0].IsScalar)
@@ -6151,6 +6155,10 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                     // simplificada renderizada en HTML CSS (Calcpad-style).
                     // Sentinels PUA () marcan el HTML para que MatlabPipeline
                     // lo deje pasar sin escapar al flushear el dispBuffer.
+                    // En export .tex el destino NO es HTML: se emite LaTeX real entre
+                    // los MISMOS sentinels; MatlabLatexWriter los pasa a $…$.
+                    if (MatlabLatexWriter.LatexExportMode)
+                        return new MValue("" + a[0].Symbolic.ToLatex() + "");
                     return new MValue("" + a[0].Symbolic.ToHtml() + "");
                 }
                 // Matriz simbólica: p.ej. sol(k) de solve() es un sym 1x1. Renderizar
@@ -6167,7 +6175,8 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                         for (int j = 0; j < cs; j++)
                         {
                             if (j > 0) sbc.Append("  ");
-                            var html = (sc[i, j] ?? new SymConst(0)).ToHtml();
+                            var symCell = sc[i, j] ?? new SymConst(0);
+                            var html = MatlabLatexWriter.LatexExportMode ? symCell.ToLatex() : symCell.ToHtml();
                             sbc.Append((char)0xE001).Append(html).Append((char)0xE002);
                         }
                     }
