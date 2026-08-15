@@ -2,11 +2,16 @@
 ; Genera un instalador setup.exe
 
 #define MyAppName "Hekatan Lab"
-#define MyAppVersion "1.1.3"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "Jorge Burbano"
 #define MyAppURL "https://github.com/GiorgioBurbanelli89/hekatan-lab"
 #define MyAppExeName "HekatanLab.exe"
 #define MyAppPublishDir "C:\Users\j-b-j\Desktop\CalcpadLab-Installer\CalcpadLab"
+; Publish del CLI (CalcpadLabCli.exe). Se instala EN LA MISMA carpeta que la app:
+; comparte el runtime self-contained, mkl\ (910 MB) y Calcpad.Core.dll, asi que
+; suma ~2 MB en vez de duplicar 1.1 GB.
+#define MyCliPublishDir "C:\Users\j-b-j\Desktop\CalcpadLab-Installer\CalcpadLabCli"
+#define MyCliExeName "CalcpadLabCli.exe"
 
 [Setup]
 AppId={{A7B8C9D0-1E2F-3A4B-5C6D-7E8F9A0B1C2D}
@@ -52,6 +57,18 @@ Source: "{#MyAppPublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesu
 ; La app al primer arranque los copia a {userdocs}\Calcpad-Lab\Examples del usuario real
 ; (evita el problema de install elevado donde {userdocs} apunta al admin).
 Source: "Examples-Lab\*"; DestDir: "{app}\Examples"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+
+; CLI headless (CalcpadLabCli.exe): .m -> HTML / TXT / .tex, y --png para capturar
+; el render. Solo sus archivos propios: el runtime, mkl\ y las DLL del motor ya
+; vienen con la app. El doc\ de la app le sirve igual (template mas nuevo).
+Source: "{#MyCliPublishDir}\{#MyCliExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyCliPublishDir}\CalcpadLabCli.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyCliPublishDir}\CalcpadLabCli.deps.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyCliPublishDir}\CalcpadLabCli.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+; render_html.py: lo usa --png para renderizar el HTML en Chromium headless.
+Source: "{#MyCliPublishDir}\doc\render_html.py"; DestDir: "{app}\doc"; Flags: ignoreversion
+; Settings.xml lo lee el CLI de su carpeta; sin el intentaria crearlo en Program Files.
+Source: "{#MyCliPublishDir}\Settings.xml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
 ; Documentation
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
