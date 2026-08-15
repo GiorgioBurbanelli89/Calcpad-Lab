@@ -3,6 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:wpf="clr-namespace:Calcpad.Wpf"
     xmlns:me="clr-namespace:Calcpad.Wpf.MathEditor"
+    xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit"
     xmlns:av="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="av" x:Class="Calcpad.Wpf.MainWindow"
     Title=" Hekatan Lab 1.0.0 — MATLAB-syntax scientific worksheets"
     Height="800"
@@ -950,6 +951,17 @@
                       Canvas.Left="107" Canvas.Top="5" VerticalAlignment="Center" 
                       Checked="AutoRunCheckBox_Checked" Unchecked="AutoRunCheckBox_Unchecked"
                       ToolTip="{x:Static wpf:MainWindowResources.RefreshResultsAfterEachEdit}" FontFamily="Roboto" />
+            <!-- ══ control del editor plegable ══ -->
+            <StackPanel Orientation="Horizontal" Canvas.Left="190" Canvas.Top="3">
+                <Button x:Name="PlegarTodoBtn" Content="⊟" Width="22" Height="20" Padding="0" Margin="0,0,3,0"
+                        ToolTip="Plegar todo (secciones %%, function, for, if...)" Click="PlegarTodo_Click"/>
+                <Button x:Name="DesplegarTodoBtn" Content="⊞" Width="22" Height="20" Padding="0" Margin="0,0,6,0"
+                        ToolTip="Desplegar todo" Click="DesplegarTodo_Click"/>
+                <CheckBox x:Name="EditorPlegableChk" Content="Plegado" IsChecked="True" VerticalAlignment="Center"
+                          FontSize="12" FontFamily="Roboto"
+                          ToolTip="Editor con carpetas plegables (AvalonEdit). Desmarcado = editor clasico de Hekatan Lab."
+                          Checked="EditorPlegable_Changed" Unchecked="EditorPlegable_Changed"/>
+            </StackPanel>
         </Canvas>
         <!-- ═══ Botones rápidos estilo MATLAB (en el hueco liberado de Calcpad) ═══ -->
         <TextBlock Grid.Row="0" Text="Comment:" FontSize="11.5" Foreground="{DynamicResource ThemeTextMuted}"
@@ -1598,6 +1610,12 @@
                                         <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∫" FontSize="26"/><Run Text="0" BaselineAlignment="Subscript" FontSize="10"/><Run Text="1" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" dx = "/><Run Text="⅓" FontSize="19"/><Run Text="   (a mano, con for)"/><LineBreak/><Run Text="La MISMA integral con un bucle (trapecio)." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
                                     </MenuItem.ToolTip>
                                 </MenuItem>
+                                <MenuItem Header="Integral de Gauss (gaussint)" Click="Button_Click"
+                                          Tag="syms x§I_g = gaussint(x^2, x, 0, 1)">
+                                    <MenuItem.ToolTip>
+                                        <ToolTip Style="{StaticResource MathTip}"><TextBlock FontSize="16"><Run Text="∫" FontSize="26"/><Run Text="0" BaselineAlignment="Subscript" FontSize="10"/><Run Text="1" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" x"/><Run Text="2" BaselineAlignment="Superscript" FontSize="10"/><Run Text=" dx = "/><Run Text="⅓" FontSize="19"/><Run Text="   (Gauss-Legendre)"/><LineBreak/><Run Text="Cuadratura de Gauss: gaussint(expr, x, a, b, n). Sin disp ni fprintf." FontSize="11" Foreground="{DynamicResource ThemeTextMuted}"/></TextBlock></ToolTip>
+                                    </MenuItem.ToolTip>
+                                </MenuItem>
                                 <MenuItem Header="── Sumas / productos ──" IsEnabled="False"/>
                                 <MenuItem Header="Suma  Σ  (vectorizada)" Click="Button_Click"
                                           Tag="s = sum((1:100).^2)">
@@ -1781,8 +1799,22 @@
                             </Paragraph>
                         </FlowDocument>
                     </RichTextBox>
+                    <!-- ══ el editor con PLEGADO (AvalonEdit) ══
+                         Va encima del RichTextBox, en la misma celda. El RichTextBox sigue
+                         ahi, oculto, alimentado por SetInputText: asi TODO lo demas de la app
+                         (autorun, calcular, guardar, insertar, MathCanvas) sigue igual.
+                         El boton "Clasico" alterna para comparar los dos editores. -->
+                    <ae:TextEditor x:Name="AvalonEditor" Grid.Row="0" Margin="6,33,5,24"
+                                   Background="{DynamicResource ThemeEditorBg}"
+                                   Foreground="{DynamicResource ThemeText}"
+                                   FontFamily="Consolas" FontSize="14"
+                                   ShowLineNumbers="True"
+                                   WordWrap="False"
+                                   HorizontalScrollBarVisibility="Auto"
+                                   VerticalScrollBarVisibility="Auto"
+                                   Padding="4,2"/>
                     <Canvas Grid.Row="0" x:Name="LineNumbers" HorizontalAlignment="Left" Margin="6,33,0,24" Width="40"/>
-                    <Border Grid.Row="0" BorderThickness="0,0,1,0" HorizontalAlignment="Left" Margin="48,28,0,24" Width="2" BorderBrush="{DynamicResource ThemeButtonBorder}"/>
+                    <Border Grid.Row="0" x:Name="LineNumbersBorder" BorderThickness="0,0,1,0" HorizontalAlignment="Left" Margin="48,28,0,24" Width="2" BorderBrush="{DynamicResource ThemeButtonBorder}"/>
                     <ListBox Grid.Row="0" x:Name="AutoCompleteListBox" 
                              HorizontalAlignment="Left" 
                              VerticalAlignment="Top" 

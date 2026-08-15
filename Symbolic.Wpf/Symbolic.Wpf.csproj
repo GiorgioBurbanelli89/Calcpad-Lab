@@ -11,7 +11,7 @@
     <Authors>Giorgio Burbanelli (Calcpad Lab fork) — original: Nedelcho Ganchovski</Authors>
     <RootNamespace>Calcpad.Wpf</RootNamespace>
     <Platforms>AnyCPU</Platforms>
-		<Version>1.1.0</Version>
+		<Version>1.3.0</Version>
 		<Company>Hekatan</Company>
     <PackageId>CalcpadLab</PackageId>
     <Product>Calcpad Lab</Product>
@@ -33,6 +33,13 @@
   <ItemGroup>
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3595.46" />
+    <!-- Editor de codigo con PLEGADO (+/-) de secciones %%, function, for, if... -->
+    <PackageReference Include="AvalonEdit" Version="6.3.0.90" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Resaltado MATLAB para AvalonEdit (generado desde los builtins REALES del motor) -->
+    <EmbeddedResource Include="Matlab.xshd" />
   </ItemGroup>
   
   <ItemGroup>

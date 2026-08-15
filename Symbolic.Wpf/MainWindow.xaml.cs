@@ -248,6 +248,37 @@ namespace Calcpad.Wpf
                 System.IO.File.WriteAllText(logPath, _startupLog.ToString());
             } catch { }
         }
+        // Warmup del pipeline MATLAB al arranque: paga en un hilo de fondo el static ctor
+        // (MKL/LAPACK) + el JIT de primera llamada de las rutas calientes (≈50-100ms), ANTES
+        // de que el usuario corra nada → el primer run real va a ~1-10ms y no se siente lento.
+        // El primer run hace `await _warmupTask` (serializa: los caches del JIT no son
+        // thread-safe). Script sin side-effects (sin archivos ni plots a disco).
+        private static readonly System.Threading.Tasks.Task _warmupTask = StartPipelineWarmup();
+
+        private static System.Threading.Tasks.Task StartPipelineWarmup()
+        {
+            const string warmupSrc =
+                "x = 5;\n" +
+                "disp(x);\n" +
+                "A = [1 2; 3 4];\n" +
+                "B = A * A';\n" +
+                "f = @(t) exp(-t.^2);\n" +
+                "q1 = quadgk(f, 0, 1);\n" +
+                "q2 = quadl(f, 0, 1);\n" +
+                "q3 = integral2(@(x, y) x.*y, 0, 1, 0, 1);\n" +
+                "% #md\n" +
+                "% ## Warmup\n" +
+                "% - a\n" +
+                "% - b\n" +
+                "% #endmd\n" +
+                "disp(q1 + q2 + q3);\n";
+            return System.Threading.Tasks.Task.Run(() =>
+            {
+                try { var warm = new Calcpad.Core.Matlab.MatlabPipeline(); warm.Run(warmupSrc); }
+                catch { /* el run real no depende del warmup */ }
+            });
+        }
+
         public MainWindow()
         {
             // ── Startup profiling ──
@@ -267,6 +298,7 @@ namespace Calcpad.Wpf
             _ = Calcpad.Core.BlasInterop.Available;
             _ = Calcpad.Core.LapackInterop.Available;
             Mark($"Native DLLs pre-loaded (BLAS={Calcpad.Core.BlasInterop.Available}, LAPACK={Calcpad.Core.LapackInterop.Available})");
+            Mark("MATLAB pipeline warmup dispatched (hilo de fondo)");
             _parser = new();
             Mark("ExpressionParser ctor");
             _highlighter = new();
@@ -1598,9 +1630,14 @@ namespace Calcpad.Wpf
                     }
                 }
                 else
-                await Task.Run(() =>
                 {
-                    var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
+                    // Esperar el warmup de arranque (ya completado casi siempre): serializa el
+                    // acceso a los caches del JIT (no thread-safe) y deja el primer run real
+                    // en ~1-10ms en vez de ~50-80ms.
+                    try { await _warmupTask; } catch { }
+                    await Task.Run(() =>
+                    {
+                        var pipeline = new Calcpad.Core.Matlab.MatlabPipeline();
                     pipeline.EntryFunctionHint = entryHint;
                     if (!string.IsNullOrEmpty(scriptDir)) pipeline.SetScriptDirectory(scriptDir, CurrentFileName);
                     pipeline.StreamingMode = true;  // chunks vivos al WebView2
@@ -1625,9 +1662,13 @@ namespace Calcpad.Wpf
                                     preview = sourceLines[line - 1].Trim();
                                     if (preview.Length > 70) preview = preview.Substring(0, 67) + "...";
                                 }
-                                var label = elapsed < 1.0
-                                    ? $"L{line} ({(elapsed * 1000):F0}ms) — {preview}"
-                                    : $"L{line} ({elapsed:F1}s) — {preview}";
+                                // Tiempo acumulado solo para runs lentos (≥0.5s): en runs rápidos
+                                // el banner no muestra "X ms" para no parecer lento sin serlo.
+                                var label = elapsed < 0.5
+                                    ? $"L{line} — {preview}"
+                                    : elapsed < 60.0
+                                        ? $"L{line} ({elapsed:F1}s) — {preview}"
+                                        : $"L{line} ({elapsed / 60.0:F1}m) — {preview}";
                                 var escapedLabel = System.Text.Json.JsonSerializer.Serialize(label);
                                 await WebViewer.ExecuteScriptAsync(
                                     $"window.__matlabSetStatus && window.__matlabSetStatus({escapedLabel});");
@@ -1675,6 +1716,7 @@ namespace Calcpad.Wpf
                     }
                     DiagLog("After Task.Run body");
                 });
+                }
                 DiagLog("After await Task.Run");
                 StartupMark($"MATLAB pure pipeline: done (HTML {(pureHtml?.Length ?? 0) / 1024} KB)");
                 // Limpiar el banner "Calculando..." y mostrar errores top-level si hay
@@ -2381,6 +2423,7 @@ namespace Calcpad.Wpf
             RichTextBox.EndChange();
             _isTextChangedEnabled = true;
             _forceHighlight = true;
+            SincronizarHaciaAvalon();          // EDITOR PLEGABLE: el archivo abierto pasa al editor plegable
             return hasForm;
         }
 
@@ -2470,6 +2513,7 @@ namespace Calcpad.Wpf
             HighLighter.Clear(_currentParagraph);
             RichTextBox.EndChange();
             _isTextChangedEnabled = true;
+            SincronizarHaciaAvalon();          // EDITOR PLEGABLE
         }
 
         const string Tabs = "\t\t\t\t\t\t\t\t\t\t\t\t";
@@ -3227,6 +3271,7 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             SwapThemeBrushes(dark);
             ApplyWebViewBackground(dark);
             HighLighter.ApplyTheme(dark);
+            AplicarColoresAvalon(dark);            // EDITOR PLEGABLE: el editor plegable sigue el tema
             // FORZAR re-resaltado de TODO el documento: los Run existentes conservan el Foreground
             // del tema anterior (en gold Const/Function son NEGROS → invisibles al pasar a dark).
             try { _forceHighlight = true; ForceHighlight(); } catch { }
@@ -3326,8 +3371,10 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             {
                 Add("Por función: integral()", Calcpad.Core.LoopBuilder.Form.Function);
                 Add("Por función: trapz", Calcpad.Core.LoopBuilder.Form.FunctionTrapz);
+                Add("Por función: gaussint", Calcpad.Core.LoopBuilder.Form.FunctionGauss);
                 Add("Por bucle: trapecio", Calcpad.Core.LoopBuilder.Form.LoopTrapezoid);
                 Add("Por bucle: Simpson", Calcpad.Core.LoopBuilder.Form.LoopSimpson);
+                Add("Por bucle: Gauss-Legendre", Calcpad.Core.LoopBuilder.Form.LoopGauss);
             }
             else
             {
@@ -3695,6 +3742,7 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                     if (i + 1 < argv.Length && int.TryParse(argv[i + 1], out var iv)) { _gifIntervalMs = iv; i++; }
                 }
                 else if (argv[i] == "--ctl" && i + 1 < argv.Length) _ctlDir = argv[++i];
+                else if (argv[i] == "--plegar") { /* lo lee PrepararAvalon */ }
                 else fileParts.Add(argv[i]);
             }
             // Captura headless (--shot/--gif/--pdf): imagen LIMPIA sin datatip de hover (= saveas de MATLAB).
@@ -3980,6 +4028,9 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
 
         private async void RichTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
+            // EDITOR PLEGABLE: si el cambio NO salio del editor plegable (botones de insertar,
+            // teclado de simbolos, MathCanvas...), hay que devolverlo alli al terminar.
+            var vinoDeAvalon = _desdeAvalon;
             if (_isTextChangedEnabled)
             {
                 if (_document.Blocks.Count == 0)
@@ -4037,6 +4088,10 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                     }
                     catch { }
                 }
+
+                // EDITOR PLEGABLE: Code → editor plegable (mismo patron que MathCanvas de arriba)
+                if (!vinoDeAvalon)
+                    SincronizarHaciaAvalon();
             }
         }
 
@@ -4828,6 +4883,10 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             var h = SystemParameters.PrimaryScreenHeight;
             if (Height > h)
                 Height = h;
+
+            // EDITOR PLEGABLE: montar el editor con plegado (AvalonEdit) encima del clasico.
+            PrepararAvalon();
+            AplicarColoresAvalon(_isDarkTheme);
         }
 
         private async void Include_Click(object sender, MouseButtonEventArgs e)

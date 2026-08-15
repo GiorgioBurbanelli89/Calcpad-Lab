@@ -1,0 +1,150 @@
+<?xml version="1.0"?>
+<!-- GENERADO por gen_xshd.py — Resaltado MATLAB para AvalonEdit (Hekatan Lab Borrador).
+     Las funciones son las REALES del motor de Hekatan Lab (ver MatlabBuiltins.g.cs).
+     Los colores se re-tinen en caliente segun el tema (ApplyHighlightingColors). -->
+<SyntaxDefinition name="MATLAB" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+
+  <Color name="Comment"   foreground="#5AC37E" />
+  <Color name="Section"   foreground="#5AC37E" fontWeight="bold" />
+  <Color name="TituloDoc" foreground="#F5C043" fontWeight="bold" />
+  <Color name="TextoDoc"  foreground="#9DB8D2" />
+  <Color name="String"    foreground="#E5C07B" />
+  <Color name="Number"    foreground="#9ECBFF" />
+  <Color name="Keyword"   foreground="#C678DD" fontWeight="bold" />
+  <Color name="Constant"  foreground="#56B6C2" />
+  <Color name="Builtin"   foreground="#61AFEF" />
+
+  <RuleSet ignoreCase="false">
+
+    <!-- comentario en bloque  %{ ... %}  (cada marca en su propia linea) -->
+    <Span color="Comment" multiline="true">
+      <Begin>^[ \t]*%\{[ \t]*$</Begin>
+      <End>^[ \t]*%\}[ \t]*$</End>
+    </Span>
+
+    <!-- Las CADENAS van antes del comentario, para que un % entre comillas no lo abra.
+         Van como Rule (no Span) para no confundir la comilla de TRANSPUESTA (A') con
+         una cadena: la simple solo abre si NO viene detras de identificador, ), ], } o . -->
+    <Rule color="String">"[^"\n]*"</Rule>
+    <Rule color="String">(?&lt;![A-Za-z0-9_\)\]\}\.'])'[^'\n]*'</Rule>
+
+    <!-- Comentarios que SI salen en el worksheet (el resto se oculta, como MATLAB):
+         %" titulo visible   ·   %' texto visible -->
+    <Span color="TituloDoc">
+      <Begin>%"</Begin>
+    </Span>
+    <Span color="TextoDoc">
+      <Begin>%'</Begin>
+    </Span>
+
+    <!-- seccion %% (celda de MATLAB): OCULTA en el reporte, pero se PLIEGA en el editor -->
+    <Span color="Section">
+      <Begin>%%</Begin>
+    </Span>
+
+    <!-- comentario de linea -->
+    <Span color="Comment">
+      <Begin>%</Begin>
+    </Span>
+
+    <!-- palabras clave de control -->
+    <Keywords color="Keyword">
+      <Word>function</Word><Word>end</Word><Word>endfunction</Word><Word>for</Word><Word>parfor</Word><Word>while</Word><Word>endwhile</Word><Word>if</Word>
+      <Word>elseif</Word><Word>else</Word><Word>endif</Word><Word>switch</Word><Word>case</Word><Word>otherwise</Word><Word>endswitch</Word><Word>break</Word>
+      <Word>continue</Word><Word>return</Word><Word>try</Word><Word>catch</Word><Word>end_try_catch</Word><Word>do</Word><Word>until</Word><Word>global</Word>
+      <Word>persistent</Word><Word>classdef</Word><Word>properties</Word><Word>methods</Word><Word>events</Word><Word>enumeration</Word><Word>arguments</Word><Word>spmd</Word>
+      <Word>nargin</Word><Word>nargout</Word><Word>varargin</Word><Word>varargout</Word>
+    </Keywords>
+
+    <!-- constantes -->
+    <Keywords color="Constant">
+      <Word>true</Word><Word>false</Word><Word>pi</Word><Word>Inf</Word><Word>inf</Word><Word>NaN</Word><Word>nan</Word><Word>NaT</Word>
+      <Word>eps</Word><Word>realmax</Word><Word>realmin</Word><Word>Intmax</Word><Word>intmin</Word>
+    </Keywords>
+
+    <!-- funciones REALES del motor -->
+    <Keywords color="Builtin">
+      <Word>abs</Word><Word>accumarray</Word><Word>acos</Word><Word>acosd</Word><Word>acosh</Word><Word>acot</Word><Word>acoth</Word><Word>acsc</Word>
+      <Word>acsch</Word><Word>addlistener</Word><Word>addpath</Word><Word>adjacency</Word><Word>all</Word><Word>ancestor</Word><Word>and</Word><Word>angle</Word>
+      <Word>annotation</Word><Word>any</Word><Word>arrayfun</Word><Word>asec</Word><Word>asech</Word><Word>asin</Word><Word>asind</Word><Word>asinh</Word>
+      <Word>assert</Word><Word>assignin</Word><Word>assume</Word><Word>assumeAlso</Word><Word>atan</Word><Word>atan2</Word><Word>atan2d</Word><Word>atand</Word>
+      <Word>atanh</Word><Word>axes</Word><Word>axis</Word><Word>bar</Word><Word>barh</Word><Word>beta</Word><Word>bicg</Word><Word>bin2dec</Word>
+      <Word>binopdf</Word><Word>blanks</Word><Word>blkdiag</Word><Word>bode</Word><Word>box</Word><Word>brush</Word><Word>bsxfun</Word><Word>btdb</Word>
+      <Word>butter</Word><Word>bvp4c</Word><Word>c2d</Word><Word>camlight</Word><Word>camorbit</Word><Word>campos</Word><Word>camproj</Word><Word>camroll</Word>
+      <Word>camtarget</Word><Word>camup</Word><Word>camva</Word><Word>camzoom</Word><Word>care</Word><Word>cat</Word><Word>cat3</Word><Word>caxis</Word>
+      <Word>cd</Word><Word>ceil</Word><Word>cell</Word><Word>cell2mat</Word><Word>cellfun</Word><Word>char</Word><Word>cheby1</Word><Word>cheby2</Word>
+      <Word>chi2cdf</Word><Word>chi2pdf</Word><Word>chol</Word><Word>circshift</Word><Word>cla</Word><Word>clc</Word><Word>clear</Word><Word>clf</Word>
+      <Word>clim</Word><Word>close</Word><Word>coeffs</Word><Word>collect</Word><Word>colorbands</Word><Word>colorbar</Word><Word>colormap</Word><Word>colspace</Word>
+      <Word>columns</Word><Word>complex</Word><Word>cond</Word><Word>conj</Word><Word>conncomp</Word><Word>contains</Word><Word>contour</Word><Word>contourf</Word>
+      <Word>conv</Word><Word>conv2</Word><Word>cos</Word><Word>cosd</Word><Word>cosh</Word><Word>cot</Word><Word>coth</Word><Word>cross</Word>
+      <Word>csc</Word><Word>csch</Word><Word>csvread</Word><Word>csvwrite</Word><Word>cummax</Word><Word>cummin</Word><Word>cumprod</Word><Word>cumsum</Word>
+      <Word>cumtrapz</Word><Word>d2c</Word><Word>damp</Word><Word>datacursormode</Word><Word>dblquad</Word><Word>dbz</Word><Word>dcgain</Word><Word>deblank</Word>
+      <Word>dec2bin</Word><Word>decomposition</Word><Word>deconv</Word><Word>deg2rad</Word><Word>degree</Word><Word>delaunay</Word><Word>delaunayTriangulation</Word><Word>density</Word>
+      <Word>det</Word><Word>diag</Word><Word>diff</Word><Word>digraph</Word><Word>dirac</Word><Word>disp</Word><Word>dlmread</Word><Word>dlmwrite</Word>
+      <Word>dot</Word><Word>double</Word><Word>drawnow</Word><Word>dsolve</Word><Word>eig</Word><Word>eigenvals</Word><Word>eigenvecs</Word><Word>ellip</Word>
+      <Word>endsWith</Word><Word>eq</Word><Word>erase</Word><Word>erf</Word><Word>erfc</Word><Word>erfinv</Word><Word>error</Word><Word>etabs_run</Word>
+      <Word>evalc</Word><Word>evalin</Word><Word>exist</Word><Word>exit</Word><Word>exp</Word><Word>expand</Word><Word>expm</Word><Word>exportgraphics</Word>
+      <Word>eye</Word><Word>factor</Word><Word>factorial</Word><Word>fclose</Word><Word>fdisp</Word><Word>feedback</Word><Word>feof</Word><Word>feval</Word>
+      <Word>fflush</Word><Word>fft</Word><Word>fft2</Word><Word>fftshift</Word><Word>fgetl</Word><Word>fgets</Word><Word>fieldnames</Word><Word>figure</Word>
+      <Word>fileparts</Word><Word>fill</Word><Word>fill3</Word><Word>filter</Word><Word>find</Word><Word>fix</Word><Word>flip</Word><Word>fliplr</Word>
+      <Word>flipud</Word><Word>floor</Word><Word>fminbnd</Word><Word>fmincon</Word><Word>fminsearch</Word><Word>fopen</Word><Word>format</Word><Word>fourier</Word>
+      <Word>fpdf</Word><Word>fprintf</Word><Word>fputs</Word><Word>freqz</Word><Word>fscanf</Word><Word>fsolve</Word><Word>fspecial</Word><Word>full</Word>
+      <Word>fullfile</Word><Word>funm</Word><Word>fzero</Word><Word>gamma</Word><Word>gampdf</Word><Word>gauss_seidel</Word><Word>gaussint</Word><Word>gaussint2</Word>
+      <Word>gca</Word><Word>gcd</Word><Word>gcf</Word><Word>ge</Word><Word>genpath</Word><Word>get</Word><Word>getappdata</Word><Word>getframe</Word>
+      <Word>ginput</Word><Word>gmres</Word><Word>gradient</Word><Word>graph</Word><Word>graphics_toolkit</Word><Word>grid</Word><Word>griddata</Word><Word>gt</Word>
+      <Word>guidata</Word><Word>haspardiso</Word><Word>heatmap</Word><Word>heaviside</Word><Word>hilbert</Word><Word>hist</Word><Word>histc</Word><Word>histcounts</Word>
+      <Word>histogram</Word><Word>histogram2</Word><Word>hold</Word><Word>horzcat</Word><Word>hoverdata</Word><Word>hypot</Word><Word>ifft</Word><Word>ifft2</Word>
+      <Word>ilaplace</Word><Word>imag</Word><Word>image</Word><Word>imagesc</Word><Word>imfilter</Word><Word>importdata</Word><Word>impulse</Word><Word>imread</Word>
+      <Word>imresize</Word><Word>imshow</Word><Word>imwrite</Word><Word>inpolygon</Word><Word>inputname</Word><Word>int</Word><Word>int2str</Word><Word>integral</Word>
+      <Word>integral2</Word><Word>integral3</Word><Word>interp1</Word><Word>interp2</Word><Word>intersect</Word><Word>inv</Word><Word>inverse</Word><Word>ipermute</Word>
+      <Word>isInterior</Word><Word>isKey</Word><Word>isUnit</Word><Word>iscell</Word><Word>ischar</Word><Word>iscomplex</Word><Word>isempty</Word><Word>isequal</Word>
+      <Word>isfield</Word><Word>isfinite</Word><Word>isinf</Word><Word>islogical</Word><Word>ismember</Word><Word>isnan</Word><Word>isnumeric</Word><Word>isreal</Word>
+      <Word>isscalar</Word><Word>issparse</Word><Word>isstring</Word><Word>isstruct</Word><Word>isvector</Word><Word>iztrans</Word><Word>jacobian</Word><Word>jet</Word>
+      <Word>jsondecode</Word><Word>jsonencode</Word><Word>keys</Word><Word>kron</Word><Word>laplace</Word><Word>latex</Word><Word>lcm</Word><Word>ldivide</Word>
+      <Word>le</Word><Word>legend</Word><Word>length</Word><Word>light</Word><Word>lighting</Word><Word>limit</Word><Word>line</Word><Word>linprog</Word>
+      <Word>linsolve</Word><Word>linspace</Word><Word>load</Word><Word>log</Word><Word>log10</Word><Word>log2</Word><Word>logm</Word><Word>logspace</Word>
+      <Word>lower</Word><Word>lqe</Word><Word>lqr</Word><Word>lsim</Word><Word>lsqcurvefit</Word><Word>lsqnonlin</Word><Word>lt</Word><Word>lu</Word>
+      <Word>magic</Word><Word>map</Word><Word>margin</Word><Word>mat2str</Word><Word>material</Word><Word>max</Word><Word>mean</Word><Word>median</Word>
+      <Word>mesh</Word><Word>mex</Word><Word>mfilename</Word><Word>min</Word><Word>minus</Word><Word>mkdir</Word><Word>mkoctfile</Word><Word>mldivide</Word>
+      <Word>mod</Word><Word>movegui</Word><Word>mtimes</Word><Word>nchoosek</Word><Word>ndims</Word><Word>ne</Word><Word>neighbors</Word><Word>nnz</Word>
+      <Word>nonzeros</Word><Word>norm</Word><Word>normcdf</Word><Word>norminv</Word><Word>normpdf</Word><Word>not</Word><Word>nthroot</Word><Word>null</Word>
+      <Word>num2str</Word><Word>numedges</Word><Word>numel</Word><Word>numnodes</Word><Word>nyquist</Word><Word>ode23</Word><Word>ode4</Word><Word>ode45</Word>
+      <Word>ode_euler</Word><Word>ones</Word><Word>ones3</Word><Word>or</Word><Word>orth</Word><Word>pad</Word><Word>pan</Word><Word>parallel</Word>
+      <Word>patch</Word><Word>pause</Word><Word>pcg</Word><Word>pchip</Word><Word>pcolor</Word><Word>pdepe</Word><Word>peaks</Word><Word>permute</Word>
+      <Word>piecewise</Word><Word>pinv</Word><Word>plot</Word><Word>plot3</Word><Word>plus</Word><Word>plus_str</Word><Word>poisspdf</Word><Word>polar</Word>
+      <Word>pole</Word><Word>poly</Word><Word>poly2sym</Word><Word>polyder</Word><Word>polyfit</Word><Word>polyint</Word><Word>polyval</Word><Word>polyvalm</Word>
+      <Word>power</Word><Word>prctile</Word><Word>pretty</Word><Word>primes</Word><Word>print</Word><Word>printf</Word><Word>prod</Word><Word>puts</Word>
+      <Word>pwd</Word><Word>qr</Word><Word>quad</Word><Word>quadgk</Word><Word>quadl</Word><Word>quadprog</Word><Word>quit</Word><Word>quiver</Word>
+      <Word>quiver3</Word><Word>rad2deg</Word><Word>rand</Word><Word>randi</Word><Word>randn</Word><Word>randperm</Word><Word>rank</Word><Word>rdivide</Word>
+      <Word>readmatrix</Word><Word>readtable</Word><Word>real</Word><Word>rectpuls</Word><Word>regexp</Word><Word>regexpi</Word><Word>regexprep</Word><Word>rem</Word>
+      <Word>remove</Word><Word>repelem</Word><Word>repmat</Word><Word>reshape</Word><Word>rgb2gray</Word><Word>rlocus</Word><Word>rmpath</Word><Word>rng</Word>
+      <Word>roots</Word><Word>rot90</Word><Word>rotate3d</Word><Word>round</Word><Word>rows</Word><Word>rowspace</Word><Word>save</Word><Word>saveas</Word>
+      <Word>scatter</Word><Word>scatter3</Word><Word>schur</Word><Word>sec</Word><Word>sech</Word><Word>separateUnits</Word><Word>series</Word><Word>set</Word>
+      <Word>setappdata</Word><Word>setdiff</Word><Word>sgtitle</Word><Word>shading</Word><Word>shortestpath</Word><Word>sign</Word><Word>simplify</Word><Word>sin</Word>
+      <Word>sinc</Word><Word>sind</Word><Word>sinh</Word><Word>size</Word><Word>slabview3d</Word><Word>slice</Word><Word>solidmesh</Word><Word>solve</Word>
+      <Word>sort</Word><Word>sortrows</Word><Word>sparse</Word><Word>spdiags</Word><Word>speye</Word><Word>spline</Word><Word>spones</Word><Word>sprintf</Word>
+      <Word>spsolve</Word><Word>spy</Word><Word>sqrt</Word><Word>sqrtm</Word><Word>squeeze</Word><Word>ss</Word><Word>ss2tf</Word><Word>startsWith</Word>
+      <Word>std</Word><Word>stem</Word><Word>step</Word><Word>stepinfo</Word><Word>str2double</Word><Word>str2num</Word><Word>strcat</Word><Word>strcmp</Word>
+      <Word>strcmpi</Word><Word>streamslice</Word><Word>strfind</Word><Word>string</Word><Word>strjoin</Word><Word>strlen</Word><Word>strlength</Word><Word>strncmp</Word>
+      <Word>strncmpi</Word><Word>strrep</Word><Word>strsplit</Word><Word>strtrim</Word><Word>struct</Word><Word>structfun</Word><Word>sub2ind</Word><Word>subplot</Word>
+      <Word>subs</Word><Word>sum</Word><Word>surf</Word><Word>svd</Word><Word>sym</Word><Word>sym2poly</Word><Word>syms</Word><Word>symsum</Word>
+      <Word>symunit</Word><Word>tabulate</Word><Word>tan</Word><Word>tand</Word><Word>tanh</Word><Word>taylor</Word><Word>tcdf</Word><Word>tetramesh</Word>
+      <Word>text</Word><Word>textread</Word><Word>tf</Word><Word>tf2ss</Word><Word>tic</Word><Word>times</Word><Word>title</Word><Word>toc</Word>
+      <Word>toeplitz</Word><Word>tpdf</Word><Word>trace</Word><Word>transpose</Word><Word>trapz</Word><Word>trigexpand</Word><Word>trigsimplify</Word><Word>tril</Word>
+      <Word>trimesh</Word><Word>triplequad</Word><Word>triplot</Word><Word>trisurf</Word><Word>triu</Word><Word>trunc</Word><Word>uicontrol</Word><Word>uipanel</Word>
+      <Word>uminus</Word><Word>union</Word><Word>unique</Word><Word>unitConvert</Word><Word>uplus</Word><Word>upper</Word><Word>values</Word><Word>vander</Word>
+      <Word>var</Word><Word>vertcat</Word><Word>view</Word><Word>warning</Word><Word>who</Word><Word>whos</Word><Word>writematrix</Word><Word>writetable</Word>
+      <Word>xcorr</Word><Word>xcov</Word><Word>xlabel</Word><Word>xlim</Word><Word>xlsread</Word><Word>xlswrite</Word><Word>xor</Word><Word>ylabel</Word>
+      <Word>ylim</Word><Word>zero</Word><Word>zeros</Word><Word>zeros3</Word><Word>zlabel</Word><Word>zlim</Word><Word>zoom</Word><Word>zpk</Word>
+      <Word>ztrans</Word>
+    </Keywords>
+
+    <!-- numeros: 25, 3.14, 1e-3, 25e6, .5 -->
+    <Rule color="Number">
+      \b\d+(\.\d*)?([eE][+-]?\d+)?
+      |
+      \.\d+([eE][+-]?\d+)?
+    </Rule>
+
+  </RuleSet>
+</SyntaxDefinition>
