@@ -50,6 +50,11 @@ namespace Calcpad.Wpf
             AvalonEditor.TextChanged += AvalonEditor_TextChanged;
             AvalonEditor.TextArea.TextEntered += AvalonEditor_TextEntered;
             AvalonEditor.PreviewKeyDown += AvalonEditor_PreviewKeyDown;
+            // Doble clic en el codigo -> el reporte se mueve a esa linea (lo hacia
+            // RichTextBox_MouseDoubleClick, que con el editor plegable delante ya no llega).
+            AvalonEditor.MouseDoubleClick += AvalonEditor_MouseDoubleClick;
+            // La linea del cursor se pinta: asi se VE donde cayo el salto desde el reporte.
+            AvalonEditor.Options.HighlightCurrentLine = true;
 
             AplicarModoEditor();
             SincronizarHaciaAvalon();
@@ -68,6 +73,7 @@ namespace Calcpad.Wpf
             PrepararCapturaBusqueda();
             PrepararCapturaInsercion();
             PrepararCapturaMarcado();
+            PrepararCapturaSalto();
         }
 
         /// <summary><c>--insertar &lt;texto&gt; [--cshot &lt;png&gt;]</c>: mete texto por el MISMO camino
@@ -356,6 +362,85 @@ namespace Calcpad.Wpf
                 AvalonEditor.CaretOffset = inicio + texto.Length;
         }
 
+        // ---------- ir y volver entre el reporte y el codigo ----------
+
+        /// <summary>Clic en una linea del REPORTE (WebView2) -> esa linea en el editor que se VE.
+        /// Antes movia el cursor del RichTextBox oculto, asi que no pasaba nada a la vista.
+        /// Devuelve false si el editor plegable no esta activo (sigue el camino clasico).</summary>
+        private bool IrALineaEnAvalon(int linea)
+        {
+            if (!EditorPlegableActivo || !_avalonListo || AvalonEditor is null) return false;
+
+            var doc = AvalonEditor.Document;
+            if (linea < 1 || doc.LineCount == 0) return false;
+            if (linea > doc.LineCount) linea = doc.LineCount;
+
+            var l = doc.GetLineByNumber(linea);
+            // Si la linea esta DENTRO de un pliegue cerrado hay que abrirlo: si no, el cursor
+            // caeria en un sitio que no se ve y el salto parece que no hizo nada.
+            if (_foldingManager is not null)
+                foreach (var f in _foldingManager.GetFoldingsContaining(l.Offset))
+                    f.IsFolded = false;
+
+            AvalonEditor.CaretOffset = l.EndOffset;
+            AvalonEditor.ScrollToLine(linea);
+            AvalonEditor.Focus();
+            return true;
+        }
+
+        /// <summary>Doble clic en el codigo -> el reporte se mueve a la linea del cursor.
+        /// Es el camino de vuelta: lo hacia <c>RichTextBox_MouseDoubleClick</c>, que ya no se
+        /// dispara porque el que recibe el raton es AvalonEdit.</summary>
+        private async void AvalonEditor_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (!IsCalculated || !EditorPlegableActivo) return;
+            try
+            {
+                _scrollY = await _wv2Warper.GetScrollYAsync();
+                var linea = LineaDelCursor();
+                await ScrollOutputToLine(
+                    _highlighter.Defined.HasMacros
+                        ? _macroParser.GetUnwarpedLineNumber(linea)
+                        : linea,
+                    YDelCursorAvalon());
+            }
+            catch { }
+        }
+
+        /// <summary>A que altura de la ventana esta el cursor del editor plegable. Es el mismo
+        /// dato que <c>ScrollOutput</c> sacaba del RichTextBox: sirve para dejar la linea del
+        /// reporte a la MISMA altura que la del codigo, no pegada arriba.</summary>
+        private double YDelCursorAvalon()
+        {
+            try
+            {
+                var tv = AvalonEditor.TextArea.TextView;
+                var p = tv.GetVisualPosition(AvalonEditor.TextArea.Caret.Position,
+                    ICSharpCode.AvalonEdit.Rendering.VisualYPosition.LineTop);
+                return p.Y - tv.ScrollOffset.Y + AvalonEditor.Margin.Top - WebViewer.Margin.Top;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary><c>--irlinea N [--cshot &lt;png&gt;]</c>: hace el mismo salto que un clic en la
+        /// linea N del reporte, para comprobar en PNG que el cursor cae en esa linea del editor
+        /// que se ve (la linea del cursor va pintada).</summary>
+        private void PrepararCapturaSalto()
+        {
+            var args = Environment.GetCommandLineArgs();
+            var i = Array.IndexOf(args, "--irlinea");
+            if (i < 0 || i + 1 >= args.Length || !int.TryParse(args[i + 1], out var linea)) return;
+            var iPng = Array.IndexOf(args, "--cshot");
+            var png = iPng >= 0 && iPng + 1 < args.Length ? args[iPng + 1] : null;
+
+            TrasUnRato(1400, () =>
+            {
+                try { LineClicked(linea.ToString()); } catch { }
+                if (png is null) return;
+                TrasUnRato(900, () => { CapturarPantalla(png); Environment.Exit(0); });
+            });
+        }
+
         // ---------- buscar y deshacer ----------
 
         /// <summary>Abre el buscador propio de AvalonEdit (resalta TODAS las coincidencias en
@@ -482,6 +567,16 @@ namespace Calcpad.Wpf
             // Lo que NO viene del .xshd tambien sigue el tema: nombres del usuario e imagenes.
             _colorizadorSemantico.AplicarTema(oscuro);
             _imagenes.AplicarTema(oscuro);
+
+            // La linea del cursor: un velo de oro, mas suave en el tema claro. Sin borde (el de
+            // fabrica es una caja de 1 px que en oscuro parece un error de dibujo).
+            if (AvalonEditor is not null)
+            {
+                var tv = AvalonEditor.TextArea.TextView;
+                tv.CurrentLineBackground = new SolidColorBrush(
+                    Color.FromArgb((byte)(oscuro ? 38 : 26), 245, 192, 67));
+                tv.CurrentLineBorder = new Pen(Brushes.Transparent, 0);
+            }
 
             var hl = AvalonEditor?.SyntaxHighlighting;
             if (hl is null) return;

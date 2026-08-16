@@ -724,6 +724,10 @@ namespace Calcpad.Wpf
                     WebViewer.Tag = true;
                     CodeCheckBox.IsChecked = true;
                 }
+                // Con el editor plegable delante, el salto va AHI: mover el cursor del
+                // RichTextBox oculto no se ve, y ademas robaria el foco al editor visible.
+                else if (IrALineaEnAvalon(line))
+                    return;
                 else if (line <= _document.Blocks.Count)
                 {
                     var block = _document.Blocks.ElementAt(line - 1);
@@ -3776,6 +3780,7 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 // acaban en fileParts y el archivo NO se abre (se busca "ruta.m --doble ...").
                 else if (argv[i] == "--marcar" && i + 1 < argv.Length) i++;
                 else if (argv[i] == "--enlinea" && i + 1 < argv.Length) i++;
+                else if (argv[i] == "--irlinea" && i + 1 < argv.Length) i++;
                 else if (argv[i] == "--doble") { /* lo lee PrepararCapturaMarcado */ }
                 else fileParts.Add(argv[i]);
             }
