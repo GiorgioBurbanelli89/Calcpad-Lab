@@ -3707,7 +3707,8 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                         System.Environment.Exit(0);
                         break;
                     default:
-                        resp = "{\"ok\":false,\"error\":\"op desconocida\"}";
+                        // Operaciones de prueba del EDITOR (MainWindow.Pruebas.cs): null = no es de alli.
+                        resp = CtlEditorOp(op, root) ?? "{\"ok\":false,\"error\":\"op desconocida\"}";
                         break;
                 }
             }

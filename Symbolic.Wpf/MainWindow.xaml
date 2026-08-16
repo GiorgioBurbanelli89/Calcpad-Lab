@@ -1254,7 +1254,7 @@
                         Content="H4" FontFamily="Arial Nova Cond" FontStretch="Condensed" FontSize="12"
                         ToolTip="Encabezado 4 — disp() MATLAB puro (Ctrl+4)"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="138,0,0,0"
-                        Click="Button_Click" Tag="&lt;p&gt;‖&lt;/p&gt;" Content="p" >
+                        x:Name="PButton" Click="Button_Click" Tag="&lt;p&gt;‖&lt;/p&gt;" Content="p" >
                         <Button.ToolTip>
                             <ToolTip>
                                 <TextBlock>
@@ -1265,7 +1265,7 @@
                         </Button.ToolTip>
                     </Button>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="160,0,0,0"
-                        Click="Button_Click" Tag="&lt;br/&gt;‖" Content="br" >
+                        x:Name="BrButton" Click="Button_Click" Tag="&lt;br/&gt;‖" Content="br" >
                         <Button.ToolTip>
                             <ToolTip>
                                 <TextBlock>
@@ -1312,7 +1312,7 @@
                         </Button.ToolTip>
                     </Button>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}"  Margin="248,0,0,0"
-                        Click="Button_Click" Tag="&lt;del&gt;‖&lt;/del&gt;␣~~‖~~"
+                        x:Name="StrikeButton" Click="Button_Click" Tag="&lt;del&gt;‖&lt;/del&gt;␣~~‖~~"
                         ToolTip="{x:Static wpf:MainWindowResources.Strikethrough}">
                         <TextBlock Text="S" TextDecorations="Strikethrough"/>
                     </Button>
@@ -1339,22 +1339,22 @@
                         </Button.ToolTip>
                     </Button>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="314,0,0,0"
-                        Click="Button_Click" Tag="&lt;span class=&quot;err&quot;&gt;‖&lt;/span&gt;"
+                        x:Name="RedButton" Click="Button_Click" Tag="&lt;span class=&quot;err&quot;&gt;‖&lt;/span&gt;"
                         Content="R" ToolTip="{x:Static wpf:MainWindowResources.RedColor}" Foreground="Red"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="336,0,0,0"
-                        Click="Button_Click" Tag="&lt;span class=&quot;ok&quot;&gt;‖&lt;/span&gt;"
+                        x:Name="GreenButton" Click="Button_Click" Tag="&lt;span class=&quot;ok&quot;&gt;‖&lt;/span&gt;"
                         Content="G" ToolTip="{x:Static wpf:MainWindowResources.GreenColor}" Foreground="#FF00C800"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="358,0,0,0"
-                        Click="Button_Click" Tag="&lt;span&gt;‖&lt;/span&gt;"
+                        x:Name="SpanButton" Click="Button_Click" Tag="&lt;span&gt;‖&lt;/span&gt;"
                         Content="‹/›" ToolTip="Span" />
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="380,0,0,0"
-                        Click="Button_Click" Tag="%'&lt;div&gt;§%'&lt;/div&gt;"
+                        x:Name="DivButton" Click="Button_Click" Tag="%'&lt;div&gt;§%'&lt;/div&gt;"
                         Content="div" ToolTip="Div" FontSize="11" />
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="402,0,0,0"
-                        Click="Button_Click" Tag="%'&lt;div class=&quot;fold&quot;&gt;§%'&lt;h4&gt;Heading&lt;/h4&gt;§%'Folded content§%'&lt;/div&gt;"
+                        x:Name="FoldDivButton" Click="Button_Click" Tag="%'&lt;div class=&quot;fold&quot;&gt;§%'&lt;h4&gt;Heading&lt;/h4&gt;§%'Folded content§%'&lt;/div&gt;"
                         Content="▼" ToolTip="{x:Static wpf:MainWindowResources.FoldedDiv}" FontSize="10"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="424,0,0,0"
-                        Click="Button_Click" Tag="%'&lt;ul&gt;§%'&lt;li&gt;Item 1&lt;/li&gt;§%'&lt;li&gt;Item 2&lt;/li&gt;§%'&lt;li&gt;Item 3&lt;/li&gt;§%'&lt;/ul&gt;"
+                        x:Name="UlButton" Click="Button_Click" Tag="%'&lt;ul&gt;§%'&lt;li&gt;Item 1&lt;/li&gt;§%'&lt;li&gt;Item 2&lt;/li&gt;§%'&lt;li&gt;Item 3&lt;/li&gt;§%'&lt;/ul&gt;"
                         Content="⋮☰" FontSize="13">
                         <Button.ToolTip>
                             <ToolTip>
@@ -1366,7 +1366,7 @@
                         </Button.ToolTip>
                     </Button>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="446,0,0,0"
-                        Click="Button_Click" Tag="%'&lt;ol&gt;§%'&lt;li&gt;Item 1&lt;/li&gt;§%'&lt;li&gt;Item 2&lt;/li&gt;§%'&lt;li&gt;Item 3&lt;/li&gt;§%'&lt;/ol&gt;"
+                        x:Name="OlButton" Click="Button_Click" Tag="%'&lt;ol&gt;§%'&lt;li&gt;Item 1&lt;/li&gt;§%'&lt;li&gt;Item 2&lt;/li&gt;§%'&lt;li&gt;Item 3&lt;/li&gt;§%'&lt;/ol&gt;"
                         Content="1.➖&#x0A;2.➖" FontSize="6" FontFamily="Roboto Black">
                         <Button.ToolTip>
                             <ToolTip>
@@ -1380,10 +1380,10 @@
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="468,0,0,0"
                         Click="ImageButton_Click" Content="🖼" ToolTip="{x:Static wpf:MainWindowResources.Image}" Padding="0,1,1,1"/>
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="490,0,0,0"
-                        Click="Button_Click" Tag="%'&lt;table class=&quot;bordered&quot;&gt;§%'&lt;thead&gt;§%'&lt;tr&gt;&lt;th&gt;col 1&lt;/th&gt;&lt;th&gt;col 2&lt;/th&gt;&lt;/tr&gt;§%'&lt;/thead&gt;§%'&lt;tbody&gt;§%'&lt;tr&gt;&lt;td&gt;11&lt;/td&gt;&lt;td&gt;12&lt;/td&gt;&lt;/tr&gt;§%'&lt;tr&gt;&lt;td&gt;21&lt;/td&gt;&lt;td&gt;22&lt;/td&gt;&lt;/tr&gt;§%'&lt;/tbody&gt;§%'&lt;/table&gt;"
+                        x:Name="TableButton" Click="Button_Click" Tag="%'&lt;table class=&quot;bordered&quot;&gt;§%'&lt;thead&gt;§%'&lt;tr&gt;&lt;th&gt;col 1&lt;/th&gt;&lt;th&gt;col 2&lt;/th&gt;&lt;/tr&gt;§%'&lt;/thead&gt;§%'&lt;tbody&gt;§%'&lt;tr&gt;&lt;td&gt;11&lt;/td&gt;&lt;td&gt;12&lt;/td&gt;&lt;/tr&gt;§%'&lt;tr&gt;&lt;td&gt;21&lt;/td&gt;&lt;td&gt;22&lt;/td&gt;&lt;/tr&gt;§%'&lt;/tbody&gt;§%'&lt;/table&gt;"
                         Content="▦" ToolTip="{x:Static wpf:MainWindowResources.Table}" FontSize="14" />
                     <Button Grid.Row="0" Style="{StaticResource FormatButton}" Margin="512,0,0,0"
-                        Click="Button_Click" Tag="&lt;hr/&gt;‖␣---&#8214;"
+                        x:Name="HrButton" Click="Button_Click" Tag="&lt;hr/&gt;‖␣---&#8214;"
                         Content="—" ToolTip="{x:Static wpf:MainWindowResources.DividingLine}" FontSize="14"/>
                     <!-- Desplegable de plantillas disp/fprintf (imprimir texto/valores en MATLAB puro).
                          Cada ítem tiene tooltip que explica qué imprime. -->

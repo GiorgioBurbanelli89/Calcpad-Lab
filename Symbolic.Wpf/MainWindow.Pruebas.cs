@@ -1,0 +1,187 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+
+namespace Calcpad.Wpf
+{
+    /// <summary>
+    /// EL CANAL DE PRUEBAS DEL EDITOR (se engancha al canal de control <c>--ctl &lt;carpeta&gt;</c>).
+    ///
+    /// Por que hace falta: el editor no se puede probar como el motor. El motor se prueba con
+    /// el CLI (entra un .m, sale un numero). Aqui lo que hay que comprobar es que un BOTON DE
+    /// LA XAML, con el cursor en cierto sitio, deja el texto EXACTO que toca — y eso solo lo
+    /// sabe la ventana viva. Mirar el PNG sirve para ver COMO queda, no para que una suite
+    /// diga si/no sola.
+    ///
+    /// Como funciona: la app arranca con <c>--ctl carpeta</c> y se queda escuchando. La
+    /// terminal deja <c>cmd-0001.json</c> en esa carpeta y la app contesta con
+    /// <c>resp-0001.json</c>. Un solo arranque sirve para muchos casos (arrancar la ventana
+    /// cuesta ~2 s; el caso, milisegundos).
+    ///
+    /// Operaciones (las de <see cref="CtlExecute"/> siguen valiendo: run, settext, capture,
+    /// js, getoutput, quit):
+    ///   {"op":"setcode","text":"..."}          poner el codigo en el editor que se VE
+    ///   {"op":"gettext"}                       leer ese codigo -> {"text":"..."}
+    ///   {"op":"setcaret","line":2,"col":20}    cursor (col opcional = final de linea)
+    ///   {"op":"select","line":2,"col":20,"len":9}
+    ///   {"op":"button","name":"BoldButton"}    PULSAR el boton de la XAML (por su x:Name)
+    ///   {"op":"button","tag":"&lt;em&gt;‖&lt;/em&gt;"}      ...o uno inventado, por su Tag
+    ///   {"op":"buttons"}                       inventario de botones con Tag -> {name,tag}
+    ///   {"op":"gotoline","line":5}             como pulsar esa linea en el reporte
+    ///   {"op":"fold","all":true|false}         plegar / desplegar todo
+    ///   {"op":"state"}                         editor activo, linea/columna, seleccion, pliegues
+    /// </summary>
+    public partial class MainWindow
+    {
+        /// <summary>Operaciones de prueba del editor. Devuelve null si la op no es de aqui
+        /// (entonces el canal contesta "op desconocida" como siempre).</summary>
+        private string CtlEditorOp(string op, JsonElement root)
+        {
+            switch (op)
+            {
+                case "setcode":
+                    {
+                        var texto = Txt(root, "text") ?? string.Empty;
+                        if (!EditorPlegableActivo) return Error("el editor plegable no esta activo");
+                        AvalonEditor.Text = texto.Replace("\r\n", "\n").Replace("\n", Environment.NewLine);
+                        AvalonEditor.CaretOffset = 0;
+                        return Ok();
+                    }
+                case "gettext":
+                    return "{\"ok\":true,\"text\":" + Json(TextoDelEditor()) + "}";
+
+                case "setcaret":
+                case "select":
+                    {
+                        if (!EditorPlegableActivo) return Error("el editor plegable no esta activo");
+                        var (off, ok) = Posicion(root);
+                        if (!ok) return Error("linea fuera del documento");
+                        var len = (int)Num(root, "len", 0);
+                        if (op == "select" && len > 0) AvalonEditor.Select(off, len);
+                        else AvalonEditor.CaretOffset = off;
+                        AvalonEditor.Focus();
+                        return Ok();
+                    }
+                case "button":
+                    {
+                        var nombre = Txt(root, "name");
+                        FrameworkElement el;
+                        if (!string.IsNullOrEmpty(nombre))
+                        {
+                            el = FindName(nombre) as FrameworkElement;
+                            if (el is null) return Error($"no hay ningun control llamado {nombre}");
+                            if (el.Tag is null) return Error($"{nombre} no tiene Tag");
+                        }
+                        else
+                        {
+                            var tag = Txt(root, "tag");
+                            if (string.IsNullOrEmpty(tag)) return Error("falta name o tag");
+                            el = new Button { Tag = tag };
+                        }
+                        Button_Click(el, null);
+                        return "{\"ok\":true,\"tag\":" + Json(el.Tag.ToString()) + "}";
+                    }
+                case "buttons":
+                    return Inventario();
+
+                case "gotoline":
+                    LineClicked(((int)Num(root, "line", 1)).ToString());
+                    return Ok();
+
+                case "fold":
+                    {
+                        var todo = root.TryGetProperty("all", out var a) && a.ValueKind == JsonValueKind.True;
+                        if (todo) PlegarTodo_Click(null, null); else DesplegarTodo_Click(null, null);
+                        return Ok();
+                    }
+                case "state":
+                    return Estado();
+
+                default:
+                    return null;
+            }
+        }
+
+        private string TextoDelEditor()
+        {
+            if (EditorPlegableActivo) return AvalonEditor.Text;
+            try { return GetInputText(); } catch { return string.Empty; }
+        }
+
+        /// <summary>Offset del documento para {line, col}. Sin col, el final de la linea.</summary>
+        private (int, bool) Posicion(JsonElement root)
+        {
+            var doc = AvalonEditor.Document;
+            var n = (int)Num(root, "line", 1);
+            if (n < 1 || n > doc.LineCount) return (0, false);
+            var l = doc.GetLineByNumber(n);
+            if (!root.TryGetProperty("col", out _)) return (l.EndOffset, true);
+            var c = (int)Num(root, "col", 1);
+            return (Math.Min(l.Offset + Math.Max(0, c - 1), l.EndOffset), true);
+        }
+
+        private string Estado()
+        {
+            var sb = new System.Text.StringBuilder("{\"ok\":true");
+            sb.Append(",\"editor\":").Append(EditorPlegableActivo ? "\"avalon\"" : "\"clasico\"");
+            if (EditorPlegableActivo)
+            {
+                var doc = AvalonEditor.Document;
+                var l = doc.GetLineByOffset(AvalonEditor.CaretOffset);
+                sb.Append(",\"line\":").Append(l.LineNumber);
+                sb.Append(",\"col\":").Append(AvalonEditor.CaretOffset - l.Offset + 1);
+                sb.Append(",\"lines\":").Append(doc.LineCount);
+                sb.Append(",\"sel\":").Append(Json(AvalonEditor.SelectedText ?? string.Empty));
+                int pliegues = 0, cerrados = 0;
+                if (_foldingManager is not null)
+                    foreach (var f in _foldingManager.AllFoldings) { ++pliegues; if (f.IsFolded) ++cerrados; }
+                sb.Append(",\"folds\":").Append(pliegues).Append(",\"folded\":").Append(cerrados);
+                sb.Append(",\"focus\":").Append(AvalonEditor.TextArea.IsKeyboardFocusWithin ? "true" : "false");
+            }
+            return sb.Append('}').ToString();
+        }
+
+        /// <summary>Todos los controles con Tag (barra de formato Y menus). Sirve para probar
+        /// la XAML ENTERA de una vez: p.ej. que ninguna plantilla siga escribiendo comentarios
+        /// de Calcpad (<c>'&lt;div&gt;</c>), que en MATLAB son "Unterminated char-array".</summary>
+        private string Inventario()
+        {
+            var vistos = new List<string>();
+            var sb = new System.Text.StringBuilder("{\"ok\":true,\"buttons\":[");
+            var primero = true;
+            Recorrer(this);
+            return sb.Append("]}").ToString();
+
+            void Recorrer(object nodo)
+            {
+                if (nodo is FrameworkElement fe && fe.Tag is string tag && tag.Length > 0 &&
+                    (nodo is ButtonBase || nodo is MenuItem))
+                {
+                    var clave = (fe.Name ?? string.Empty) + "" + tag;
+                    if (!vistos.Contains(clave))
+                    {
+                        vistos.Add(clave);
+                        if (!primero) sb.Append(',');
+                        primero = false;
+                        sb.Append("{\"name\":").Append(Json(fe.Name ?? string.Empty))
+                          .Append(",\"tag\":").Append(Json(tag)).Append('}');
+                    }
+                }
+                if (nodo is DependencyObject dep)
+                    foreach (var hijo in System.Windows.LogicalTreeHelper.GetChildren(dep))
+                        Recorrer(hijo);
+            }
+        }
+
+        private static string Ok() => "{\"ok\":true}";
+        private static string Error(string msg) => "{\"ok\":false,\"error\":" + Json(msg) + "}";
+        private static string Json(string s) => JsonSerializer.Serialize(s);
+        private static string Txt(JsonElement root, string nombre) =>
+            root.TryGetProperty(nombre, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        private static double Num(JsonElement root, string nombre, double porDefecto) =>
+            root.TryGetProperty(nombre, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : porDefecto;
+    }
+}
