@@ -1195,7 +1195,22 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             _builtins["sign"] = a => MapUnary(a[0], x => (double)Math.Sign(x), "sign");
             _builtins["floor"] = a => MapUnary(a[0], Math.Floor);
             _builtins["ceil"] = a => MapUnary(a[0], Math.Ceiling);
-            _builtins["round"] = a => MapUnary(a[0], Math.Round);
+            // MATLAB redondea SIEMPRE alejandose del cero: round(6.5)=7, round(-2.5)=-3.
+            // .NET por defecto usa "banker's rounding" (al par mas cercano): 6.5->6, 0.5->0.
+            // Con el default se colaba un error mudo: round(nny/2) daba 6 en vez de 7 y la
+            // carga del FEM caia en OTRO nodo (el voladizo Q4 se desviaba de MATLAB en el 4o
+            // digito). El JIT ya usaba AwayFromZero (JRound), asi que el motor se contradecia
+            // a si mismo segun compilara o interpretara el mismo bucle.
+            // round(x,n): MATLAB >= R2014b redondea a n decimales (antes se ignoraba el 2o arg).
+            _builtins["round"] = a => {
+                if (a.Length >= 2 && a[1].IsScalar)
+                {
+                    int nd = (int)a[1].Scalar;
+                    double f = Math.Pow(10, nd);
+                    return MapUnary(a[0], x => Math.Round(x * f, MidpointRounding.AwayFromZero) / f);
+                }
+                return MapUnary(a[0], x => Math.Round(x, MidpointRounding.AwayFromZero));
+            };
             _builtins["atan2"] = a => MapBinary(a[0], a[1], Math.Atan2);
             _builtins["mod"] = a => MapBinary(a[0], a[1], (x, y) => y == 0 ? x : x - y * Math.Floor(x / y));
             _builtins["rem"] = a => MapBinary(a[0], a[1], (x, y) => y == 0 ? x : x - y * Math.Truncate(x / y));

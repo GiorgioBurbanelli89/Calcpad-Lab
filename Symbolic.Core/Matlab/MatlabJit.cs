@@ -820,11 +820,20 @@ namespace Calcpad.Core.Matlab
                     // (phi*pi/180 = 0) y el talud se desmoronaba. Bail-out: que lo corra el
                     // interprete, mas lento pero correcto.
                     if (BuiltinConsts.Contains(ir.Name)) return null;
+                    // FUNCION llamada SIN parentesis (`t0 = tic;`, `r = rand;`, `c = cputime;`):
+                    // tampoco vive en el scope, asi que caia en el mismo pozo que las constantes:
+                    // se tomaba como live-in, su slot quedaba en 0 y la funcion NUNCA se llamaba.
+                    // Con `tic` eso daba handle 0 -> el cronometro no arrancaba -> `toc` devolvia
+                    // CERO en silencio: un benchmark dentro de un `for` medía 0 s y parecia
+                    // infinitamente rapido. Bail-out al interprete (mas lento, pero correcto).
+                    MValue lv = null;
+                    bool enScope = cc.Scope != null && cc.Scope.TryGet(ir.Name, out lv) && lv != null;
+                    if (!enScope && cc.Evaluator != null && cc.Evaluator.JitIsFunction(ir.Name)) return null;
                     // Variable no asignada antes en el loop → es LIVE-IN: consultar su tipo
                     // REAL en el scope. Antes se asumia Scalar; una matriz live-in (P en
                     // C=P.*Q) se tomaba escalar y luego el sembrado la detectaba no-escalar y
                     // hacia bail-out. Con el tipo real, el loop compila (y habilita la fusion).
-                    if (cc.Scope != null && cc.Scope.TryGet(ir.Name, out var lv) && lv != null
+                    if (enScope
                         && !lv.IsScalar && !lv.IsString && lv.CellData == null && lv.Fields == null
                         && lv.Symbolic == null && lv.SymCells == null && lv.MapData == null && !lv.Is3D
                         && (lv.Data != null || lv.IsSparseReal))

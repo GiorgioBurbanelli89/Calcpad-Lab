@@ -1,0 +1,5 @@
+# salidas de cada corrida (se regeneran); la referencia ref_matlab.json SI se versiona
+*.lab.txt
+*.txt
+!ml_driver.txt
+ml.log
