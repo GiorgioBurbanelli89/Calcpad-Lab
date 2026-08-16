@@ -99,6 +99,10 @@ namespace Calcpad.Wpf
                 }
                 catch { }
 
+                // Junto al PNG, un .defs.txt con lo que UserDefined detecto: si el popup sale
+                // vacio hay que poder VER si el problema es la deteccion o el filtro.
+                if (png is not null) VolcarDeclaradas(png + ".defs.txt");
+
                 if (png is null) return;
                 var t2 = new System.Windows.Threading.DispatcherTimer
                 { Interval = TimeSpan.FromMilliseconds(900) };
@@ -116,51 +120,58 @@ namespace Calcpad.Wpf
         }
 
         /// <summary>Dibuja esta ventana Y las ventanas hijas que tenga encima (el popup del
-        /// autocompletado), cada una por su HANDLE con PrintWindow, y las pega en su sitio.
+        /// autocompletado), pegando cada una en su sitio.
         ///
-        /// Por que no <c>CopyFromScreen</c>: copiar de la pantalla trae lo que este delante en
-        /// el monitor (otra terminal, el navegador...). Por handle sale SIEMPRE la app, aunque
-        /// este tapada.</summary>
+        /// Se dibuja el ARBOL VISUAL de WPF (RenderTargetBitmap), no la pantalla ni el handle:
+        ///   - <c>CopyFromScreen</c> traia lo que hubiera delante en el monitor (otra terminal).
+        ///   - <c>PrintWindow</c> depende del escritorio: con la ventana tapada salio en BLANCO.
+        /// El arbol visual siempre esta ahi. Lo unico que no sale es el WebView2 (superficie
+        /// nativa): el panel Output queda vacio, que es lo esperado en estas capturas.</summary>
         private void CapturarPantalla(string ruta)
         {
             try
             {
-                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
-                if (!GetWindowRect(hwnd, out var r)) return;
-                int w = r.Right - r.Left, h = r.Bottom - r.Top;
+                UpdateLayout();
+                int w = (int)Math.Ceiling(ActualWidth), h = (int)Math.Ceiling(ActualHeight);
                 if (w <= 0 || h <= 0) return;
 
-                using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                var dv = new System.Windows.Media.DrawingVisual();
+                using (var dc = dv.RenderOpen())
                 {
-                    Pintar(g, hwnd, 0, 0, w, h);
+                    dc.DrawImage(Render(this), new Rect(0, 0, w, h));
 
                     foreach (Window otra in Application.Current.Windows)
                     {
                         if (ReferenceEquals(otra, this) || !otra.IsVisible) continue;
-                        var h2 = new System.Windows.Interop.WindowInteropHelper(otra).Handle;
-                        if (h2 == IntPtr.Zero || !GetWindowRect(h2, out var r2)) continue;
-                        Pintar(g, h2, r2.Left - r.Left, r2.Top - r.Top, r2.Right - r2.Left, r2.Bottom - r2.Top);
+                        // De pantalla a MIS coordenadas en una sola operacion: mezclar pixeles
+                        // fisicos con unidades WPF descoloca el popup con la pantalla al 150 %.
+                        var p = PointFromScreen(otra.PointToScreen(new Point(0, 0)));
+                        dc.DrawImage(Render(otra), new Rect(p.X, p.Y, otra.ActualWidth, otra.ActualHeight));
                     }
                 }
 
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                rtb.Render(dv);
+
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
                 var dir = System.IO.Path.GetDirectoryName(ruta);
                 if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
-                bmp.Save(ruta, System.Drawing.Imaging.ImageFormat.Png);
+                using var fs = System.IO.File.Create(ruta);
+                enc.Save(fs);
             }
             catch { }
 
-            static void Pintar(System.Drawing.Graphics destino, IntPtr hwnd, int x, int y, int w, int h)
+            static System.Windows.Media.Imaging.RenderTargetBitmap Render(Window v)
             {
-                if (w <= 0 || h <= 0) return;
-                using var trozo = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                using (var g = System.Drawing.Graphics.FromImage(trozo))
-                {
-                    var hdc = g.GetHdc();
-                    try { PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT); }
-                    finally { g.ReleaseHdc(hdc); }
-                }
-                destino.DrawImage(trozo, x, y);
+                v.UpdateLayout();
+                var b = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    Math.Max(1, (int)Math.Ceiling(v.ActualWidth)),
+                    Math.Max(1, (int)Math.Ceiling(v.ActualHeight)),
+                    96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                b.Render(v);
+                return b;
             }
         }
 
@@ -333,7 +344,7 @@ namespace Calcpad.Wpf
 
         private void MostrarAutocompletado(string prefijo)
         {
-            var items = MatlabLang.Items(prefijo).ToList();
+            var items = MatlabLang.Items(prefijo, LoDeclarado(), LineaDelCursor(), _isDarkTheme).ToList();
             if (items.Count == 0) return;
 
             _avalonCompletion = new CompletionWindow(AvalonEditor.TextArea) { CloseWhenCaretAtBeginning = true };
@@ -343,6 +354,36 @@ namespace Calcpad.Wpf
             if (!string.IsNullOrEmpty(prefijo)) _avalonCompletion.CompletionList.SelectItem(prefijo);
             _avalonCompletion.Closed += (_, _) => _avalonCompletion = null;
             _avalonCompletion.Show();
+        }
+
+        /// <summary>Diagnostico de <c>--completar</c>: que simbolos vio el motor en el archivo.</summary>
+        private void VolcarDeclaradas(string ruta)
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"linea del cursor: {LineaDelCursor()}");
+                var d = LoDeclarado();
+                if (d is null) sb.AppendLine("MatlabSymbols = null (excepcion al leer)");
+                else
+                    foreach (var s in d)
+                        sb.AppendLine($"   {s.Tipo,-9} {s.Nombre}  (linea {s.Linea}) {s.Firma}");
+                System.IO.File.WriteAllText(ruta, sb.ToString());
+            }
+            catch { }
+        }
+
+        private int LineaDelCursor() =>
+            AvalonEditor.Document.GetLineByOffset(AvalonEditor.CaretOffset).LineNumber;
+
+        /// <summary>Que declaro el usuario (variables, funciones y sus argumentos) y en que
+        /// linea, segun el MOTOR. No se usa el <c>UserDefined</c> de Calcpad: alli el <c>;</c>
+        /// final significa "la linea sigue", asi que en MATLAB pegaba las lineas y solo veia la
+        /// PRIMERA variable de cada bloque.</summary>
+        private System.Collections.Generic.IReadOnlyList<Calcpad.Core.Matlab.Simbolo> LoDeclarado()
+        {
+            try { return Calcpad.Core.Matlab.MatlabSymbols.Find(AvalonEditor.Text); }
+            catch { return null; }
         }
 
         /// <summary>El popup de AvalonEdit nace BLANCO (sus colores son fijos, no heredan del

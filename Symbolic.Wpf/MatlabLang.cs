@@ -6,6 +6,7 @@ using ICSharpCode.AvalonEdit.CodeCompletion;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Snippets;
+using Calcpad.Core.Matlab;
 
 namespace Calcpad.Wpf;
 
@@ -60,10 +61,19 @@ internal static class MatlabLang
         ("tic", "Bloque tic/toc (mide el tiempo)", TicToc),
     };
 
-    /// <summary>Items del popup, filtrados por lo que ya se escribio.</summary>
-    public static IEnumerable<ICompletionData> Items(string prefijo)
+    /// <summary>Items del popup, filtrados por lo que ya se escribio.
+    ///
+    /// <paramref name="declarados"/> son las variables y funciones que el usuario escribio EN
+    /// SU ARCHIVO, leidas por el motor (<see cref="Calcpad.Core.Matlab.MatlabSymbols"/>). Van
+    /// PRIMERO: al escribir, lo que mas se busca es lo propio, no la funcion 400 del motor.
+    /// <paramref name="linea"/> es la del cursor: solo se ofrece lo declarado MAS ARRIBA.</summary>
+    public static IEnumerable<ICompletionData> Items(
+        string prefijo, IReadOnlyList<Simbolo> declarados = null, int linea = int.MaxValue, bool oscuro = true)
     {
         var lista = new List<ICompletionData>();
+
+        if (declarados is not null)
+            AgregarDelUsuario(lista, declarados, linea, oscuro);
 
         foreach (var (trigger, doc, build) in Snippets)
             lista.Add(new MatlabCompletionData(trigger, doc, snippet: build, priority: 3));
@@ -79,6 +89,43 @@ internal static class MatlabLang
 
         if (string.IsNullOrEmpty(prefijo)) return lista;
         return lista.Where(d => d.Text.StartsWith(prefijo, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    // ---------- lo que el usuario declaro en SU archivo ----------
+
+    /// <summary>Lo declarado por el usuario, sin repetir y solo lo que ya existe en esta linea.
+    /// Las funciones se ofrecen con su firma (<c>momento(q, L)</c>) para no tener que subir a
+    /// mirar los argumentos. Las de MAS ABAJO no se ofrecen: todavia no existen ahi.</summary>
+    private static void AgregarDelUsuario(List<ICompletionData> lista, IReadOnlyList<Simbolo> simbolos, int linea, bool oscuro)
+    {
+        var cVar  = Pincel(oscuro ? "#98C379" : "#3F7A2E");   // variable
+        var cFun  = Pincel(oscuro ? "#E5E5E5" : "#1A1A1A");   // funcion (negrita)
+        var cPar  = Pincel(oscuro ? "#D19A66" : "#8A5A00");   // argumento de function
+
+        var vistos = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in simbolos)
+        {
+            // Una funcion se puede llamar desde arriba (MATLAB las lee todas); una variable no
+            // existe hasta que se asigna.
+            if (s.Tipo != SimboloTipo.Funcion && s.Linea >= linea) continue;
+            if (!vistos.Add(s.Nombre)) continue;
+
+            var (doc, color, negrita, texto) = s.Tipo switch
+            {
+                SimboloTipo.Funcion   => ($"funcion de tu archivo — {s.Firma}", cFun, true, s.Nombre),
+                SimboloTipo.Parametro => ("argumento de tu function", cPar, false, s.Nombre),
+                _                     => ("variable de tu archivo", cVar, false, s.Nombre),
+            };
+            lista.Add(new MatlabCompletionData(texto, $"{doc} (linea {s.Linea})",
+                                               priority: 5, color: color, negrita: negrita));
+        }
+    }
+
+    private static Brush Pincel(string hex)
+    {
+        var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        b.Freeze();
+        return b;
     }
 
     // ---------- fabricas de snippets ----------
@@ -217,18 +264,40 @@ internal static class MatlabLang
 internal sealed class MatlabCompletionData : ICompletionData
 {
     private readonly Func<Snippet>? _snippet;
+    private readonly Brush? _color;
+    private readonly bool _negrita;
 
-    public MatlabCompletionData(string text, string doc, Func<Snippet>? snippet = null, double priority = 0)
+    public MatlabCompletionData(string text, string doc, Func<Snippet>? snippet = null,
+                                double priority = 0, Brush? color = null, bool negrita = false)
     {
         Text = text;
         Description = doc;
         _snippet = snippet;
         Priority = priority;
+        _color = color;
+        _negrita = negrita;
     }
 
     public ImageSource? Image => null;
     public string Text { get; }
-    public object Content => _snippet is null ? Text : Text + "   ▸";   // ▸ marca los snippets
+
+    /// <summary>Lo que se VE en la lista. Con color/negrita cuando es algo declarado por el
+    /// usuario (mismo codigo de colores que el editor clasico); "▸" marca los snippets.</summary>
+    public object Content
+    {
+        get
+        {
+            var etiqueta = _snippet is null ? Text : Text + "   ▸";
+            if (_color is null && !_negrita) return etiqueta;
+            return new System.Windows.Controls.TextBlock
+            {
+                Text = etiqueta,
+                Foreground = _color,
+                FontWeight = _negrita ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal,
+            };
+        }
+    }
+
     public object Description { get; }
     public double Priority { get; }
 
