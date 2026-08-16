@@ -2,4 +2,4 @@
 *.lab.txt
 *.txt
 !ml_driver.txt
-ml.log
+*.log

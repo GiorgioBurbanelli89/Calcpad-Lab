@@ -1217,9 +1217,12 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             _builtins["power"] = a => MapPowFast(a[0], a[1]) ?? MapBinary(a[0], a[1], Math.Pow);
             _builtins["max"] = a => MinMaxBuiltin(a, true);
             _builtins["min"] = a => MinMaxBuiltin(a, false);
-            _builtins["sum"] = a => (a[0].IsSymbolic || a[0].IsSymMatrix)
-                ? ReduceSym(a[0], isProd: false)
-                : ReduceNumDim(a[0], a.Length > 1 && a[1] != null && !a[1].IsString ? (int)a[1].Scalar : 0, 0.0, (acc, x) => acc + x);
+            _builtins["sum"] = a => {
+                if (a[0].IsSymbolic || a[0].IsSymMatrix) return ReduceSym(a[0], isProd: false);
+                int dim = a.Length > 1 && a[1] != null && !a[1].IsString ? (int)a[1].Scalar : 0;
+                return SumFastDense(a[0], dim)                       // SIMD si es denso real
+                    ?? ReduceNumDim(a[0], dim, 0.0, (acc, x) => acc + x);
+            };
             _builtins["prod"] = a => (a[0].IsSymbolic || a[0].IsSymMatrix)
                 ? ReduceSym(a[0], isProd: true)
                 : ReduceNumDim(a[0], a.Length > 1 && a[1] != null && !a[1].IsString ? (int)a[1].Scalar : 0, 1.0, (acc, x) => acc * x);
@@ -9686,6 +9689,13 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         /// usa System.Numerics.Vector&lt;double&gt; (SIMD). Devuelve null si no aplica
         /// (complex/sparse/broadcasting no-escalar/arreglo chico) → el caller usa MapBinary.
         /// Bit-identico: cada elemento es una op IEEE independiente, sin reordenar.</summary>
+        /// <summary>Matriz densa cuyo Data NO viene puesto a cero. Solo para buffers que el
+        /// llamador escribe COMPLETOS acto seguido: si se deja un hueco sin escribir, ahi
+        /// queda basura de memoria (no cero). El cero de .NET no es gratis — es una pasada
+        /// de escritura sobre todo el arreglo antes de la pasada util.</summary>
+        private static MValue NewDenseUninit(int rows, int cols, int n)
+            => new MValue(rows, cols, GC.AllocateUninitializedArray<double>(n));
+
         private static MValue MapBinaryFast(MValue a, MValue b, char op)
         {
             if (a.IsComplex || b.IsComplex || a.IsSparseReal || b.IsSparseReal) return null;
@@ -9693,9 +9703,13 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             if (aS && bS) return null;                       // scalar-scalar: lo hace el caller
             int w = System.Numerics.Vector<double>.Count;
             MValue r; int n; double[] da = null, db = null; double sa = 0, sb = 0;
-            if (aS) { r = new MValue(b.Rows, b.Cols); n = b.Data.Length; db = b.Data; sa = a.Scalar; }
-            else if (bS) { r = new MValue(a.Rows, a.Cols); n = a.Data.Length; da = a.Data; sb = b.Scalar; }
-            else if (a.Rows == b.Rows && a.Cols == b.Cols) { r = new MValue(a.Rows, a.Cols); n = a.Data.Length; da = a.Data; db = b.Data; }
+            // Alocacion SIN poner a cero: abajo se escribe el arreglo ENTERO, asi que el
+            // cero inicial de .NET es trafico de memoria tirado — para 4e6 doubles son 32 MB
+            // que se escriben dos veces. Medido contra MATLAB (tests/bench_ml): v.*v tardaba
+            // 7.1 ms contra 3.7 ms; casi toda la diferencia era ese borrado.
+            if (aS) { n = b.Data.Length; r = NewDenseUninit(b.Rows, b.Cols, n); db = b.Data; sa = a.Scalar; }
+            else if (bS) { n = a.Data.Length; r = NewDenseUninit(a.Rows, a.Cols, n); da = a.Data; sb = b.Scalar; }
+            else if (a.Rows == b.Rows && a.Cols == b.Cols) { n = a.Data.Length; r = NewDenseUninit(a.Rows, a.Cols, n); da = a.Data; db = b.Data; }
             else return null;                                // broadcasting no-escalar → generico
             if (n < 2 * w) return null;                      // arreglo chico: el setup SIMD no compensa
             var rd = r.Data; int i = 0;
@@ -9976,6 +9990,72 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         /// como <c>sum(A.^2,2)</c> = norma por fila). dim=0 → auto (vector→escalar, matriz→por columna);
         /// dim=1 → por columna (1×Cols); dim=2 → por fila (Rows×1). Antes se ignoraba dim y todo
         /// colapsaba a escalar, dando resultados incorrectos y luego "Linear index 0 (1..1)".</summary>
+        /// <summary>Suma SIMD de un tramo contiguo de `d`. Existe porque `sum` iba por
+        /// ReduceNumDim, que llama un DELEGADO por elemento: 4 millones de llamadas que el
+        /// JIT de .NET no puede meter inline ni vectorizar. Medido contra MATLAB R2017a
+        /// (tests/bench_ml/b4): sum de 4e6 tardaba 10.4 ms contra 1.5 ms — 7x por debajo del
+        /// ancho de banda de memoria, o sea el cuello era el delegado, no el bus.
+        /// Se usan 4 acumuladores para tapar la latencia del add (dependencia en cadena).
+        /// OJO: sumar por bloques puede cambiar el ULTIMO bit frente a la suma secuencial;
+        /// MATLAB tambien suma por bloques y de hecho asi suele ser MAS preciso.</summary>
+        internal static double SumSimd(double[] d, int off, int n)
+        {
+            int w = System.Numerics.Vector<double>.Count;
+            var a0 = System.Numerics.Vector<double>.Zero;
+            var a1 = a0; var a2 = a0; var a3 = a0;
+            int i = 0;
+            for (int lim = n - 4 * w; i <= lim; i += 4 * w)
+            {
+                a0 += new System.Numerics.Vector<double>(d, off + i);
+                a1 += new System.Numerics.Vector<double>(d, off + i + w);
+                a2 += new System.Numerics.Vector<double>(d, off + i + 2 * w);
+                a3 += new System.Numerics.Vector<double>(d, off + i + 3 * w);
+            }
+            var acc = (a0 + a1) + (a2 + a3);
+            double s = 0;
+            for (int k = 0; k < w; k++) s += acc[k];
+            for (; i < n; i++) s += d[off + i];
+            return s;
+        }
+
+        /// <summary>Camino rapido de `sum` para el caso denso real (lo que usa un FEM todo el
+        /// tiempo). Devuelve null si el valor no encaja — sparse, complejo, 3D, celdas,
+        /// simbolico, con unidad — y entonces manda el camino general de ReduceNumDim.
+        /// La reduccion por COLUMNA acumula fila a fila (contiguo en row-major), asi que
+        /// respeta el MISMO orden de suma que el camino viejo: da bit a bit lo mismo.</summary>
+        private static MValue SumFastDense(MValue v, int dim)
+        {
+            if (v == null || v.Data == null || v.Imag != null || v.Is3D || v.IsSparseReal
+                || v.IsString || v.IsStringArray || v.CellData != null || v.Fields != null
+                || v.Symbolic != null || v.SymCells != null || v.MapData != null
+                || v.Unit != null || v.IsScalar) return null;
+            bool isVec = (v.Rows == 1 || v.Cols == 1);
+            if (dim == 0 && isVec) return new MValue(SumSimd(v.Data, 0, v.Data.Length));
+            if (dim == 0) dim = 1;
+            if (dim == 2)                       // por FILA: cada fila ya es contigua
+            {
+                var rr = new MValue(v.Rows, 1);
+                for (int i = 0; i < v.Rows; i++) rr.Set(i, 0, SumSimd(v.Data, i * v.Cols, v.Cols));
+                return rr;
+            }
+            if (dim == 1)                       // por COLUMNA: acumulador de Cols, fila a fila
+            {
+                var rc = new MValue(1, v.Cols);
+                var acc = rc.Data;              // arranca en ceros
+                int w = System.Numerics.Vector<double>.Count;
+                for (int i = 0; i < v.Rows; i++)
+                {
+                    int off = i * v.Cols, j = 0;
+                    for (int lim = v.Cols - w; j <= lim; j += w)
+                        (new System.Numerics.Vector<double>(acc, j)
+                         + new System.Numerics.Vector<double>(v.Data, off + j)).CopyTo(acc, j);
+                    for (; j < v.Cols; j++) acc[j] += v.Data[off + j];
+                }
+                return rc;
+            }
+            return null;                        // dim >= 3: que lo resuelva el camino general
+        }
+
         private static MValue ReduceNumDim(MValue v, int dim, double init, Func<double, double, double> f)
         {
             if (v.IsScalar) return new MValue(v.Scalar);
@@ -13023,6 +13103,12 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             {
                 "+" => MapBinaryFast(l, r, '+') ?? MapBinary(l, r, (a, c) => a + c),
                 "-" => MapBinaryFast(l, r, '-') ?? MapBinary(l, r, (a, c) => a - c),
+                // A*escalar es escalado element-wise, no un producto matricial: mandarlo al
+                // camino SIMD. Iba por MatMul y tardaba el DOBLE que `A.*escalar` (13.5 ms
+                // contra 7.1 en 4e6, medido en tests/bench_ml). Los sparse siguen por MatMul:
+                // MapBinary densifica, y densificar una K de FEM se come la RAM.
+                "*" when (l.IsScalar || r.IsScalar) && !l.IsSparseReal && !r.IsSparseReal
+                     => MapBinaryFast(l, r, '*') ?? MapBinary(l, r, (a, c) => a * c),
                 "*" => MatMul(l, r),
                 ".*" => MapBinaryFast(l, r, '*') ?? MapBinary(l, r, (a, c) => a * c),
                 "/" => (l.IsScalar || r.IsScalar)

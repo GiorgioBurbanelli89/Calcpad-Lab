@@ -38,16 +38,48 @@ Los 6 casos dan **los mismos números** que MATLAB R2017a. Tiempos (mejor de 3):
 
 | caso | Lab (s) | MATLAB (s) | |
 |---|---|---|---|
-| b1_densa  | 0.023 | 0.021 | Lab 1.1× más lento |
-| b2_sparse | 0.033 | 0.054 | Lab 1.6× más rápido |
-| b3_bucle  | 0.010 | 0.172 | **Lab 17× más rápido** |
-| b4_vector | 0.108 | 0.067 | Lab 1.6× más lento |
-| b5_fem_q4 | 0.019 | 0.072 | **Lab 3.7× más rápido** |
-| b6_fft    | 0.067 | 0.067 | empate |
+| b1_densa  | 0.024 | 0.020 | Lab 1.2× más lento |
+| b2_sparse | 0.022 | 0.055 | Lab 2.5× más rápido |
+| b3_bucle  | 0.010 | 0.159 | **Lab 16× más rápido** |
+| b4_vector | 0.070 | 0.093 | Lab 1.3× más rápido *(era 1.6× más lento)* |
+| b5_fem_q4 | 0.019 | 0.078 | **Lab 4× más rápido** |
+| b6_fft    | 0.058 | 0.074 | Lab 1.3× más rápido |
 
-Lectura: donde Lab gana es en **bucle escalar** (su JIT) y en **FEM** (ensamblado +
-solver disperso). Donde pierde es en **elementwise sobre vectores enormes** (b4) y va
-parejo en denso y FFT, que en los dos motores son librería nativa.
+Lectura: Lab gana en **bucle escalar** (su JIT) y en **FEM** (ensamblado + solver
+disperso). Lo único que sigue por detrás es el **denso** (b1), que en los dos motores es
+librería nativa (LAPACK).
+
+### El elementwise (b4): de 1.6× más lento a la par
+
+`prof4.m` y `prof5.m` son los perfiles que se usaron para encontrarlo — cronometran cada
+primitiva por separado, **usando el resultado** para que nadie pueda borrarla por "código
+muerto" y regalar un tiempo falso. Sobre 4e6 elementos (mejor de 7):
+
+| primitiva | Lab antes | Lab ahora | MATLAB |
+|---|---|---|---|
+| `sum(v)`   | 10.4 ms | **1.9 ms** | 1.8 ms |
+| `v.*v`     | 7.1 ms  | **4.2 ms** | 3.3 ms |
+| `v+v`      | 7.1 ms  | **3.4 ms** | 3.5 ms |
+| `v*2`      | 13.5 ms | **3.5 ms** | 3.6 ms |
+| `sin(v)`   | 2.7 ms  | 2.7 ms | 16.7 ms |
+| `exp(v)`   | 2.8 ms  | 2.8 ms | 12.2 ms |
+
+Tres causas, ninguna adivinada — todas medidas:
+
+1. **`sum` llamaba un delegado por elemento** (`ReduceNumDim` con `Func<double,double,double>`):
+   4 millones de llamadas que .NET no puede meter inline ni vectorizar. Iba 7× por debajo
+   del ancho de banda de memoria, o sea el cuello era el delegado, no el bus. Ahora hay
+   camino SIMD para el caso denso real (`SumFastDense`); sparse/complejo/3D siguen por el
+   general. La reducción por columna acumula fila a fila, así que da **bit a bit lo mismo**
+   que antes.
+2. **Cada resultado se ponía a cero antes de escribirlo.** .NET inicializa todo arreglo
+   nuevo; como el SIMD lo sobrescribe entero, eran 32 MB de escritura tirados por
+   operación. Ahora esos buffers se piden sin inicializar (`GC.AllocateUninitializedArray`).
+3. **`A*escalar` iba por `MatMul`** en vez del camino element-wise SIMD, y tardaba el doble
+   que `A.*escalar`. Los sparse siguen por `MatMul` a propósito: el camino genérico
+   densifica, y densificar una K de FEM se come la RAM.
+
+Y al revés: `sin`/`exp` de Lab ya eran **6× y 4× más rápidos** que los de MATLAB R2017a.
 
 ## Dos bugs que destapó este banco
 

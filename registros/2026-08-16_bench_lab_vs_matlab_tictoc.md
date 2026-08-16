@@ -58,9 +58,38 @@ Se corre con `python tests/bench_ml/run_bench.py`.
 - Velocidad: el CLI con los arreglos NO es más lento — t3 (FEM) 1.57 s con los arreglos vs
   1.97 s con el binario anterior.
 
+## ✅ Segunda vuelta: el elementwise (b4) ya no pierde — 1.6× más lento → 1.3× más rápido
+
+Perfilé cada primitiva por separado (`prof4.m`, `prof5.m`), **usando siempre el resultado**
+para que nada se pudiera borrar como código muerto y regalar un tiempo falso. Sorpresa: los
+`sin`/`exp` de Lab ya eran **6× y 4× más rápidos** que los de MATLAB. Los culpables eran
+otros tres, y ninguno se adivinó — los tres salieron de medir:
+
+1. **`sum` llamaba un delegado por elemento** (`ReduceNumDim` con `Func<>`): 4 millones de
+   llamadas que .NET no puede meter inline ni vectorizar. La prueba de que era el delegado
+   y no la memoria: iba **7× por debajo del ancho de banda del bus** (10.4 ms cuando leer
+   32 MB cuesta ~1.5 ms). Camino SIMD nuevo (`SumFastDense`) para el caso denso real;
+   sparse/complejo/3D siguen por el general. Por columna acumula fila a fila → **bit a bit
+   igual que antes**. 10.4 ms → 1.9 ms (MATLAB 1.8).
+2. **Cada resultado se ponía a cero antes de escribirlo.** .NET inicializa todo arreglo
+   nuevo, y el SIMD lo sobrescribe entero: 32 MB de escritura tirados por operación. Ahora
+   esos buffers se piden sin inicializar. `v+v` 7.1 → 3.4 ms (MATLAB 3.5).
+3. **`A*escalar` iba por `MatMul`**, no por el camino element-wise: tardaba el doble que
+   `A.*escalar`. 13.5 → 3.5 ms. Los sparse siguen por `MatMul` a propósito (el camino
+   genérico densifica, y densificar una K de FEM se come la RAM).
+
+Resultado del banco: b4 pasó de 0.108 s a **0.070 s** (MATLAB 0.072–0.094). De regalo, el
+FEM de `tests/numeric` (t3) bajó de 1.97 s a 1.52 s.
+
+Verificado otra vez: `tests/numeric` 24/24, `jit_coverage` 42/42 idénticos a MATLAB, banco
+6/6. (El binario viejo corriendo `prof5.m` imprime `0` en todos los tiempos: la demostración
+en vivo del bug 1 de arriba.)
+
 ## ⏳ Falta
 
-- **b4 (vectorizado 4e6) va 1.6× más lento que MATLAB.** Es el único punto flojo: hay
-  `sin/exp/sqrt` elementwise + `cumsum` + `sort`. Vale medir cuál de los tres pesa.
+- **b1 denso sigue 1.2× más lento** (matmul/Cholesky). Es librería nativa en los dos
+  motores; habría que ver qué BLAS y con cuántos hilos corre cada uno.
+- MATLAB **multihilea** el elementwise grande y Lab no. Con las tres mejoras ya se empata,
+  pero paralelizar por bloques (>500k elementos) daría otro salto.
 - Ampliar el banco: `interp1`, `eig`/`svd`, cell/struct y strings.
 - Enganchar `run_bench.py` al pre-commit junto con `tests/numeric/run_tests.py`.
