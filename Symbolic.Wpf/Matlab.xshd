@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
-<!-- GENERADO por gen_xshd.py — Resaltado MATLAB para AvalonEdit (Hekatan Lab Borrador).
-     Las funciones son las REALES del motor de Hekatan Lab (ver MatlabBuiltins.g.cs).
-     Los colores se re-tinen en caliente segun el tema (ApplyHighlightingColors). -->
+<!-- Resaltado MATLAB para AvalonEdit (Hekatan Lab).
+     La lista de <Word> se genero desde los builtins REALES del motor (ver MatlabBuiltins.g.cs);
+     de ahi en adelante este archivo se mantiene A MANO.
+     Los colores se re-tinen en caliente segun el tema (AplicarColoresAvalon). -->
 <SyntaxDefinition name="MATLAB" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
 
   <Color name="Comment"   foreground="#5AC37E" />
@@ -22,11 +23,19 @@
       <End>^[ \t]*%\}[ \t]*$</End>
     </Span>
 
-    <!-- Las CADENAS van antes del comentario, para que un % entre comillas no lo abra.
-         Van como Rule (no Span) para no confundir la comilla de TRANSPUESTA (A') con
-         una cadena: la simple solo abre si NO viene detras de identificador, ), ], } o . -->
-    <Rule color="String">"[^"\n]*"</Rule>
-    <Rule color="String">(?&lt;![A-Za-z0-9_\)\]\}\.'])'[^'\n]*'</Rule>
+    <!-- Las CADENAS van como SPAN, no como Rule: AvalonEdit mira primero los Span, asi que
+         con Rule el % de dentro de las comillas abria comentario igual (se veia media cadena
+         verde). Como Span, lo de dentro ya no se analiza.
+         La comilla simple solo ABRE cadena si NO viene detras de identificador, ), ], } o .
+         — si viene detras, es TRANSPUESTA (A'), no cadena. -->
+    <Span color="String" multiline="false">
+      <Begin>"</Begin>
+      <End>"</End>
+    </Span>
+    <Span color="String" multiline="false">
+      <Begin>(?&lt;![A-Za-z0-9_\)\]\}\.'])'</Begin>
+      <End>'(?!')</End>
+    </Span>
 
     <!-- Comentarios que SI salen en el worksheet (el resto se oculta, como MATLAB):
          %" titulo visible   ·   %' texto visible -->

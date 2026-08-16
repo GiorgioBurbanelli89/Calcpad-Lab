@@ -3044,7 +3044,8 @@ namespace Calcpad.Wpf
         // (que en headless bloquea para siempre) -> huérfanos msedgewebview2 + cuelgues.
         internal static readonly bool IsHeadless =
             System.Environment.GetCommandLineArgs().Any(a =>
-                a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf" || a == "--tex");
+                a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf" || a == "--tex"
+                || a == "--cshot");
 
         // Piso 3: valores VIVOS de los controles interactivos (slider/numbox/checkbox). Vive en la
         // WPF y sobrevive a re-runs (el motor/pipeline es NUEVO cada cálculo). Se inyecta por run.
@@ -3743,6 +3744,11 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 }
                 else if (argv[i] == "--ctl" && i + 1 < argv.Length) _ctlDir = argv[++i];
                 else if (argv[i] == "--plegar") { /* lo lee PrepararAvalon */ }
+                // --completar <prefijo> [--cshot <png>]: escribe el prefijo en el editor y
+                // abre el autocompletado, para poder REVISARLO en un PNG. Lo lee PrepararAvalon.
+                else if (argv[i] == "--completar" && i + 1 < argv.Length) i++;
+                else if (argv[i] == "--cshot" && i + 1 < argv.Length) i++;
+                else if (argv[i] == "--aceptar") { /* lo lee PrepararAvalon */ }
                 else fileParts.Add(argv[i]);
             }
             // Captura headless (--shot/--gif/--pdf): imagen LIMPIA sin datatip de hover (= saveas de MATLAB).

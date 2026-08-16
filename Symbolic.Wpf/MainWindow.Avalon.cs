@@ -59,6 +59,109 @@ namespace Calcpad.Wpf
                 t.Tick += (_, _) => { t.Stop(); PlegarTodo_Click(null, null); };
                 t.Start();
             }
+
+            PrepararCapturaAutocompletado();
+        }
+
+        /// <summary>
+        /// <c>--completar &lt;prefijo&gt; [--cshot &lt;png&gt;]</c>: escribe el prefijo al final del
+        /// codigo y abre el popup de autocompletado, para poder REVISARLO en un PNG.
+        ///
+        /// Por que no vale <c>--wshot</c>: el popup de AvalonEdit es OTRA ventana, y --wshot
+        /// dibuja solo esta (RenderTargetBitmap/PrintWindow). Para que salga el popup hay que
+        /// copiar de la PANTALLA, que es lo que hace <see cref="CapturarPantalla"/>.
+        /// </summary>
+        private void PrepararCapturaAutocompletado()
+        {
+            var args = Environment.GetCommandLineArgs();
+            var iPre = Array.IndexOf(args, "--completar");
+            if (iPre < 0 || iPre + 1 >= args.Length) return;
+            var prefijo = args[iPre + 1];
+            var iPng = Array.IndexOf(args, "--cshot");
+            var png = iPng >= 0 && iPng + 1 < args.Length ? args[iPng + 1] : null;
+
+            var t = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromMilliseconds(1400) };
+            t.Tick += (_, _) =>
+            {
+                t.Stop();
+                try
+                {
+                    WindowState = WindowState.Normal;
+                    AvalonEditor.Focus();
+                    AvalonEditor.AppendText("\n" + prefijo);
+                    AvalonEditor.CaretOffset = AvalonEditor.Document.TextLength;
+                    MostrarAutocompletado(prefijo);
+                    // --aceptar: ademas, mete el item seleccionado (para ver el SNIPPET ya
+                    // insertado con sus huecos, que es lo que hace Tab).
+                    if (args.Any(a => a == "--aceptar"))
+                        _avalonCompletion?.CompletionList.RequestInsertion(EventArgs.Empty);
+                }
+                catch { }
+
+                if (png is null) return;
+                var t2 = new System.Windows.Threading.DispatcherTimer
+                { Interval = TimeSpan.FromMilliseconds(900) };
+                t2.Tick += (_, _) =>
+                {
+                    t2.Stop();
+                    CapturarPantalla(png);
+                    // Salida DURA: Shutdown() dispara el "File not saved. Save?" (el snippet
+                    // ensucio el documento) y en headless ese dialogo se queda ahi para siempre.
+                    Environment.Exit(0);
+                };
+                t2.Start();
+            };
+            t.Start();
+        }
+
+        /// <summary>Dibuja esta ventana Y las ventanas hijas que tenga encima (el popup del
+        /// autocompletado), cada una por su HANDLE con PrintWindow, y las pega en su sitio.
+        ///
+        /// Por que no <c>CopyFromScreen</c>: copiar de la pantalla trae lo que este delante en
+        /// el monitor (otra terminal, el navegador...). Por handle sale SIEMPRE la app, aunque
+        /// este tapada.</summary>
+        private void CapturarPantalla(string ruta)
+        {
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+                if (!GetWindowRect(hwnd, out var r)) return;
+                int w = r.Right - r.Left, h = r.Bottom - r.Top;
+                if (w <= 0 || h <= 0) return;
+
+                using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    Pintar(g, hwnd, 0, 0, w, h);
+
+                    foreach (Window otra in Application.Current.Windows)
+                    {
+                        if (ReferenceEquals(otra, this) || !otra.IsVisible) continue;
+                        var h2 = new System.Windows.Interop.WindowInteropHelper(otra).Handle;
+                        if (h2 == IntPtr.Zero || !GetWindowRect(h2, out var r2)) continue;
+                        Pintar(g, h2, r2.Left - r.Left, r2.Top - r.Top, r2.Right - r2.Left, r2.Bottom - r2.Top);
+                    }
+                }
+
+                var dir = System.IO.Path.GetDirectoryName(ruta);
+                if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
+                bmp.Save(ruta, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            catch { }
+
+            static void Pintar(System.Drawing.Graphics destino, IntPtr hwnd, int x, int y, int w, int h)
+            {
+                if (w <= 0 || h <= 0) return;
+                using var trozo = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using (var g = System.Drawing.Graphics.FromImage(trozo))
+                {
+                    var hdc = g.GetHdc();
+                    try { PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT); }
+                    finally { g.ReleaseHdc(hdc); }
+                }
+                destino.DrawImage(trozo, x, y);
+            }
         }
 
         // ---------- alternar editor plegable / clasico ----------
@@ -235,10 +338,36 @@ namespace Calcpad.Wpf
 
             _avalonCompletion = new CompletionWindow(AvalonEditor.TextArea) { CloseWhenCaretAtBeginning = true };
             _avalonCompletion.StartOffset = AvalonEditor.CaretOffset - prefijo.Length;
+            VestirPopup(_avalonCompletion);
             foreach (var it in items) _avalonCompletion.CompletionList.CompletionData.Add(it);
             if (!string.IsNullOrEmpty(prefijo)) _avalonCompletion.CompletionList.SelectItem(prefijo);
             _avalonCompletion.Closed += (_, _) => _avalonCompletion = null;
             _avalonCompletion.Show();
+        }
+
+        /// <summary>El popup de AvalonEdit nace BLANCO (sus colores son fijos, no heredan del
+        /// tema): en el tema Oscuro daba un cuadro blanco en medio del editor negro. Se le
+        /// pasan los mismos brushes del Lab, que ya cambian solos al alternar Oscuro/Oro.</summary>
+        private void VestirPopup(CompletionWindow w)
+        {
+            try
+            {
+                var fondo = (System.Windows.Media.Brush)FindResource("ThemeEditorBg");
+                var texto = (System.Windows.Media.Brush)FindResource("ThemeText");
+                var borde = (System.Windows.Media.Brush)FindResource("ThemeButtonBorder");
+
+                w.Background = fondo;
+                w.Foreground = texto;
+                w.BorderBrush = borde;
+                w.CompletionList.Background = fondo;
+                w.CompletionList.Foreground = texto;
+                w.CompletionList.ListBox.Background = fondo;
+                w.CompletionList.ListBox.Foreground = texto;
+                w.CompletionList.ListBox.BorderBrush = borde;
+                w.FontFamily = AvalonEditor.FontFamily;
+                w.FontSize = AvalonEditor.FontSize;
+            }
+            catch { /* si falta un brush, el popup se queda con su look de fabrica */ }
         }
     }
 }
