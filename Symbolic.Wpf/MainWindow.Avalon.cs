@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -30,6 +30,7 @@ namespace Calcpad.Wpf
     {
         private FoldingManager _foldingManager;
         private CompletionWindow _avalonCompletion;
+        private readonly MatlabSemanticColorizer _colorizadorSemantico = new();
         private bool _desdeAvalon;      // el cambio de texto lo origino AvalonEdit
         private bool _haciaAvalon;      // estamos escribiendo EN AvalonEdit desde la app
         private bool _avalonListo;
@@ -42,6 +43,7 @@ namespace Calcpad.Wpf
 
             CargarResaltadoMatlab();
             _foldingManager = FoldingManager.Install(AvalonEditor.TextArea);
+            AvalonEditor.TextArea.TextView.LineTransformers.Add(_colorizadorSemantico);
 
             AvalonEditor.TextChanged += AvalonEditor_TextChanged;
             AvalonEditor.TextArea.TextEntered += AvalonEditor_TextEntered;
@@ -210,6 +212,7 @@ namespace Calcpad.Wpf
             catch { }
             finally { _desdeAvalon = false; }
             ActualizarPlegado();
+            ActualizarSemantica();
         }
 
         /// <summary>RichTextBox -> AvalonEdit. Se llama al abrir archivo, al limpiar, y
@@ -232,6 +235,7 @@ namespace Calcpad.Wpf
             }
             finally { _haciaAvalon = false; }
             ActualizarPlegado();
+            ActualizarSemantica();
         }
 
         // ---------- plegado ----------
@@ -240,6 +244,26 @@ namespace Calcpad.Wpf
         /// (<see cref="Calcpad.Core.Matlab.MatlabBlocks"/>); aqui solo se traducen sus
         /// tramos al +/- de AvalonEdit. Asi otra piel (Avalonia) pliega identico.
         /// UpdateFoldings conserva los que ya estaban cerrados: plegar no se deshace al escribir.</summary>
+        /// <summary>Relee que declaro el usuario y repinta. Va con retardo: al escribir no hace
+        /// falta rehacerlo en cada tecla, y en un archivo largo recorrerlo entero si se nota.</summary>
+        private void ActualizarSemantica()
+        {
+            _repintado ??= new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromMilliseconds(350) };
+            _repintado.Tick -= Repintar;
+            _repintado.Tick += Repintar;
+            _repintado.Stop();
+            _repintado.Start();
+
+            void Repintar(object s, EventArgs e)
+            {
+                _repintado.Stop();
+                _colorizadorSemantico.Actualizar(LoDeclarado());
+                AvalonEditor.TextArea.TextView.Redraw();
+            }
+        }
+        private System.Windows.Threading.DispatcherTimer _repintado;
+
         private void ActualizarPlegado()
         {
             if (_foldingManager is null) return;

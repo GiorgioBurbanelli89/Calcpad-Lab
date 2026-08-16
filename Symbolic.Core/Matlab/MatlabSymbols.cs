@@ -76,6 +76,74 @@ namespace Calcpad.Core.Matlab
             return simbolos;
         }
 
+        /// <summary>Un nombre encontrado en una linea, con DONDE esta. Lo usa el editor para
+        /// pintar; por eso hacen falta las posiciones exactas (<see cref="MatlabBlocks.SoloCodigo"/>
+        /// no sirve: al vaciar las cadenas cambia las longitudes).</summary>
+        public readonly record struct Palabra(int Inicio, int Largo, string Nombre, bool EsLlamada);
+
+        /// <summary>Los identificadores de una linea que estan en CODIGO: se saltan el
+        /// comentario <c>%</c>, las cadenas <c>'…'</c> y <c>"…"</c>, y la comilla de
+        /// transpuesta (<c>A'</c>) no se confunde con el inicio de una cadena.
+        /// <c>EsLlamada</c> = le sigue un <c>(</c>, o sea se usa como funcion.</summary>
+        public static List<Palabra> Identificadores(string linea)
+        {
+            var salida = new List<Palabra>();
+            if (string.IsNullOrEmpty(linea)) return salida;
+
+            char anteriorUtil = '\0';
+            for (var i = 0; i < linea.Length; i++)
+            {
+                var c = linea[i];
+
+                if (c == '%') break;                                           // comentario
+                if (c == '.' && i + 2 < linea.Length && linea[i + 1] == '.' && linea[i + 2] == '.') break;
+
+                if (c == '"')                                                  // cadena "…"
+                {
+                    i++;
+                    while (i < linea.Length && linea[i] != '"') i++;
+                    anteriorUtil = '"';
+                    continue;
+                }
+
+                if (c == '\'')
+                {
+                    var esTranspuesta = char.IsLetterOrDigit(anteriorUtil)
+                        || anteriorUtil is '_' or ')' or ']' or '}' or '.' or '\'';
+                    if (esTranspuesta) { anteriorUtil = '\''; continue; }
+                    i++;                                                       // cadena '…'
+                    while (i < linea.Length)
+                    {
+                        if (linea[i] == '\'')
+                        {
+                            if (i + 1 < linea.Length && linea[i + 1] == '\'') { i += 2; continue; }
+                            break;
+                        }
+                        i++;
+                    }
+                    anteriorUtil = '\'';
+                    continue;
+                }
+
+                if (char.IsLetter(c) || c == '_')
+                {
+                    var j = i;
+                    while (j < linea.Length && (char.IsLetterOrDigit(linea[j]) || linea[j] == '_')) j++;
+
+                    var k = j;
+                    while (k < linea.Length && linea[k] == ' ') k++;
+                    salida.Add(new Palabra(i, j - i, linea[i..j], k < linea.Length && linea[k] == '('));
+
+                    anteriorUtil = linea[j - 1];
+                    i = j - 1;
+                    continue;
+                }
+
+                if (!char.IsWhiteSpace(c)) anteriorUtil = c;
+            }
+            return salida;
+        }
+
         // ---------- casos ----------
 
         /// <summary><c>function [M, V] = momento(q, L)</c> → funcion "momento" con firma, mas
