@@ -31,6 +31,7 @@ namespace Calcpad.Wpf
         private FoldingManager _foldingManager;
         private CompletionWindow _avalonCompletion;
         private readonly MatlabSemanticColorizer _colorizadorSemantico = new();
+        private readonly ImagenIncrustadaGenerator _imagenes = new();
         private bool _desdeAvalon;      // el cambio de texto lo origino AvalonEdit
         private bool _haciaAvalon;      // estamos escribiendo EN AvalonEdit desde la app
         private bool _avalonListo;
@@ -44,6 +45,7 @@ namespace Calcpad.Wpf
             CargarResaltadoMatlab();
             _foldingManager = FoldingManager.Install(AvalonEditor.TextArea);
             AvalonEditor.TextArea.TextView.LineTransformers.Add(_colorizadorSemantico);
+            AvalonEditor.TextArea.TextView.ElementGenerators.Add(_imagenes);
 
             AvalonEditor.TextChanged += AvalonEditor_TextChanged;
             AvalonEditor.TextArea.TextEntered += AvalonEditor_TextEntered;
@@ -63,6 +65,68 @@ namespace Calcpad.Wpf
             }
 
             PrepararCapturaAutocompletado();
+            PrepararCapturaBusqueda();
+            PrepararCapturaInsercion();
+        }
+
+        /// <summary><c>--insertar &lt;texto&gt; [--cshot &lt;png&gt;]</c>: mete texto por el MISMO camino
+        /// que los botones de la barra (InsertManager), para comprobar en PNG que acaba en el
+        /// editor plegable y no en el RichTextBox oculto.</summary>
+        private void PrepararCapturaInsercion()
+        {
+            var args = Environment.GetCommandLineArgs();
+            var i = Array.IndexOf(args, "--insertar");
+            if (i < 0 || i + 1 >= args.Length) return;
+            var texto = args[i + 1];
+            var iPng = Array.IndexOf(args, "--cshot");
+            var png = iPng >= 0 && iPng + 1 < args.Length ? args[iPng + 1] : null;
+
+            TrasUnRato(1400, () =>
+            {
+                try
+                {
+                    AvalonEditor.Focus();
+                    AvalonEditor.CaretOffset = AvalonEditor.Document.TextLength;
+                    _insertManager.InsertLine();
+                    _insertManager.InsertText(texto);
+                }
+                catch { }
+                if (png is null) return;
+                TrasUnRato(900, () => { CapturarPantalla(png); Environment.Exit(0); });
+            });
+        }
+
+        /// <summary><c>--buscar &lt;texto&gt; [--cshot &lt;png&gt;]</c>: abre el buscador del editor con
+        /// ese texto, para revisar en PNG que resalta las coincidencias.</summary>
+        private void PrepararCapturaBusqueda()
+        {
+            var args = Environment.GetCommandLineArgs();
+            var i = Array.IndexOf(args, "--buscar");
+            if (i < 0 || i + 1 >= args.Length) return;
+            var texto = args[i + 1];
+            var iPng = Array.IndexOf(args, "--cshot");
+            var png = iPng >= 0 && iPng + 1 < args.Length ? args[iPng + 1] : null;
+
+            TrasUnRato(1400, () =>
+            {
+                try
+                {
+                    AvalonEditor.Focus();
+                    BuscarEnAvalon(false);
+                    if (_panelBuscar is not null) _panelBuscar.SearchPattern = texto;
+                }
+                catch { }
+                if (png is null) return;
+                TrasUnRato(900, () => { CapturarPantalla(png); Environment.Exit(0); });
+            });
+        }
+
+        /// <summary>Ejecutar algo cuando la ventana ya termino de montarse.</summary>
+        private void TrasUnRato(int ms, Action accion)
+        {
+            var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+            t.Tick += (_, _) => { t.Stop(); accion(); };
+            t.Start();
         }
 
         /// <summary>
@@ -238,6 +302,111 @@ namespace Calcpad.Wpf
             ActualizarSemantica();
         }
 
+        // ---------- botones de insertar ----------
+
+        /// <summary>Lo que insertan los botones y el teclado de simbolos va al editor que el
+        /// usuario esta VIENDO. Antes iba al RichTextBox oculto: el texto aparecia donde estaba
+        /// SU cursor, no donde el usuario tenia el suyo.
+        /// Devuelve false si el editor plegable no esta activo (entonces sigue el de siempre).</summary>
+        private bool InsertarEnAvalon(string texto)
+        {
+            if (!EditorPlegableActivo || !_avalonListo || AvalonEditor is null) return false;
+
+            var doc = AvalonEditor.Document;
+            using (doc.RunUpdate())
+            {
+                if (texto == "\b")                                  // borrar un caracter
+                {
+                    if (AvalonEditor.SelectionLength > 0)
+                        doc.Remove(AvalonEditor.SelectionStart, AvalonEditor.SelectionLength);
+                    else if (AvalonEditor.CaretOffset > 0)
+                        doc.Remove(AvalonEditor.CaretOffset - 1, 1);
+                    AvalonEditor.Focus();
+                    return true;
+                }
+
+                if (AvalonEditor.SelectionLength > 0)
+                    doc.Remove(AvalonEditor.SelectionStart, AvalonEditor.SelectionLength);
+
+                var inicio = AvalonEditor.CaretOffset;
+                var t = texto == "\n" ? Environment.NewLine : texto;
+                doc.Insert(inicio, t);
+                SeleccionarHueco(inicio, t);
+            }
+            AvalonEditor.Focus();
+            return true;
+        }
+
+        /// <summary>Deja seleccionado el hueco de la plantilla recien insertada, igual que hacia
+        /// <c>SelectInsertedText</c>: lo de dentro de <c>{ }</c> (o hasta el <c>@</c>) y, si no
+        /// hay llaves, el primer argumento entre <c>( )</c>.</summary>
+        private void SeleccionarHueco(int inicio, string texto)
+        {
+            var i1 = texto.IndexOf('{') + 1;
+            var i2 = i1 > 0 ? texto.IndexOfAny(['@', '}'], i1) : -1;
+            if (i1 <= 0)
+            {
+                i1 = texto.IndexOf('(') + 1;
+                i2 = i1 > 0 ? texto.IndexOfAny([';', ')'], i1) : -1;
+            }
+            if (i1 > 0 && i2 > 0)
+                AvalonEditor.Select(inicio + i1, i2 - i1);
+            else
+                AvalonEditor.CaretOffset = inicio + texto.Length;
+        }
+
+        // ---------- buscar y deshacer ----------
+
+        /// <summary>Abre el buscador propio de AvalonEdit (resalta TODAS las coincidencias en
+        /// el margen y en el texto). Devuelve false si el editor plegable no esta activo, para
+        /// que siga funcionando el buscador clasico del RichTextBox.</summary>
+        private bool BuscarEnAvalon(bool conReemplazo)
+        {
+            if (!EditorPlegableActivo || !_avalonListo) return false;
+
+            if (_panelBuscar is null)
+            {
+                _panelBuscar = ICSharpCode.AvalonEdit.Search.SearchPanel.Install(AvalonEditor);
+                VestirBuscador();
+            }
+
+            var sel = AvalonEditor.SelectedText;
+            if (!string.IsNullOrEmpty(sel) && !sel.Contains('\n'))
+                _panelBuscar.SearchPattern = sel;
+
+            _panelBuscar.Open();
+            // El panel de AvalonEdit sale sin caja de reemplazo; con Ctrl+H se pide igual, asi
+            // que al menos se deja el foco puesto para escribir la busqueda.
+            Dispatcher.InvokeAsync(() => _panelBuscar.Reactivate(),
+                System.Windows.Threading.DispatcherPriority.Input);
+            return true;
+        }
+        private ICSharpCode.AvalonEdit.Search.SearchPanel _panelBuscar;
+
+        /// <summary>El buscador de AvalonEdit tambien nace claro; se le pasan los brushes del
+        /// Lab, como al popup del autocompletado.</summary>
+        private void VestirBuscador()
+        {
+            try
+            {
+                _panelBuscar.Background = (Brush)FindResource("ThemePanelBg");
+                _panelBuscar.Foreground = (Brush)FindResource("ThemeText");
+                _panelBuscar.BorderBrush = (Brush)FindResource("ThemeButtonBorder");
+                _panelBuscar.BorderThickness = new Thickness(1);
+                _panelBuscar.MarkerBrush = (Brush)FindResource("ThemeAccentGold");
+            }
+            catch { }
+        }
+
+        /// <summary>Deshacer/rehacer en el editor plegable. false = no esta activo.</summary>
+        private bool DeshacerEnAvalon(bool rehacer)
+        {
+            if (!EditorPlegableActivo || !_avalonListo) return false;
+            if (rehacer) { if (AvalonEditor.CanRedo) AvalonEditor.Redo(); }
+            else if (AvalonEditor.CanUndo) AvalonEditor.Undo();
+            return true;
+        }
+
         // ---------- plegado ----------
 
         /// <summary>Quien SABE donde estan los bloques es el motor
@@ -309,6 +478,10 @@ namespace Calcpad.Wpf
         /// <summary>Re-tine el resaltado segun el tema del Lab (Oscuro / Oro).</summary>
         private void AplicarColoresAvalon(bool oscuro)
         {
+            // Lo que NO viene del .xshd tambien sigue el tema: nombres del usuario e imagenes.
+            _colorizadorSemantico.AplicarTema(oscuro);
+            _imagenes.AplicarTema(oscuro);
+
             var hl = AvalonEditor?.SyntaxHighlighting;
             if (hl is null) return;
 

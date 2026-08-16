@@ -376,6 +376,9 @@ namespace Calcpad.Wpf
                 Include = Include
             };
             _insertManager = new(RichTextBox);
+            // Con el editor plegable delante, lo que insertan los botones va A EL (a donde el
+            // usuario ve el cursor), no al RichTextBox oculto.
+            _insertManager.Desvio = InsertarEnAvalon;
             _autoCompleteManager = new(RichTextBox, AutoCompleteListBox, Dispatcher, _insertManager);
             Mark("AutoCompleteManager (AutoList)");
             try { PopulateLoopForms(); UpdateLoopPreview(); } catch { }  // ventana-loop siempre inicializada
@@ -1271,12 +1274,17 @@ namespace Calcpad.Wpf
 
         private void Command_Undo(object sender, ExecutedRoutedEventArgs e)
         {
+            // Con el editor plegable, deshace EL: tiene su propia pila y es la que conoce lo
+            // que acabas de escribir. La del Lab (_undoMan) guarda el documento entero por
+            // pasos gruesos; mezclarlas deshace de mas.
+            if (DeshacerEnAvalon(rehacer: false)) return;
             if (_undoMan.Undo())
                 RestoreUndoData();
         }
 
         private void Command_Redo(object sender, ExecutedRoutedEventArgs e)
         {
+            if (DeshacerEnAvalon(rehacer: true)) return;
             if (_undoMan.Redo())
                 RestoreUndoData();
         }
@@ -1295,6 +1303,13 @@ namespace Calcpad.Wpf
 
         private async void CommandFindReplace(FindReplace.Modes mode)
         {
+            // BUSCAR (Ctrl+F): el buscador clasico trabaja sobre el RichTextBox, que con el
+            // editor plegable delante no se ve; AvalonEdit trae el suyo y resalta TODAS las
+            // coincidencias. REEMPLAZAR (Ctrl+H) sigue con el dialogo clasico: el panel de
+            // AvalonEdit no reemplaza, y el clasico funciona porque escribe en el RichTextBox
+            // oculto y el texto vuelve al editor por SincronizarHaciaAvalon.
+            if (!_isWebView2Focused && mode == FindReplace.Modes.Find && BuscarEnAvalon(false)) return;
+
             if (_isWebView2Focused)
                 _findReplace.Mode = FindReplace.Modes.Find;
             else
@@ -3045,7 +3060,7 @@ namespace Calcpad.Wpf
         internal static readonly bool IsHeadless =
             System.Environment.GetCommandLineArgs().Any(a =>
                 a == "--shot" || a == "--gif" || a == "--wshot" || a == "--pdf" || a == "--tex"
-                || a == "--cshot");
+                || a == "--cshot" || a == "--buscar" || a == "--insertar");
 
         // Piso 3: valores VIVOS de los controles interactivos (slider/numbox/checkbox). Vive en la
         // WPF y sobrevive a re-runs (el motor/pipeline es NUEVO cada cálculo). Se inyecta por run.
@@ -3749,6 +3764,8 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 else if (argv[i] == "--completar" && i + 1 < argv.Length) i++;
                 else if (argv[i] == "--cshot" && i + 1 < argv.Length) i++;
                 else if (argv[i] == "--aceptar") { /* lo lee PrepararAvalon */ }
+                else if (argv[i] == "--buscar" && i + 1 < argv.Length) i++;
+                else if (argv[i] == "--insertar" && i + 1 < argv.Length) i++;
                 else fileParts.Add(argv[i]);
             }
             // Captura headless (--shot/--gif/--pdf): imagen LIMPIA sin datatip de hover (= saveas de MATLAB).

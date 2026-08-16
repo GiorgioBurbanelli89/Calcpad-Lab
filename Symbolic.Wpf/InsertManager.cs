@@ -264,10 +264,27 @@ namespace Calcpad.Wpf
             return isComment;
         }
 
-        internal void RemoveChar() => _richTextBox.Selection.Start.DeleteTextInRun(-1);
-        internal void InsertLine() => _richTextBox.CaretPosition = _richTextBox.Selection.Start.InsertParagraphBreak();
+        /// <summary>Desvio al editor plegable (AvalonEdit). Con el delante, escribir en el
+        /// RichTextBox oculto meteria el texto donde esta SU cursor, que no es donde el usuario
+        /// ve el suyo. Devuelve true cuando ya inserto el; null = no hay editor plegable.
+        /// Acciones: "texto" (insertar), "\n" (linea nueva), "\b" (borrar un caracter).</summary>
+        internal Func<string, bool> Desvio;
+
+        internal void RemoveChar()
+        {
+            if (Desvio is not null && Desvio("\b")) return;
+            _richTextBox.Selection.Start.DeleteTextInRun(-1);
+        }
+
+        internal void InsertLine()
+        {
+            if (Desvio is not null && Desvio("\n")) return;
+            _richTextBox.CaretPosition = _richTextBox.Selection.Start.InsertParagraphBreak();
+        }
+
         internal void InsertText(string text)
         {
+            if (Desvio is not null && Desvio(text)) return;
             var sel = _richTextBox.Selection;
             sel.Text = text;
             sel.ClearAllProperties();
