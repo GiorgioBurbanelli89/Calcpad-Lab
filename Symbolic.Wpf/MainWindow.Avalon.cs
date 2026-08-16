@@ -67,6 +67,7 @@ namespace Calcpad.Wpf
             PrepararCapturaAutocompletado();
             PrepararCapturaBusqueda();
             PrepararCapturaInsercion();
+            PrepararCapturaMarcado();
         }
 
         /// <summary><c>--insertar &lt;texto&gt; [--cshot &lt;png&gt;]</c>: mete texto por el MISMO camino

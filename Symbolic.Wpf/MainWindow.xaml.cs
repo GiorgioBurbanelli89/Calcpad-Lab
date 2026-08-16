@@ -562,6 +562,11 @@ namespace Calcpad.Wpf
                 else
                     tag = tag[..(index - 1)];
             }
+            // Con el editor plegable delante, el marcado y las plantillas de varias lineas van
+            // AHI, no al RichTextBox oculto (donde caerian en el cursor equivocado).
+            if (tag.Contains('‖') && MarcarEnAvalon(tag)) return;
+            if (tag.Contains('§') && InsertarLineasEnAvalon(tag)) return;
+
             RichTextBox.BeginChange();
             if (tag.Contains('‖'))
             {
@@ -3766,6 +3771,12 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 else if (argv[i] == "--aceptar") { /* lo lee PrepararAvalon */ }
                 else if (argv[i] == "--buscar" && i + 1 < argv.Length) i++;
                 else if (argv[i] == "--insertar" && i + 1 < argv.Length) i++;
+                // --marcar <etiqueta> [--doble]: pulsa un boton de marcado (B, I, p...).
+                // Lo lee PrepararCapturaMarcado. Si no se saltan aqui, la etiqueta y --doble
+                // acaban en fileParts y el archivo NO se abre (se busca "ruta.m --doble ...").
+                else if (argv[i] == "--marcar" && i + 1 < argv.Length) i++;
+                else if (argv[i] == "--enlinea" && i + 1 < argv.Length) i++;
+                else if (argv[i] == "--doble") { /* lo lee PrepararCapturaMarcado */ }
                 else fileParts.Add(argv[i]);
             }
             // Captura headless (--shot/--gif/--pdf): imagen LIMPIA sin datatip de hover (= saveas de MATLAB).
