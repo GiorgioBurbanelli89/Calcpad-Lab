@@ -123,6 +123,12 @@ namespace Calcpad.Wpf
         private bool _isSaving;
         private bool _isSaved;
         private bool _isParsing;
+        // El pipeline MATLAB sigue corriendo. Hace falta APARTE de _isParsing porque el
+        // streaming navega a la página en blanco NADA MÁS empezar, y ese
+        // NavigationCompleted ponía _isParsing = false a los ~200 ms: la ventana se creía
+        // libre y aceptaba OTRO cálculo encima del que estaba corriendo (dos pipelines a la
+        // vez → el banner "Calculando…" de uno tapando el resultado del otro).
+        private bool _matlabBusy;
         private bool _isPasting;
         private bool _isTextChangedEnabled;
         // Round-trip protection: keep an exact copy of the file text loaded
@@ -248,20 +254,32 @@ namespace Calcpad.Wpf
                 System.IO.File.WriteAllText(logPath, _startupLog.ToString());
             } catch { }
         }
-        // Warmup del pipeline MATLAB al arranque: paga en un hilo de fondo el static ctor
-        // (MKL/LAPACK) + el JIT de primera llamada de las rutas calientes (≈50-100ms), ANTES
-        // de que el usuario corra nada → el primer run real va a ~1-10ms y no se siente lento.
-        // El primer run hace `await _warmupTask` (serializa: los caches del JIT no son
-        // thread-safe). Script sin side-effects (sin archivos ni plots a disco).
-        private static readonly System.Threading.Tasks.Task _warmupTask = StartPipelineWarmup();
+        // Warmup del pipeline MATLAB: paga en un hilo de fondo el static ctor (MKL/LAPACK) y el
+        // JIT de primera llamada, ANTES de que el usuario corra nada. El primer cálculo real
+        // hace `await _warmupTask` (serializa: los caches del JIT no son thread-safe). Script
+        // sin side-effects (sin archivos ni plots a disco).
+        // Se lanza en Window_ContentRendered, NO en el ctor: arrancando a la vez que la ventana
+        // competía por CPU con el JIT de todo WPF (Ribbon, WebView2, WinForms…).
+        // Cuánto cuesta, medido con tests/wpf/bench.py: 1.2 s en total. Antes eran 7-19 s, pero
+        // eso era la bandera TieredCompilation=false del .csproj (ver allí), no el warmup.
+        private static System.Threading.Tasks.Task _warmupTask = System.Threading.Tasks.Task.CompletedTask;
 
         private static System.Threading.Tasks.Task StartPipelineWarmup()
         {
-            const string warmupSrc =
+            // Dos tandas. La BASE es la que de verdad importa: statements SIN punto y coma,
+            // que es la ruta cara (mostrar el resultado sustituyendo valores,
+            // "M = 2·L = 2·3.5 = 7"). El warmup viejo solo tenía statements mudos, así que
+            // esa ruta la pagaba el usuario en su primer cálculo: 8 s por un escalar.
+            const string warmupBase =
                 "x = 5;\n" +
                 "disp(x);\n" +
+                "wLit = 5\n" +
+                "yWarm = 2*x + 1\n" +
+                "zWarm = sqrt(yWarm)/3\n" +
+                "vWarm = [1 2 3]*2\n" +
                 "A = [1 2; 3 4];\n" +
-                "B = A * A';\n" +
+                "B = A * A';\n";
+            const string warmupExtra =
                 "f = @(t) exp(-t.^2);\n" +
                 "q1 = quadgk(f, 0, 1);\n" +
                 "q2 = quadl(f, 0, 1);\n" +
@@ -274,8 +292,26 @@ namespace Calcpad.Wpf
                 "disp(q1 + q2 + q3);\n";
             return System.Threading.Tasks.Task.Run(() =>
             {
-                try { var warm = new Calcpad.Core.Matlab.MatlabPipeline(); warm.Run(warmupSrc); }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                long tBase = 0;
+                try
+                {
+                    var warm = new Calcpad.Core.Matlab.MatlabPipeline();
+                    warm.Run(warmupBase);
+                    tBase = sw.ElapsedMilliseconds;
+                    warm.Run(warmupExtra);
+                }
                 catch { /* el run real no depende del warmup */ }
+                // Log en %TEMP%: si el arranque vuelve a sentirse lento, aquí se ve en qué tanda.
+                try
+                {
+                    System.IO.File.WriteAllText(
+                        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "calcpad_lab_warmup.log"),
+                        $"base (statements que imprimen): {tBase} ms\n" +
+                        $"extra (integrales + md):        {sw.ElapsedMilliseconds - tBase} ms\n" +
+                        $"total:                          {sw.ElapsedMilliseconds} ms\n");
+                }
+                catch { }
             });
         }
 
@@ -298,7 +334,7 @@ namespace Calcpad.Wpf
             _ = Calcpad.Core.BlasInterop.Available;
             _ = Calcpad.Core.LapackInterop.Available;
             Mark($"Native DLLs pre-loaded (BLAS={Calcpad.Core.BlasInterop.Available}, LAPACK={Calcpad.Core.LapackInterop.Available})");
-            Mark("MATLAB pipeline warmup dispatched (hilo de fondo)");
+            Mark("Native DLLs listas (el warmup MATLAB se lanza al final del arranque)");
             _parser = new();
             Mark("ExpressionParser ctor");
             _highlighter = new();
@@ -1496,7 +1532,7 @@ namespace Calcpad.Wpf
 
         private async void CalculateAsync(bool toWebForm = false)
         {
-            if (_isParsing)
+            if (_isParsing || _matlabBusy)
                 return;
             StartupMark("CalculateAsync: enter");
             GetMathSettings();
@@ -1555,7 +1591,9 @@ namespace Calcpad.Wpf
             if ((isMatlabFile || isFortranFile) && !IsWebForm && !toWebForm)
             {
                 StartupMark("MATLAB pure pipeline: start (streaming)");
+                _ctlUltimoMotor = isFortranFile ? "fortran" : "matlab";
                 _isParsing = true;
+                _matlabBusy = true;
                 FreezeOutputButtons(true);
                 // Construir página de streaming: worksheet header + status banner +
                 // output div + JS helpers + footer. Se navega ANTES de arrancar el
@@ -1786,6 +1824,7 @@ namespace Calcpad.Wpf
                 }
                 catch { /* log secundario */ }
                 _isParsing = false;
+                _matlabBusy = false;
                 FreezeOutputButtons(false);
                 IsCalculated = true;
                 _autoRun = false;
@@ -1847,6 +1886,7 @@ namespace Calcpad.Wpf
                         _wv2Warper.Navigate(_htmlParsingPath);
                     }
                     StartupMark("Parse: start (Calcpad-Lab engine)");
+                    _ctlUltimoMotor = "calcpad";
                     void parse() => _parser.Parse(outputText);
                     await Task.Run(parse);
                     StartupMark("Parse: done (FEM solve + output HTML)");
@@ -3584,6 +3624,11 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
         private readonly System.Collections.Generic.HashSet<string> _ctlDone =
             new(System.StringComparer.OrdinalIgnoreCase);
         private bool _ctlBusy;
+        /// <summary>Con QUE motor se calculo lo ultimo: "matlab" · "fortran" · "calcpad".
+        /// Lo lee la op {"op":"state"} de las pruebas. Es la comprobacion de "¿esto es
+        /// MATLAB de verdad?": un .m que salga por "calcpad" esta cayendo al parser
+        /// heredado (ve el ' de una cadena como comentario y pide un #end).</summary>
+        private string _ctlUltimoMotor;
 
         private const uint PW_RENDERFULLCONTENT = 0x00000002;
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -3654,9 +3699,16 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
             }
         }
 
+        /// <summary>Esperar a que el cálculo TERMINE de verdad antes de contestar el comando.
+        /// Dos esperas, no una: primero que ARRANQUE (si se mira _isParsing demasiado pronto
+        /// aún vale false y se contestaba al instante), luego que acabe. El tope es largo
+        /// porque el PRIMER cálculo de la sesión carga MKL y compila el JIT: ~18 s en frío.
+        /// Con el tope viejo (16 s) el `run` contestaba con el banner "Calculando..." puesto,
+        /// y el test leía un reporte a medias.</summary>
         private async System.Threading.Tasks.Task CtlWaitCalc()
         {
-            for (int t = 0; t < 200 && _isParsing; t++) await System.Threading.Tasks.Task.Delay(80);
+            for (int t = 0; t < 20 && !(_isParsing || _matlabBusy); t++) await System.Threading.Tasks.Task.Delay(50);
+            for (int t = 0; t < 1500 && (_isParsing || _matlabBusy); t++) await System.Threading.Tasks.Task.Delay(80);
             await System.Threading.Tasks.Task.Delay(700);   // settle del render (plots)
         }
 
@@ -5397,7 +5449,10 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
 
             // Aplicar el tema del reporte (clase 'dark' → CSS oscuro solo-pantalla; print/PDF blanco).
             ApplyReportTheme(_isDarkTheme);
-            _isParsing = false;
+            // Ojo: en el pipeline MATLAB esta navegación es la página VACÍA de streaming, que
+            // carga al principio. Dar por terminado el cálculo aquí dejaba la ventana libre
+            // mientras el motor seguía → dos cálculos encima. El que manda ahí es _matlabBusy.
+            if (!_matlabBusy) _isParsing = false;
             if (_isSaving)
             {
                 var zip = string.Equals(Path.GetExtension(CurrentFileName), ".cpdz", StringComparison.OrdinalIgnoreCase);
@@ -5684,7 +5739,8 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 StartupMark("Window_ContentRendered: TryRestoreState done");
                 RichTextBox.Focus();
                 Keyboard.Focus(RichTextBox);
-                StartupMark("Window_ContentRendered: complete");
+                _warmupTask = StartPipelineWarmup();   // ahora sí: la ventana ya está montada
+                StartupMark("Window_ContentRendered: complete (warmup MATLAB lanzado)");
             }
             catch (Exception ex)
             {

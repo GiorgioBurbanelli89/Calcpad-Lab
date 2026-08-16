@@ -30,9 +30,11 @@ namespace Calcpad.Wpf
     ///   {"op":"button","name":"BoldButton"}    PULSAR el boton de la XAML (por su x:Name)
     ///   {"op":"button","tag":"&lt;em&gt;‖&lt;/em&gt;"}      ...o uno inventado, por su Tag
     ///   {"op":"buttons"}                       inventario de botones con Tag -> {name,tag}
+    ///   {"op":"knows","names":[...]}           ¿el MOTOR conoce estos nombres? (ver Conoce)
     ///   {"op":"gotoline","line":5}             como pulsar esa linea en el reporte
     ///   {"op":"fold","all":true|false}         plegar / desplegar todo
-    ///   {"op":"state"}                         editor activo, linea/columna, seleccion, pliegues
+    ///   {"op":"state"}                         editor activo, linea/columna, seleccion, pliegues,
+    ///                                          y el MOTOR con el que se calculo lo ultimo
     /// </summary>
     public partial class MainWindow
     {
@@ -87,6 +89,9 @@ namespace Calcpad.Wpf
                 case "buttons":
                     return Inventario();
 
+                case "knows":
+                    return Conoce(root);
+
                 case "gotoline":
                     LineClicked(((int)Num(root, "line", 1)).ToString());
                     return Ok();
@@ -127,6 +132,9 @@ namespace Calcpad.Wpf
         {
             var sb = new System.Text.StringBuilder("{\"ok\":true");
             sb.Append(",\"editor\":").Append(EditorPlegableActivo ? "\"avalon\"" : "\"clasico\"");
+            // Con QUE motor se calculo lo ultimo: "matlab" · "fortran" · "calcpad" · "nada".
+            // Un .m que salga por "calcpad" esta pasando por el parser heredado.
+            sb.Append(",\"motor\":").Append(Json(_ctlUltimoMotor ?? "nada"));
             if (EditorPlegableActivo)
             {
                 var doc = AvalonEditor.Document;
@@ -175,6 +183,38 @@ namespace Calcpad.Wpf
                         Recorrer(hijo);
             }
         }
+
+        /// <summary>¿El MOTOR conoce estos nombres? Se pregunta a <see cref="MatlabBuiltins"/>,
+        /// que sale de los nombres REALES que registra el motor (Symbolic.Core/Matlab), no de
+        /// una lista escrita a mano.
+        ///
+        /// Dos cajones:
+        ///   motor — funcion, palabra clave o constante que el motor da (sin, zeros, end, pi);
+        ///   nadie — NO existe en MATLAB: es herencia de Calcpad (√, atan2d escrito raro,
+        ///           nombres de otro lenguaje) y en la hoja sale "Undefined function".
+        /// Solo el segundo es un fallo. Sirve para vigilar los Tag de la XAML: lo que un
+        /// boton escribe tiene que poder correr.</summary>
+        private static string Conoce(JsonElement root)
+        {
+            if (!root.TryGetProperty("names", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                return Error("falta names (lista de nombres)");
+
+            var motor = new List<string>();
+            var nadie = new List<string>();
+            foreach (var e in arr.EnumerateArray())
+            {
+                var n = e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+                if (string.IsNullOrEmpty(n)) continue;
+                if (Array.IndexOf(MatlabBuiltins.All, n) >= 0 ||
+                    Array.IndexOf(MatlabBuiltins.Keywords, n) >= 0 ||
+                    Array.IndexOf(MatlabBuiltins.Constants, n) >= 0) motor.Add(n);
+                else nadie.Add(n);
+            }
+            return "{\"ok\":true,\"motor\":" + Lista(motor) + ",\"nadie\":" + Lista(nadie) + "}";
+        }
+
+        private static string Lista(IEnumerable<string> xs) =>
+            "[" + string.Join(",", System.Linq.Enumerable.Select(xs, Json)) + "]";
 
         private static string Ok() => "{\"ok\":true}";
         private static string Error(string msg) => "{\"ok\":false,\"error\":" + Json(msg) + "}";

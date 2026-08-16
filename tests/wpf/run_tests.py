@@ -30,11 +30,16 @@ Sale con codigo != 0 si algo falla -> sirve de pre-commit / pre-instalador.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+
+# "nombre(" = una llamada a funcion dentro del Tag de un boton. Se descarta lo que
+# viene detras de un punto (a.foo(), que es un metodo, no una funcion del motor).
+IDENT = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\s*\(")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_EXE = os.path.abspath(os.path.join(
@@ -100,6 +105,11 @@ class App:
 
     def text(self):
         return self.cmd(op="gettext")["text"].replace("\r\n", "\n")
+
+    def reporte(self):
+        """El texto que se VE en el panel de salida (WebView2)."""
+        r = self.cmd(op="js", code="JSON.stringify(document.body.innerText)")
+        return json.loads(r["result"]) if r.get("result") not in (None, "null") else ""
 
     def close(self):
         try:
@@ -240,6 +250,31 @@ def main():
         check("el clic en el reporte cae en la linea 4", st["line"], 4)
         check("...y abre el pliegue que la tapaba", st["folded"], 0)
         check("...y el foco se queda en el editor que se ve", st["focus"], True)
+
+        # --- 11. lo que escriben los botones, ¿lo conoce el MOTOR? --------------
+        # El caso 9 mira la FORMA (comillas de Calcpad). Este mira el CONTENIDO: se
+        # sacan los nombres que los Tag llaman como funcion —  nombre(  — y se le
+        # pregunta al motor si existen. Asi se caza la herencia de Calcpad (una funcion
+        # que aqui no existe sale "Undefined function" en la hoja, no antes).
+        # Fuera los de UNA letra: en las plantillas son variables de ejemplo (A(i,j), f(x)).
+        llamados = {}
+        for b in app.cmd(op="buttons")["buttons"]:
+            for n in IDENT.findall(b["tag"]):
+                if len(n) > 1:
+                    llamados.setdefault(n, set()).add(b["name"] or "(sin nombre)")
+        desconocidos = app.cmd(op="knows", names=sorted(llamados))["nadie"]
+        check("todo lo que llaman los Tag existe en el motor",
+              [(n, sorted(llamados[n])) for n in desconocidos], [])
+
+        # --- 12. el .m se calcula con el motor de MATLAB, no con el heredado ----
+        # Es el fallo que se vio en Hekatan Python3: el archivo caia al parser de
+        # Calcpad y la hoja se llenaba de errores raros ("Missing end", el % de una
+        # cadena tomado por comentario). Aqui se pregunta CON QUE motor se calculo.
+        app.code("x = 2 + 3")
+        app.cmd(op="run")
+        st = app.cmd(op="state")
+        check("un buffer .m lo calcula el motor MATLAB", st["motor"], "matlab")
+        check("...y el resultado sale en la hoja", "5" in app.reporte(), True)
 
     finally:
         app.close()
