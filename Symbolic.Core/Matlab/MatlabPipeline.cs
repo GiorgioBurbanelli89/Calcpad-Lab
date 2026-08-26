@@ -188,6 +188,11 @@ namespace Calcpad.Core.Matlab
         /// </summary>
         public string Run(string source)
         {
+            // Notación Calcpad $Op{} ($Area, $Sum, …): al TECLEAR se transpila por
+            // párrafo (Enter), pero al ABRIR un .m o en headless (--shot) el texto
+            // llega crudo. Transpilar aquí cubre TODOS los caminos. Idempotente.
+            if (Calcpad.Core.DollarTranspiler.ContainsMathOp(source))
+                source = Calcpad.Core.DollarTranspiler.Transpile(source);
             MatlabTokenizer.OctaveMode = OctaveMode;
             _evaluator.OctaveMode = OctaveMode;
             var tokens = MatlabTokenizer.Tokenize(source);
@@ -1169,6 +1174,8 @@ namespace Calcpad.Core.Matlab
         /// </summary>
         public string RunLatex(string source, string texPath, string assetsDir = null)
         {
+            if (Calcpad.Core.DollarTranspiler.ContainsMathOp(source))
+                source = Calcpad.Core.DollarTranspiler.Transpile(source);
             MatlabTokenizer.OctaveMode = OctaveMode;
             _evaluator.OctaveMode = OctaveMode;
             var tokens = MatlabTokenizer.Tokenize(source);
@@ -1604,7 +1611,7 @@ namespace Calcpad.Core.Matlab
         private static string MarkdownToHtml(System.Collections.Generic.List<string> lines)
         {
             var sb = new StringBuilder();
-            sb.Append("<div class=\"md-block\" style=\"font-family:'Segoe UI',Segoe,Tahoma,sans-serif;line-height:1.5;color:#222\">");
+            sb.Append("<div class=\"md-block\" style=\"font-family:'Segoe UI',Segoe,Tahoma,sans-serif;line-height:1.5\">");
             int i = 0;
             while (i < lines.Count)
             {

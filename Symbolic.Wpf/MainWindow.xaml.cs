@@ -2414,6 +2414,19 @@ namespace Calcpad.Wpf
             // on save.
             try { _loadedFileText = System.IO.File.ReadAllText(CurrentFileName); }
             catch { _loadedFileText = null; }
+            // ATAJO Calcpad $Op{} ($Area, $Sum, …): al TECLEAR se transpila con Enter,
+            // pero al ABRIR un .m con $Op{} ya escrito el editor lo mostraría crudo.
+            // Aquí lo convierto a MATLAB puro al cargar, para que la ventana de edición
+            // quede en código MATLAB (integral(...)/arrayfun(...)). El caret aún no toca.
+            if (_loadedFileText != null && Calcpad.Core.DollarTranspiler.ContainsMathOp(_loadedFileText))
+            {
+                var conv = Calcpad.Core.DollarTranspiler.Transpile(_loadedFileText);
+                if (!string.Equals(conv, _loadedFileText, StringComparison.Ordinal))
+                {
+                    _loadedFileText = conv;          // el snapshot pasa a ser el MATLAB mostrado
+                    lines = conv.AsSpan().EnumerateLines();
+                }
+            }
             _userTypedSinceLoad = false;
             _isTextChangedEnabled = false;
             RichTextBox.BeginChange();
@@ -3705,11 +3718,15 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
         /// porque el PRIMER cálculo de la sesión carga MKL y compila el JIT: ~18 s en frío.
         /// Con el tope viejo (16 s) el `run` contestaba con el banner "Calculando..." puesto,
         /// y el test leía un reporte a medias.</summary>
+        private int _ctlPlotBefore = 0;   // foto del contador de gráficas antes del cálculo
         private async System.Threading.Tasks.Task CtlWaitCalc()
         {
             for (int t = 0; t < 20 && !(_isParsing || _matlabBusy); t++) await System.Threading.Tasks.Task.Delay(50);
             for (int t = 0; t < 1500 && (_isParsing || _matlabBusy); t++) await System.Threading.Tasks.Task.Delay(80);
-            await System.Threading.Tasks.Task.Delay(700);   // settle del render (plots)
+            // settle del render SOLO si el cálculo produjo una gráfica nueva; si no (cells,
+            // escalares, matrices sin plot) → 0 ms de espera → run rápido como MATLAB.
+            if (Calcpad.Core.Matlab.MatlabPlots.LastPlotId != _ctlPlotBefore)
+                await System.Threading.Tasks.Task.Delay(700);
         }
 
         private async System.Threading.Tasks.Task CtlExecute(string cmdFile)
@@ -3727,15 +3744,15 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
                 {
                     case "setctrl":
                         _controlValues[root.GetProperty("name").GetString()] = root.GetProperty("value").GetDouble();
-                        _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
+                        _ctlPlotBefore = Calcpad.Core.Matlab.MatlabPlots.LastPlotId; _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
                         break;
                     case "run":
-                        _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
+                        _ctlPlotBefore = Calcpad.Core.Matlab.MatlabPlots.LastPlotId; _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
                         break;
                     case "settext":   // escribir en el editor de script y recalcular
                         SetInputText(root.GetProperty("text").GetString());
                         ForceHighlight();
-                        _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
+                        _ctlPlotBefore = Calcpad.Core.Matlab.MatlabPlots.LastPlotId; _recalcFromControl = true; CalculateAsync(); await CtlWaitCalc();
                         break;
                     case "capture":
                         await System.Threading.Tasks.Task.Delay(300);

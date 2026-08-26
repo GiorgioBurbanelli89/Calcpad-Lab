@@ -2591,6 +2591,10 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                         "square" => "{yaxis: {scaleanchor: 'x', scaleratio: 1}, width: 500, height: 500}",
                         "tight" => "{xaxis: {autorange: true}, yaxis: {autorange: true}}",
                         "normal" => "{xaxis: {autorange: true}, yaxis: {autorange: true}}",
+                        // axis off / axis on: oculta o muestra los ejes (línea, ticks, etiquetas y
+                        // grilla) — figura LIMPIA como los esquemas de Hekatan LISP (SkiaSharp).
+                        "off" => "{xaxis: {visible: false}, yaxis: {visible: false}}",
+                        "on" => "{xaxis: {visible: true}, yaxis: {visible: true}}",
                         _ => null
                     };
                     if (layout != null)
@@ -4358,6 +4362,51 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 double F(double x, double y, double z) => f(new[] { new MValue(x), new MValue(y), new MValue(z) }).Scalar;
                 double InnerY(double x) => AdaptiveSimpson(z => AdaptiveSimpson(y => F(x, y, z), yMin, yMax, tol, 12), zMin, zMax, tol, 12);
                 return new MValue(AdaptiveSimpson(InnerY, xMin, xMax, tol, 12));
+            };
+
+            // Cuadratura de Gauss-Legendre: gaussint(f, a, b[, n]) — n puntos (def 5).
+            // Solo de Hekatan Lab (NO existe en MATLAB real). Acepta function handle
+            // (@(x) ...) O expresión simbólica con variable explícita:
+            //   gaussint(@(x) exp(-x.^2), 0, 1)
+            //   gaussint(x^2, x, 0, 1)             (tras syms x)
+            _builtins["gaussint"] = a => {
+                if (a.Length < 3)
+                    throw new MatlabRuntimeException("gaussint(@f, a, b[, n])  o  gaussint(expr, x, a, b[, n])");
+                int nPts = 5, limIdx;
+                Func<double, double> F;
+                if (a[0].IsCallable)
+                {
+                    var f = a[0].Callable;
+                    F = x => f(new[] { new MValue(x) }).Scalar;
+                    limIdx = 1;
+                }
+                else if (a[0].IsSymbolic)
+                {
+                    // gaussint(expr, x, a, b[, n]): el 2º argumento es la variable.
+                    string vName;
+                    if (a[1].IsSymbolic && a[1].Symbolic is SymVar sv) vName = sv.Name;
+                    else if (a[1].IsString) vName = a[1].StringValue;
+                    else throw new MatlabRuntimeException("gaussint: da la variable (gaussint(expr, x, a, b))");
+                    var sym = a[0].Symbolic;
+                    F = x => sym.Eval(new System.Collections.Generic.Dictionary<string, double> { [vName] = x });
+                    limIdx = 2;
+                }
+                else
+                    throw new MatlabRuntimeException("gaussint(@f, a, b[, n])  o  gaussint(expr, x, a, b[, n])");
+                if (a.Length > limIdx + 2) nPts = (int)a[limIdx + 2].Scalar;
+                if (nPts < 1 || nPts > 64) throw new MatlabRuntimeException("gaussint: n debe estar entre 1 y 64");
+                return new MValue(GaussQuad1D(F, a[limIdx].Scalar, a[limIdx + 1].Scalar, nPts));
+            };
+            // Producto tensorial 2D de Gauss-Legendre: gaussint2(f, xa, xb, ya, yb[, n]).
+            // Solo de Hekatan Lab (NO existe en MATLAB real).
+            _builtins["gaussint2"] = a => {
+                if (a.Length < 5 || !a[0].IsCallable)
+                    throw new MatlabRuntimeException("gaussint2(@f, xa, xb, ya, yb[, n])");
+                var f = a[0].Callable;
+                Func<double, double, double> F = (x, y) => f(new[] { new MValue(x), new MValue(y) }).Scalar;
+                int nPts = a.Length >= 6 ? (int)a[5].Scalar : 5;
+                if (nPts < 1 || nPts > 32) nPts = 5;
+                return new MValue(GaussQuad2D(F, a[1].Scalar, a[2].Scalar, a[3].Scalar, a[4].Scalar, nPts));
             };
 
             _builtins["trapz"] = a => {
@@ -10498,6 +10547,63 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             return L;
         }
 
+        // ─── Cuadratura de Gauss-Legendre ───────────────────────────────────
+        /// <summary>
+        /// Nodos y pesos de Gauss-Legendre para n puntos en [-1, 1] (método de
+        /// Newton sobre los polinomios de Legendre, Numerical Recipes "gauleg").
+        /// Exacto para polinomios de grado ≤ 2n−1.
+        /// </summary>
+        internal static void GaussLegendre(int n, out double[] x, out double[] w)
+        {
+            x = new double[n]; w = new double[n];
+            int m = (n + 1) / 2;
+            const double eps = 1e-15;
+            for (int i = 0; i < m; i++)
+            {
+                double z = Math.Cos(Math.PI * (i + 0.75) / (n + 0.5));
+                double z1;
+                double pp;
+                do
+                {
+                    double p1 = 1, p2 = 0;
+                    for (int j = 0; j < n; j++)
+                    {
+                        double p3 = p2;
+                        p2 = p1;
+                        p1 = ((2.0 * j + 1) * z * p2 - j * p3) / (j + 1);
+                    }
+                    pp = n * (z * p1 - p2) / (z * z - 1.0);
+                    z1 = z;
+                    z = z1 - p1 / pp;
+                } while (Math.Abs(z - z1) > eps);
+                x[i] = -z; x[n - 1 - i] = z;
+                w[i] = 2.0 / ((1.0 - z * z) * pp * pp);
+                w[n - 1 - i] = w[i];
+            }
+        }
+
+        /// <summary>∫_a^b f(x) dx por cuadratura de Gauss-Legendre con n puntos.</summary>
+        private static double GaussQuad1D(Func<double, double> f, double a, double b, int n)
+        {
+            GaussLegendre(n, out var gx, out var gw);
+            double s = 0, c = (b + a) / 2, h = (b - a) / 2;
+            for (int i = 0; i < n; i++) s += gw[i] * f(c + h * gx[i]);
+            return h * s;
+        }
+
+        /// <summary>∫∫ f(x,y) dx dy sobre [xa,xb]×[ya,yb] con producto tensorial n×n.</summary>
+        private static double GaussQuad2D(Func<double, double, double> f, double xa, double xb, double ya, double yb, int n)
+        {
+            GaussLegendre(n, out var gx, out var gw);
+            double xc = (xb + xa) / 2, xh = (xb - xa) / 2;
+            double yc = (yb + ya) / 2, yh = (yb - ya) / 2;
+            double s = 0;
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < n; j++)
+                    s += gw[i] * gw[j] * f(xc + xh * gx[i], yc + yh * gx[j]);
+            return xh * yh * s;
+        }
+
         // ─── Spline cúbica natural ──────────────────────────────────────────
         /// <summary>Segundas derivadas de un spline cúbico NATURAL (y''=0 en los extremos)
         /// para las muestras (x,y). Numerical Recipes. Se usa para interp2 'spline' separable.</summary>
@@ -11009,10 +11115,9 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         // ─── Control-flow execution ─────────────────────────────────────────
         private void ExecuteFor(ForLoop f, MatlabScope scope)
         {
-            // JIT fast path para `for` escalares (codegen IL). ACTIVO en CLI y WPF
-            // (MainWindow lo enciende). ~3.3x vs interprete en bucles escalares.
-            // Cae al interprete si el cuerpo no es compilable (TryExecute=false).
-            // Para desactivar: env CALCPAD_LAB_JIT=0.
+            // JIT fast path para `for` escalares (codegen IL). SIEMPRE activo.
+            // ~3.3x vs interprete en bucles escalares. Cae al interprete si el
+            // cuerpo no es compilable (TryExecute=false).
             if (MatlabJit.Enabled && MatlabJit.TryExecute(f, scope, this)) return;
 
             var iter = Eval(f.Iter, scope);
