@@ -1667,6 +1667,14 @@ return {make:make};
             dx = xmax - xmin; dy = ymax - ymin;
             // Margenes para ejes/labels (mas a la derecha si hay colorbar)
             int marginL = 60, marginR = _figColorbar ? 96 : 30, marginT = 50, marginB = 60;
+            // axis off (esquema tipo Hekatan LISP): sin ticks ni title arriba → margen superior
+            // chico y aire abajo para el caption. NO achico L/R (mantener el ancho del SVG evita
+            // que la captura del WebView tesele el dibujo).
+            if (_figAxisOff)
+            {
+                marginT = 30;
+                marginB = string.IsNullOrEmpty(_figTitle) ? 30 : 72;
+            }
             int plotW = width - marginL - marginR;
             int plotH = height - marginT - marginB;
             // axis equal: MATLAB usa la MISMA escala en los dos ejes (un metro en X mide
@@ -1697,10 +1705,17 @@ return {make:make};
                 svg.AppendLine($"  <rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}' fill='none' stroke='#ccc'/>");
             // Title. En subplot el SVG (760px) se escala mucho al meterlo en la celda del grid → el
             // título de 14px queda diminuto; se agranda para igualar el de los paneles 3D (~430px).
+            // axis off: el título va ABAJO como CAPTION (muted, sin negrita), igual que los esquemas
+            // de Hekatan LISP (SkiaSharp) — no arriba como el title() normal de MATLAB.
             if (!string.IsNullOrEmpty(_figTitle))
             {
-                int titleFont = _subplotActive ? 26 : 14;
-                svg.AppendLine($"  <text x='{width/2}' y='{(_subplotActive ? 30 : 25)}' text-anchor='middle' font-family='sans-serif' font-size='{titleFont}' font-weight='bold'>{TexToSvg(_figTitle)}</text>");
+                if (_figAxisOff)
+                    svg.AppendLine($"  <text x='{width/2}' y='{height-18}' text-anchor='middle' font-family='sans-serif' font-size='14' fill='{PlotFg}' opacity='0.6'>{TexToSvg(_figTitle)}</text>");
+                else
+                {
+                    int titleFont = _subplotActive ? 26 : 14;
+                    svg.AppendLine($"  <text x='{width/2}' y='{(_subplotActive ? 30 : 25)}' text-anchor='middle' font-family='sans-serif' font-size='{titleFont}' font-weight='bold'>{TexToSvg(_figTitle)}</text>");
+                }
             }
             // X label
             if (!string.IsNullOrEmpty(_figXLabel))

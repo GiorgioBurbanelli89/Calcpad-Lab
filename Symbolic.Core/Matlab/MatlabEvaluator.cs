@@ -3124,7 +3124,24 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 else if (a[2].Rows * a[2].Cols == 3) fc = RgbVecToCss(a[2]);   // [r g b] -> antes caia a lightblue
                 else if (a[2].IsScalar) fc = ScalarToColorJs(a[2].Scalar);
                 else fc = "lightblue";
-                MatlabPlots.Patch2D(a[0].Data, a[1].Data, fc, "black", 1, 1);
+                // Name-value tras el color: EdgeColor / LineWidth / FaceAlpha. Antes se
+                // IGNORABAN (borde negro fino siempre), así que un esquema con borde grueso
+                // (p.ej. el trocito de viga, igual que Hekatan LISP) no se podía calcar.
+                string ec = "black"; double lw = 1, fa = 1;
+                for (int i = 3; i + 1 < a.Length; i += 2)
+                {
+                    if (!a[i].IsString) continue;
+                    switch (a[i].StringValue.ToLowerInvariant())
+                    {
+                        case "edgecolor":
+                            ec = a[i+1].IsString ? MatlabColorToJs(a[i+1].StringValue)
+                                 : (a[i+1].Rows * a[i+1].Cols == 3 ? RgbVecToCss(a[i+1]) : ec);
+                            break;
+                        case "linewidth": lw = a[i+1].Scalar; break;
+                        case "facealpha": fa = a[i+1].Scalar; break;
+                    }
+                }
+                MatlabPlots.Patch2D(a[0].Data, a[1].Data, fc, ec, lw, fa);
                 return new MValue(0);
             };
             _builtins["fill3"] = a => {
