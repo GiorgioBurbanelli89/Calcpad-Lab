@@ -2579,6 +2579,10 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                     {
                         case "equal": case "square": case "image": MatlabPlots.SetAxisEqual(true); break;
                         case "tight": case "normal": case "auto": MatlabPlots.SetAxisEqual(false); break;
+                        // axis off/on: se aplica al construir el layout (flag), no por relayout
+                        // inline — la figura se descarga en el siguiente figure().
+                        case "off": MatlabPlots.SetAxisOff(true); break;
+                        case "on": MatlabPlots.SetAxisOff(false); break;
                     }
                 int id = MatlabPlots.LastPlotId;
                 if (id == 0) return new MValue(0);

@@ -137,6 +137,11 @@ namespace Calcpad.Core.Matlab
         private static string[] _figLegendNames = null;
         private static double? _figXMin, _figXMax, _figYMin, _figYMax;
         private static bool _figAxisEqual = false;   // aspecto cuadrado en 2D SOLO si el script llama axis('equal') (MATLAB default=independiente)
+        // axis off: figura LIMPIA (sin línea de eje, ticks, etiquetas ni grilla) — como los
+        // esquemas SkiaSharp de Hekatan LISP. Se aplica al CONSTRUIR el layout (no por relayout
+        // inline), porque la figura se descarga en el siguiente figure(): un relayout emitido
+        // antes de que exista el div no haría nada.
+        private static bool _figAxisOff = false;
         public static bool HasOpenFigure => _figTraces != null;
         public static bool FigureIs3D => _figIs3D;
         /// <summary>plot3() COMPUESTO: agrega una polilínea 3D a la figura abierta (misma escena LAB3D
@@ -287,6 +292,7 @@ namespace Calcpad.Core.Matlab
         public static void SetGrid(bool on) { _figGrid = on; }
         private static bool _cvAxisEqual = true;
         public static void SetAxisEqual(bool eq) { _cvAxisEqual = eq; _figAxisEqual = eq; }
+        public static void SetAxisOff(bool off) { _figAxisOff = off; }
         /// <summary>Límites de eje fijados por el script con xlim/ylim/zlim. MATLAB los
         /// respeta al pie de la letra (por eso un zoom recorta de verdad); Lab los
         /// ignoraba y auto-escalaba siempre, así que una figura con zoom salía idéntica
@@ -728,6 +734,7 @@ return {make:make};
             _figGrid = false;
             _figColorbar = false; _cbReverse = false; _cbTicks = null; _cbLabel = null;
             _figAxisEqual = false;
+            _figAxisOff = false;
             _figShowLegend = false; _figLegendLoc = null; _figLegendNames = null;
             return prev;
         }
@@ -848,6 +855,19 @@ return {make:make};
                 sb.Append($"yaxis:{{title:{{text:'{EscapeJs(_figYLabel ?? "y")}'}}, {axExtra}}},");
                 sb.Append($"zaxis:{{title:{{text:'{EscapeJs(_figZLabel ?? "z")}'}}, {axExtra}}}");
                 sb.Append(" }");
+            }
+            else if (_figAxisOff)
+            {
+                // axis off: ejes INVISIBLES (sin línea, ticks, etiquetas ni grilla) — figura
+                // limpia como Hekatan LISP. Mantengo el rango fijado y, si hay axis equal, el
+                // scaleanchor, para que el dibujo no se distorsione.
+                var xoff = new System.Collections.Generic.List<string> { "visible:false" };
+                if (_figXMin.HasValue) xoff.Add($"range:[{_figXMin.Value.ToString(Inv)}, {_figXMax.Value.ToString(Inv)}]");
+                sb.Append(", xaxis:{").Append(string.Join(", ", xoff)).Append("}");
+                var yoff = new System.Collections.Generic.List<string> { "visible:false" };
+                if (_figYMin.HasValue) yoff.Add($"range:[{_figYMin.Value.ToString(Inv)}, {_figYMax.Value.ToString(Inv)}]");
+                if (_figAxisEqual) { yoff.Add("scaleanchor:'x'"); yoff.Add("scaleratio:1"); }
+                sb.Append(", yaxis:{").Append(string.Join(", ", yoff)).Append("}");
             }
             else
             {
@@ -1672,8 +1692,9 @@ return {make:make};
             // Tema: en dark el fondo del SVG va oscuro y los textos claros (no más blanco).
             svg.AppendLine($"  <style>text{{fill:{PlotFg};}}</style>");
             svg.AppendLine($"  <rect x='0' y='0' width='{width}' height='{height}' fill='{PlotBg}'/>");
-            // Plot area
-            svg.AppendLine($"  <rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}' fill='none' stroke='#ccc'/>");
+            // Plot area (marco). axis off: figura LIMPIA (esquema tipo Hekatan LISP) → sin marco.
+            if (!_figAxisOff)
+                svg.AppendLine($"  <rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}' fill='none' stroke='#ccc'/>");
             // Title. En subplot el SVG (760px) se escala mucho al meterlo en la celda del grid → el
             // título de 14px queda diminuto; se agranda para igualar el de los paneles 3D (~430px).
             if (!string.IsNullOrEmpty(_figTitle))
@@ -1689,6 +1710,9 @@ return {make:make};
                 svg.AppendLine($"  <text x='15' y='{marginT + plotH/2}' text-anchor='middle' font-family='sans-serif' font-size='12' transform='rotate(-90 15 {marginT + plotH/2})'>{EscapeXml(_figYLabel)}</text>");
             // Marcas de eje en números REDONDOS (nice ticks), como MATLAB — antes eran
             // xmin+dx*t/5 → valores feos (6.94, 0.978…).
+            // axis off: sin ticks, etiquetas ni grilla (figura limpia, esquema tipo Hekatan LISP).
+            if (!_figAxisOff)
+            {
             foreach (var xv in NiceTicks(xmin, xmax))
             {
                 double tx = TX(xv);
@@ -1706,6 +1730,7 @@ return {make:make};
                 svg.AppendLine($"  <line x1='{marginL-4}' y1='{ty.ToString(Inv)}' x2='{marginL}' y2='{ty.ToString(Inv)}' stroke='#333' stroke-width='0.8'/>");
                 if (_figGrid)
                     svg.AppendLine($"  <line x1='{marginL}' y1='{ty.ToString(Inv)}' x2='{width-marginR}' y2='{ty.ToString(Inv)}' stroke='#d0d0d0' stroke-width='0.7'/>");
+            }
             }
             // Clip path para plot area
             svg.AppendLine($"  <defs><clipPath id='plot'><rect x='{marginL}' y='{marginT}' width='{plotW}' height='{plotH}'/></clipPath></defs>");
