@@ -157,6 +157,13 @@ namespace Calcpad.Core.Matlab
         /// null = subfunción/función de archivo (scope propio). Si != null, el cuerpo se ejecuta
         /// en ESE scope (workspace compartido con el padre, como las nested functions de MATLAB).</summary>
         public MatlabScope ClosureScope;
+        /// <summary>Función PADRE de una anidada (null si no es anidada). Sirve para saber qué
+        /// nombres son COMPARTIDOS con el padre (MATLAB: solo los que aparecen en el texto del
+        /// padre); el resto de lo que asigna la anidada es LOCAL suyo y se descarta al salir.</summary>
+        public FunctionDef ParentDef;
+        /// <summary>Cache (lazy): identificadores que aparecen en el texto de ESTA función,
+        /// sin entrar en sus anidadas. null = aún no computado.</summary>
+        public System.Collections.Generic.HashSet<string> OwnIdents;
         /// <summary>Cache (lazy): flags de rasgos del cuerpo para evitar re-escanearlo en CADA
         /// llamada (crítico en bucles cerrados con funciones anidadas). null = aún no computado.
         /// Bit0 = tiene FunctionDef anidada; Bit1 = referencia nargin; Bit2 = referencia nargout.</summary>

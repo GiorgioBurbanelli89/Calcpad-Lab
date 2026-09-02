@@ -8921,6 +8921,25 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                     }
                 return new[] { X, Y };
             };
+            // deal: [a,b,c]=deal(x) -> cada salida es una COPIA de x ; [a,b]=deal(x,y) -> a=x, b=y.
+            // (MATLAB exige nargout==nargin cuando hay varias entradas.) El despacho multi-salida
+            // no recibe nargout, asi que con UNA entrada se devuelven copias de sobra: el consumidor
+            // toma las primeras nargout. Copias independientes: `II(ii)=...` sobre una no toca otra.
+            _multiOutBuiltins["deal"] = a => {
+                if (a.Length == 0) throw new MatlabRuntimeException("deal: not enough input arguments");
+                if (a.Length > 1) return a;
+                var x = a[0];
+                var outs = new MValue[32];
+                for (int k = 0; k < outs.Length; k++)
+                {
+                    if (x.IsString || x.IsCell || x.IsStruct || x.Imag != null || x.Callable != null || x.Is3D)
+                    { outs[k] = x; continue; }          // tipos sin copia por Data: se comparte
+                    var c = new MValue(x.Rows, x.Cols);
+                    Array.Copy(x.Data, c.Data, x.Data.Length);
+                    outs[k] = c;
+                }
+                return outs;
+            };
             // cylinder(r,n): [X,Y,Z] de un cilindro radio r (escalar -> [r,r]) o perfil
             // de radios (vector). [r 0] -> cono. n puntos en la circunferencia (def 20).
             _multiOutBuiltins["cylinder"] = a => {
@@ -11257,7 +11276,52 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         {
             foreach (var s in def.Body)
                 if (s is FunctionDef nfd && !_reservedVizBuiltins.Contains(nfd.Name))
-                { nfd.ClosureScope = parent; _userFunctions[nfd.Name] = nfd; }
+                { nfd.ClosureScope = parent; nfd.ParentDef = def; _userFunctions[nfd.Name] = nfd; }
+        }
+        /// <summary>Identificadores que aparecen en el texto de una función (params, salidas, todo
+        /// IdentRef, variables de for/catch, global/persistent), SIN entrar en las FunctionDef
+        /// anidadas. Es el criterio de MATLAB para decidir qué comparte una anidada con su padre:
+        /// una variable es compartida si aparece en el padre; si solo vive en la anidada, es local
+        /// de la anidada. Sobre-aproximar (meter nombres de más) es inofensivo: equivale al
+        /// comportamiento anterior (todo compartido). Se calcula UNA vez por función (cache).</summary>
+        private static System.Collections.Generic.HashSet<string> GetOwnIdents(FunctionDef def)
+        {
+            if (def.OwnIdents != null) return def.OwnIdents;
+            var s = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in def.ParamNames)  s.Add(p);
+            foreach (var o in def.OutputNames) s.Add(o);
+            foreach (var st in def.Body) CollectIdents(st, s, 0);
+            def.OwnIdents = s;
+            return s;
+        }
+        private static void CollectIdents(object o, System.Collections.Generic.HashSet<string> s, int depth)
+        {
+            if (o == null || depth > 200) return;
+            switch (o)
+            {
+                case FunctionDef: return;                       // no entrar en anidadas
+                case IdentRef id: s.Add(id.Name); return;
+                case ForLoop f:
+                    if (f.VarName != null) s.Add(f.VarName); break;
+                case TryCatch tc:
+                    if (!string.IsNullOrEmpty(tc.CatchVarName)) s.Add(tc.CatchVarName); break;
+                case GlobalDecl g:     foreach (var n in g.Names) s.Add(n); return;
+                case PersistentDecl pd: foreach (var n in pd.Names) s.Add(n); return;
+                case string: return;
+            }
+            if (o is System.Collections.IEnumerable en && !(o is string))
+            {
+                foreach (var it in en) CollectIdents(it, s, depth + 1);
+                return;
+            }
+            var t = o.GetType();
+            if (!(o is MatlabNode) && !(t.IsValueType && t.Name.StartsWith("ValueTuple"))) return;
+            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                var v = f.GetValue(o);
+                if (v is string) continue;
+                CollectIdents(v, s, depth + 1);
+            }
         }
         /// <summary>Rasgos del cuerpo de una función, computados UNA vez y cacheados en
         /// <c>def.BodyFlags</c>. Evita re-escanear el AST en cada llamada — decisivo en bucles
@@ -11496,6 +11560,17 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             foreach (var o in def.OutputNames) mark(o);
             if ((bf & 2) != 0) mark("nargin");
             if ((bf & 4) != 0) mark("nargout");
+            // MATLAB: lo que la anidada ASIGNA y NO aparece en el texto del padre es LOCAL de la
+            // anidada (no se comparte ni con el padre ni con las anidadas hermanas). Antes todo se
+            // quedaba en el scope compartido: en el talud Demo04, `assemble` (anidada) dejaba su
+            // `al` (= alpha del cono, 0.1858) y `nrstep` (hermana) lo leia como su eta del
+            // line-search -> 23 iteraciones en vez de 3, aunque el FS saliera igual.
+            if (def.ParentDef != null)
+            {
+                var shared = GetOwnIdents(def.ParentDef);
+                foreach (var n in GetMutatedParams(def))
+                    if (!shared.Contains(n)) mark(n);
+            }
             return (saved, touched);
         }
         private static void RestoreNestedLocals(MatlabScope parent,
