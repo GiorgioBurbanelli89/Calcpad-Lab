@@ -65,7 +65,13 @@ namespace Calcpad.Core.Matlab
                             case '\\': sb.Append('\\'); break;
                             case '\'': sb.Append('\''); break;
                             case '"': sb.Append('"'); break;
-                            default: sb.Append(nx); break;
+                            case 'a': sb.Append('\a'); break;
+                            case 'b': sb.Append('\b'); break;
+                            case 'f': sb.Append('\f'); break;
+                            case 'v': sb.Append('\v'); break;
+                            // MATLAB deja los escapes que no conoce TAL CUAL ('\phi' sigue siendo '\phi',
+                            // y asi text()/title() lo dibujan como la griega). Antes se comia la barra.
+                            default: sb.Append('\\').Append(nx); break;
                         }
                         i += 2; continue;
                     }

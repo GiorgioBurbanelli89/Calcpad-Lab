@@ -35,6 +35,7 @@ namespace Calcpad.Core.Matlab
             public string FaceColor, EdgeColor, Color, Text;
             public double FaceAlpha = 1, LineWidth = 1, FontSize = 11;
             public string Align = "left";   // HorizontalAlignment de text(): left|center|right (MATLAB def = left)
+            public string VAlign = "middle"; // VerticalAlignment de text(): top|middle|bottom (MATLAB def = middle)
             public int[] FaceI, FaceJ, FaceK;
             public bool IsRgb;
             public int Rgb_R, Rgb_G, Rgb_B;
@@ -1041,6 +1042,31 @@ return {make:make};
         private static bool HasTex(string s) => !string.IsNullOrEmpty(s) &&
             (s.IndexOf('_') >= 0 || s.IndexOf('^') >= 0 || s.IndexOf('\\') >= 0);
         /// <summary>TeX → HTML (con &lt;sub&gt;/&lt;sup&gt;), ya escapado para insertar en el div.</summary>
+        /// <summary>Griegas y simbolos TeX de MATLAB a Unicode: \\phi -> φ, \\gamma -> γ, \\circ -> °.</summary>
+        public static string TexGreek(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s.IndexOf('\\') < 0) return s ?? "";
+            string[,] G = {
+                {"alpha","α"},{"beta","β"},{"gamma","γ"},{"delta","δ"},{"epsilon","ε"},{"varepsilon","ε"},{"zeta","ζ"},{"eta","η"},
+                {"theta","θ"},{"vartheta","ϑ"},{"iota","ι"},{"kappa","κ"},{"lambda","λ"},{"mu","μ"},{"nu","ν"},{"xi","ξ"},
+                {"pi","π"},{"rho","ρ"},{"sigma","σ"},{"tau","τ"},{"upsilon","υ"},{"phi","φ"},{"varphi","φ"},{"chi","χ"},
+                {"psi","ψ"},{"omega","ω"},{"Gamma","Γ"},{"Delta","Δ"},{"Theta","Θ"},{"Lambda","Λ"},{"Xi","Ξ"},{"Pi","Π"},
+                {"Sigma","Σ"},{"Phi","Φ"},{"Psi","Ψ"},{"Omega","Ω"},{"circ","°"},{"pm","±"},{"infty","∞"},{"leq","≤"},{"geq","≥"},
+                {"neq","≠"},{"approx","≈"},{"times","×"},{"cdot","·"},{"rightarrow","→"},{"leftarrow","←"},{"partial","∂"},{"nabla","∇"} };
+            var sb = new StringBuilder(s);
+            for (int i = 0; i < G.GetLength(0); i++) sb.Replace("\\" + G[i, 0], G[i, 1]);
+            return sb.ToString();
+        }
+        /// <summary>Texto TeX -> plano (griegas a Unicode, sin marcas de sub/superindice) para medir/dibujar simple.</summary>
+        private static string TexPlainG(string s)
+        {
+            s = TexGreek(s);
+            if (string.IsNullOrEmpty(s)) return "";
+            if (!HasTex(s)) return s;
+            var sb = new StringBuilder();
+            foreach (var r in TexParse(s)) sb.Append(r.Text);
+            return sb.ToString();
+        }
         private static string TexToHtml(string s)
         {
             if (!HasTex(s)) return EscapeXml(s ?? "");
@@ -1340,7 +1366,7 @@ return {make:make};
         /// filled = bandas rellenas (patch2d cuantizado por nivel, coloreado por colormap);
         /// lines  = isolíneas negras (marching squares). Se agregan directo a _figPrims
         /// (sin AddTrace) para no generar miles de trazas Plotly en mallas finas.</summary>
-        public static void Contourf2D(MValue X, MValue Y, MValue Z, int nLevels, string colormap, bool filled, bool lines)
+        public static void Contourf2D(MValue X, MValue Y, MValue Z, int nLevels, string colormap, bool filled, bool lines, double[] levels = null, string lineColor = null)
         {
             if (_figTraces == null) BeginFigure();
             if (_figPrims == null) _figPrims = new System.Collections.Generic.List<FigPrim>();
@@ -1377,7 +1403,18 @@ return {make:make};
             // Niveles "redondos" como MATLAB (paso 1/2/2.5/5 × 10^k); el COLOR se
             // normaliza al rango de datos [zmin,zmax] (caxis por defecto de MATLAB).
             double lo, hi, levStep;
-            NiceContourLevels(zmin, zmax, nLevels, out lo, out hi, out levStep);
+            if (levels != null && levels.Length >= 2)
+            {
+                // MATLAB: contourf(X,Y,Z,v) con v VECTOR = niveles EXPLICITOS. Se toman como
+                // equiespaciados entre v(1) y v(end) (un vector no uniforme se aproxima con su
+                // primer/ultimo nivel y su numero de bandas) y el color se normaliza a ese rango,
+                // que es lo que hace `caxis([v(1) v(end)])` en el .m del talud.
+                lo = levels[0]; hi = levels[levels.Length - 1];
+                if (hi <= lo) hi = lo + 1;
+                levStep = (hi - lo) / (levels.Length - 1);
+                zmin = lo; zmax = hi;
+            }
+            else NiceContourLevels(zmin, zmax, nLevels, out lo, out hi, out levStep);
             int nBands = (int)System.Math.Round((hi - lo) / levStep);
             double Zv(int i, int j) => Z.Data[i * nx + j];
 
@@ -1405,7 +1442,7 @@ return {make:make};
                     if (c <= zmin || c >= zmax) continue;
                     double tL = (c - zmin) / (zmax - zmin);
                     if (cmapRev) tL = 1 - tL;
-                    string lineCol = JetCss(tL);   // isolínea del color del colormap (nivel)
+                    string lineCol = lineColor ?? JetCss(tL);   // isolínea del color del colormap (nivel), o 'LineColor' fijo (MATLAB)
                     for (int i = 0; i < ny - 1; i++)
                         for (int j = 0; j < nx - 1; j++)
                         {
@@ -1589,7 +1626,8 @@ return {make:make};
                 FaceColor=fillColor, EdgeColor=edgeColor, FontSize=size, Text=symbol, Name=name
             });
         }
-        public static void Text2D(double x, double y, string text, string color, double fontSize, string align = "left")
+        public static void Text2D(double x, double y, string text, string color, double fontSize, string align = "left",
+                                  string bgColor = null, string edgeColor = null, string valign = "middle")
         {
             string xanchor = align == "center" ? "center" : (align == "right" ? "right" : "left");
             var sb = new StringBuilder();
@@ -1603,7 +1641,8 @@ return {make:make};
             sb.Append("}");
             AddAnnotation(sb.ToString());
             if (_figPrims != null) _figPrims.Add(new FigPrim{
-                Kind="text2d", Xs=new[]{x}, Ys=new[]{y}, Text=text, Color=color, FontSize=fontSize, Align=align
+                Kind="text2d", Xs=new[]{x}, Ys=new[]{y}, Text=text, Color=color, FontSize=fontSize, Align=align,
+                FaceColor=bgColor, EdgeColor=edgeColor, VAlign=valign
             });
         }
 
@@ -2189,8 +2228,17 @@ return {make:make};
                     if ((p.Kind == "patch2d" || p.Kind == "line2d") && p.Xs != null && p.Xs.Length >= 2)
                     {
                         var path = new SKPath();
-                        path.MoveTo(TX(p.Xs[0]), TY(p.Ys[0]));
-                        for (int i = 1; i < p.Xs.Length; i++) path.LineTo(TX(p.Xs[i]), TY(p.Ys[i]));
+                        // MATLAB: un NaN en x/y CORTA la polilinea (plot([1 2 NaN 3 4],...) = 2 trozos).
+                        // Antes el NaN entraba en el SKPath y Skia no dibujaba NADA de esa linea
+                        // (la malla/contorno del talud desaparecian encima del contourf).
+                        bool pen = false;
+                        for (int i = 0; i < p.Xs.Length; i++)
+                        {
+                            double xx = p.Xs[i], yy = i < p.Ys.Length ? p.Ys[i] : double.NaN;
+                            if (double.IsNaN(xx) || double.IsNaN(yy) || double.IsInfinity(xx) || double.IsInfinity(yy)) { pen = false; continue; }
+                            if (!pen) { path.MoveTo(TX(xx), TY(yy)); pen = true; }
+                            else path.LineTo(TX(xx), TY(yy));
+                        }
                         if (p.Kind == "patch2d")
                         {
                             path.Close();
@@ -2348,9 +2396,35 @@ return {make:make};
                 // Anotaciones de texto SIN clip (MATLAB dibuja text() fuera del box si se sale).
                 foreach (var p in pendingText)
                 {
+                    // text() como MATLAB: '\n' = varias lineas, \phi \gamma ... = griegas, sub/superindices,
+                    // VerticalAlignment (def 'middle'), BackgroundColor/EdgeColor = caja detras del texto.
                     txt.Color = ParseColor(p.Color);
                     var al = p.Align == "center" ? SKTextAlign.Center : (p.Align == "right" ? SKTextAlign.Right : SKTextAlign.Left);
-                    canvas.DrawText(p.Text ?? "", TX(p.Xs[0]), TY(p.Ys[0]), al, font, txt);
+                    string[] lines = (p.Text ?? "").Replace("\r", "").Split('\n');
+                    using var tfont = new SKFont(font.Typeface, (float)(p.FontSize > 0 ? p.FontSize * 1.33 : font.Size));
+                    float lh = tfont.Size * 1.25f;
+                    float wmax = 0;
+                    foreach (var ln in lines) wmax = Math.Max(wmax, tfont.MeasureText(TexPlainG(ln)));
+                    float x0 = TX(p.Xs[0]), y0 = TY(p.Ys[0]);
+                    float totalH = lh * lines.Length;
+                    float top = p.VAlign == "top" ? y0 : (p.VAlign == "bottom" ? y0 - totalH : y0 - totalH / 2f);
+                    float left = al == SKTextAlign.Center ? x0 - wmax / 2f : (al == SKTextAlign.Right ? x0 - wmax : x0);
+                    bool hasBg = !string.IsNullOrEmpty(p.FaceColor) && p.FaceColor != "none";
+                    bool hasEdge = !string.IsNullOrEmpty(p.EdgeColor) && p.EdgeColor != "none";
+                    if (hasBg || hasEdge)
+                    {
+                        float pad = 3f;
+                        var rect = new SKRect(left - pad, top - pad, left + wmax + pad, top + totalH + pad);
+                        if (hasBg) { using var bg = new SKPaint { Color = ParseColor(p.FaceColor), Style = SKPaintStyle.Fill, IsAntialias = true }; canvas.DrawRect(rect, bg); }
+                        if (hasEdge) { using var ed = new SKPaint { Color = ParseColor(p.EdgeColor), Style = SKPaintStyle.Stroke, StrokeWidth = 1f, IsAntialias = true }; canvas.DrawRect(rect, ed); }
+                    }
+                    for (int li = 0; li < lines.Length; li++)
+                    {
+                        float by = top + lh * li + tfont.Size * 0.95f;   // baseline de la linea li
+                        string ln = TexGreek(lines[li]);
+                        if (al == SKTextAlign.Center) DrawTexCentered(canvas, ln, x0, by, tfont, txt, font.Typeface);
+                        else canvas.DrawText(TexPlainG(ln), x0, by, al, tfont, txt);
+                    }
                 }
 
                 // ── COLORBAR (malla FEM coloreada por valor), como MATLAB ──

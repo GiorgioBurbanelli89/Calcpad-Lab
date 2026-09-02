@@ -1261,6 +1261,12 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             };
             _builtins["zeros"] = a => MakeFill(a, 0);
             _builtins["ones"] = a => MakeFill(a, 1);
+            // nan(m,n) / NaN(m,n) / inf(m,n) / Inf(m,n): matrices rellenas (MATLAB). Faltaba `nan`
+            // (talud Demo04: `Z=nan(NZ,NX)` -> Undefined: nan).
+            _builtins["nan"] = a => MakeFill(a, double.NaN);
+            _builtins["NaN"] = a => MakeFill(a, double.NaN);
+            _builtins["inf"] = a => MakeFill(a, double.PositiveInfinity);
+            _builtins["Inf"] = a => MakeFill(a, double.PositiveInfinity);
             // ─── FEM pattern fusion kernels (Calcpad-Lab specific) ────────
             // btdb(B, D) ≡ B' * D * B     — assembly kernel
             // dbz(D, B, z) ≡ D * B * z    — postproc moment kernel
@@ -2150,18 +2156,24 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 return new MValue(0);
             };
             _builtins["mesh"] = _builtins["surf"];  // wireframe = surf MVP
+            // contourf(X,Y,Z[,n | v]): n = numero de niveles; v = VECTOR de niveles explicitos (MATLAB).
+            double[] ContourLevelsArg(MValue[] a) =>
+                (a.Length >= 4 && !a[3].IsString && a[3].Data != null && a[3].Data.Length >= 2) ? a[3].Data : null;
             _builtins["contourf"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("contourf(X, Y, Z[, n])");
                 int n = (a.Length >= 4 && !a[3].IsString) ? (int)a[3].Scalar : 10;
                 // Solo primitivas de canvas → FinishFigure lo renderiza como PNG (alineado a MATLAB).
                 // No emitir el Plotly (daba una 2a gráfica parula sin deformar en el WPF).
-                MatlabPlots.Contourf2D(a[0], a[1], a[2], n, _activeColormap, true, false);
+                MatlabPlots.Contourf2D(a[0], a[1], a[2], n, _activeColormap, true, false, ContourLevelsArg(a));
                 return new MValue(0);
             };
             _builtins["contour"] = a => {
                 if (a.Length < 3) throw new MatlabRuntimeException("contour(X, Y, Z[, n])");
                 int n = (a.Length >= 4 && !a[3].IsString) ? (int)a[3].Scalar : 10;
-                MatlabPlots.Contourf2D(a[0], a[1], a[2], n, _activeColormap, false, true);
+                string lc = null;   // contour(...,'LineColor',c): isolineas de un color fijo (MATLAB)
+                for (int i = 3; i + 1 < a.Length; i++)
+                    if (a[i] != null && a[i].IsString && a[i].StringValue.Equals("LineColor", StringComparison.OrdinalIgnoreCase)) lc = ColorArg(a[i + 1]);
+                MatlabPlots.Contourf2D(a[0], a[1], a[2], n, _activeColormap, false, true, ContourLevelsArg(a), lc);
                 return new MValue(0);
             };
             _builtins["imagesc"] = a => {
@@ -2493,6 +2505,13 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 return new MValue(0);
             };
             _builtins["ylabel"] = a => {
+                // ylabel(cb,'txt') con cb = handle de colorbar -> etiqueta de la BARRA (como cb.Label.String)
+                if (a.Length > 1 && a[0] != null && a[0].IsStruct && a[0].Fields != null && a[0].Fields.ContainsKey("__iscolorbar") && a[1].IsString)
+                {
+                    var rs = MatlabPlots.SetColorbarLabelRestyle(a[1].StringValue);
+                    if (rs != null) _htmlOut?.Invoke(rs);
+                    return new MValue(0);
+                }
                 a = DropAxes(a);
                 if (a.Length > 0 && a[0].IsString) {
                     if (MatlabPlots.HasOpenFigure) MatlabPlots.SetFigYLabel(a[0].StringValue);
@@ -2978,6 +2997,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 string color = "black";
                 double fontSize = 11;
                 string align = "left";   // MATLAB: HorizontalAlignment def = 'left'
+                string valign = "middle", bgColor = null, edgeColor = null;
                 for (int i = start; i + 1 < a.Length; i += 2)
                 {
                     if (!a[i].IsString) break;
@@ -2986,6 +3006,9 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                         case "color": color = ColorArg(a[i + 1]); break;
                         case "fontsize": fontSize = a[i + 1].Scalar; break;
                         case "horizontalalignment": align = a[i + 1].StringValue.ToLowerInvariant(); break;
+                        case "verticalalignment": valign = a[i + 1].StringValue.ToLowerInvariant(); break;
+                        case "backgroundcolor": bgColor = ColorArg(a[i + 1]); break;
+                        case "edgecolor": edgeColor = ColorArg(a[i + 1]); break;
                     }
                 }
                 MValue X = a[0], Y = a[1];
@@ -3005,7 +3028,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                         str = (v == Math.Floor(v)) ? ((long)v).ToString(System.Globalization.CultureInfo.InvariantCulture)
                                                    : v.ToString("G4", System.Globalization.CultureInfo.InvariantCulture);
                     }
-                    MatlabPlots.Text2D(xi, yi, str, color, fontSize, align);
+                    MatlabPlots.Text2D(xi, yi, str, color, fontSize, align, bgColor, edgeColor, valign);
                 }
                 return new MValue(0);
             };
@@ -6152,6 +6175,15 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
             };
             _builtins["trigsimplify"] = _builtins["simplify"];
             _builtins["double"] = a => {
+                // double('ab') = codigos de los caracteres, fila 1xN (MATLAB). Antes reventaba
+                // ("Index was outside the bounds of the array").
+                if (a[0].IsString)
+                {
+                    string sv = a[0].StringValue ?? "";
+                    var mv = new MValue(1, sv.Length);
+                    for (int k = 0; k < sv.Length; k++) mv.Data[k] = sv[k];
+                    return mv;
+                }
                 if (a[0].IsSymbolic && a[0].Symbolic is SymConst sc) return new MValue(sc.Value);
                 if (a[0].IsSymbolic)
                 {
