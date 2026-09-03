@@ -7724,6 +7724,21 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 if (a.Length < 2 || !a[0].IsCallable) throw new MatlabRuntimeException("arrayfun(@fn, array)");
                 var fn = a[0].Callable;
                 var arr = a[1];
+                // arrayfun(@f, A, 'UniformOutput', false) -> CELL con el resultado de cada elemento
+                // (strings, vectores...), como MATLAB. Antes se ignoraba y reventaba con
+                // "Index was outside the bounds" al pedir .Scalar de un string.
+                bool uniform = true;
+                for (int i = 2; i + 1 < a.Length; i += 2)
+                    if (a[i] != null && a[i].IsString && a[i].StringValue.Equals("UniformOutput", StringComparison.OrdinalIgnoreCase))
+                        uniform = a[i + 1] != null && !(a[i + 1].IsScalar && a[i + 1].Scalar == 0) && !(a[i + 1].IsString && a[i + 1].StringValue.ToLowerInvariant() == "false");
+                if (!uniform)
+                {
+                    var cells = new MValue[arr.Rows, arr.Cols];
+                    for (int i = 0; i < arr.Rows; i++)
+                        for (int j = 0; j < arr.Cols; j++)
+                            cells[i, j] = fn(new[] { new MValue(arr.At(i, j)) });
+                    return MValue.NewCell(cells);
+                }
                 var r = new MValue(arr.Rows, arr.Cols);
                 for (int i = 0; i < arr.Data.Length; i++)
                     r.Data[i] = fn(new[] { new MValue(arr.Data[i]) }).Scalar;
