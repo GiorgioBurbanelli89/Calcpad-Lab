@@ -10970,6 +10970,8 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         /// <summary>Verdadero si `name` resuelve a función (user-def o builtin).</summary>
         public bool JitIsFunction(string name) =>
             _userFunctions.ContainsKey(name) || _builtins.ContainsKey(name);
+        /// <summary>Builtin SOLO multi-salida (ndgrid, meshgrid, ...): vive en _multiOutBuiltins.</summary>
+        public bool JitIsMultiOutBuiltin(string name) => _multiOutBuiltins.ContainsKey(name);
         /// <summary>Definición de una función de usuario (o null). El JIT la usa para inferir el
         /// KIND real de salida de una llamada `y=f(...)` en vez de adivinar por el nombre.</summary>
         public FunctionDef JitGetUserFn(string name) =>
@@ -10990,6 +10992,8 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
         public MValue[] JitCallMulti(string name, MValue[] args)
         {
             if (_userFunctions.TryGetValue(name, out var def)) return CallUserFunctionMulti(def, args);
+            // builtin multi-salida ([rr,cc]=ndgrid(d,d), [m,i]=max(v)...): el mismo camino que el interprete
+            try { var outs = CallMultiOut(name, args, null); if (outs != null && outs.Length > 0) return outs; } catch (MatlabRuntimeException) { }
             return new[] { JitCall(name, args) };
         }
         // Wrappers de operaciones matriciales para el JIT (delegan al engine existente).

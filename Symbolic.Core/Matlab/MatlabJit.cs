@@ -115,6 +115,22 @@ namespace Calcpad.Core.Matlab
             if (m.Data == null || m.Rows != pg.Rows || m.Cols != pg.Cols) throw new MatlabRuntimeException("Assign shape mismatch: " + name + "(:,:,k)");
             for (int i = 0; i < pg.Rows; i++) for (int j = 0; j < pg.Cols; j++) pg.Set(i, j, m.At(i, j));
         }
+        /// <summary>A(idx) = vals con idx VECTOR (indexado lineal, base 1): el I2(ii)=rr(:) del ensamblaje
+        /// sparse. En sitio. vals escalar → se reparte.</summary>
+        public void ScatterSet(string name, MValue idx, MValue vals)
+        {
+            if (!Scope.TryGet(name, out var v)) throw new MatlabRuntimeException("Undefined: " + name);
+            if (v.Data == null || idx.Data == null) throw new MatlabRuntimeException("Index exceeds matrix dimensions: " + name);
+            int n = idx.Data.Length; bool sc = vals.IsScalar;
+            if (!sc && (vals.Data == null || vals.Data.Length != n)) throw new MatlabRuntimeException("Assign: LHS " + n + " elements, RHS " + (vals.Data == null ? 0 : vals.Data.Length));
+            var d = v.Data; int len = d.Length;
+            for (int k = 0; k < n; k++)
+            {
+                int i = (int)idx.Data[k] - 1;
+                if (i < 0 || i >= len) throw new MatlabRuntimeException("Index exceeds matrix dimensions: " + name);
+                d[i] = sc ? vals.Scalar : vals.Data[k];
+            }
+        }
         public MValue GetMat3Page(string name, double k)
         {
             if (!Scope.TryGet(name, out var v)) throw new MatlabRuntimeException("Undefined: " + name);
@@ -218,6 +234,7 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MSetMatCol   = typeof(JitCtx).GetMethod(nameof(SetMatCol));
         internal static readonly MethodInfo MSetMat3Page = typeof(JitCtx).GetMethod(nameof(SetMat3Page));
         internal static readonly MethodInfo MGetMat3Page = typeof(JitCtx).GetMethod(nameof(GetMat3Page));
+        internal static readonly MethodInfo MScatterSet  = typeof(JitCtx).GetMethod(nameof(ScatterSet));
         internal static readonly MethodInfo MCallScalar  = typeof(JitCtx).GetMethod(nameof(CallScalar));
         internal static readonly MethodInfo MCallMatrix  = typeof(JitCtx).GetMethod(nameof(CallMatrix));
         internal static readonly MethodInfo MCallMV      = typeof(JitCtx).GetMethod(nameof(CallMV));
@@ -818,7 +835,10 @@ namespace Calcpad.Core.Matlab
                         // [a,b,...]=userfn(args): solo funciones de usuario; args deben inferirse;
                         // cada target real (no `~`) es MATRIZ OPACA (matriz/escalar/string en el Scope).
                         if (amo.Rhs is not CallOrIndex mc || mc.Target is not IdentRef mcId) return false;
-                        if (!cc.Evaluator.JitIsUserFunction(mcId.Name)) return false;
+                        // usuario o BUILTIN multi-salida ([rr,cc]=ndgrid(d,d) del ensamblaje sparse): los
+                        // outputs quedan como MValue opacos (Matrix) en el scope.
+                        if (!cc.Evaluator.JitIsUserFunction(mcId.Name) && !cc.Evaluator.JitIsFunction(mcId.Name) && !cc.Evaluator.JitIsMultiOutBuiltin(mcId.Name)) return false;
+                        if (IsIoCall(amo.Rhs)) return false;
                         foreach (var arg in mc.Args) if (InferKind(arg, cc) == null) return false;
                         foreach (var t in amo.Targets)
                         {
@@ -1247,6 +1267,15 @@ namespace Calcpad.Core.Matlab
                             return Expression.Call(cc.CtxParam, JitCtx.MSetMat3Page, Expression.Constant(matIdent.Name), kX, rhsM);
                         }
                         if (tgtCall.Args.Count > 2) return null;
+                        if (tgtCall.Args.Count == 1 && InferKind(tgtCall.Args[0], cc) == TKind.Matrix)
+                        {
+                            // A(idxvec) = vec  (scatter lineal en sitio)
+                            var idxV = ConvertExprAsKind(tgtCall.Args[0], cc, TKind.Matrix);
+                            var rhsV = ConvertExprAsKind(a.Rhs, cc, InferKind(a.Rhs, cc) == TKind.Scalar ? TKind.Scalar : TKind.Matrix);
+                            if (idxV == null || rhsV == null) return null;
+                            if (rhsV.Type == typeof(double)) rhsV = Expression.New(typeof(MValue).GetConstructor(new[] { typeof(double) }), rhsV);
+                            return Expression.Call(cc.CtxParam, JitCtx.MScatterSet, Expression.Constant(matIdent.Name), idxV, rhsV);
+                        }
                         var rhs = ConvertExprAsKind(a.Rhs, cc, TKind.Scalar);
                         if (rhs == null) return null;
                         if (tgtCall.Args.Count == 1)
@@ -1275,7 +1304,7 @@ namespace Calcpad.Core.Matlab
                         // Los outputs son MValue OPACOS (matriz/escalar/string) en el Scope: `reg` (string)
                         // fluye sin soporte de strings en el JIT. Solo funciones de USUARIO.
                         if (amo.Rhs is not CallOrIndex mc || mc.Target is not IdentRef mcId) return null;
-                        if (!cc.Evaluator.JitIsUserFunction(mcId.Name)) return null;
+                        if (!cc.Evaluator.JitIsUserFunction(mcId.Name) && !cc.Evaluator.JitIsFunction(mcId.Name) && !cc.Evaluator.JitIsMultiOutBuiltin(mcId.Name)) return null;
                         var argArr = BuildMValueArgs(mc.Args, cc);
                         if (argArr == null) return null;
                         var outsVar = Expression.Variable(typeof(MValue[]), "outs");

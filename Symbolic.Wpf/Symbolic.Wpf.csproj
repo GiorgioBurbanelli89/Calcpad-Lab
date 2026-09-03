@@ -607,12 +607,24 @@
   </ItemGroup>
 
   <PropertyGroup>
+    <!-- Igual que el CLI: sin quick-JIT en metodos con bucles (los delegados del JIT de Lab y el interprete
+         corrian en tier-0 sin optimizar: la ventana tardaba 2x lo que el CLI en el talud GEO5). -->
+    <TieredCompilationQuickJitForLoops>false</TieredCompilationQuickJitForLoops>
+    <TieredPGO>true</TieredPGO>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <!-- PRE-CALENTAR EL JIT: los metodos CON BUCLES (el ensamblaje FEM y el delegado emitido por
          nuestro JIT) se compilan OPTIMIZADOS desde la 1a llamada, sin pasar por Tier0. Elimina el
          calentamiento (~6 pasos SRF a ~68ms) -> todas las iteraciones a ~29ms desde el inicio.
-         Se mantiene QuickJit para el arranque (metodos sin bucles) => sin penalizar el startup. -->
-    <TieredCompilation>false</TieredCompilation>
+         Se mantiene QuickJit para el arranque (metodos sin bucles) => sin penalizar el startup.
+
+         OJO (medido, agosto 2026): esto se escribia <TieredCompilation>false</TieredCompilation>,
+         que apaga TAMBIEN el QuickJit del arranque — y entonces TODO metodo se compila optimizado
+         la primera vez que se llama. El resultado: el PRIMER resultado que se imprime en la
+         ventana costaba 6-15 s (en consola, con tiered normal, 20 ms). La bandera que hace lo que
+         dice el parrafo de arriba, sin pagar eso, es QuickJitForLoops=false: bucles optimizados
+         de entrada, el resto por Tier0 rapido. Medido con tests/wpf/bench.py. -->
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJitForLoops>false</TieredCompilationQuickJitForLoops>
   </PropertyGroup>
 </Project>
