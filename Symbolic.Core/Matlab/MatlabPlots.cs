@@ -190,7 +190,15 @@ namespace Calcpad.Core.Matlab
         // colorbar('Direction','reverse') -> min arriba (estilo GEO5); 'Ticks' -> valores custom.
         private static bool _cbReverse = false;
         private static double[] _cbTicks = null;
+        private static string[] _cbTickLabels = null;   // set(cb,'TickLabels',{...}) -> texto por tick (MATLAB)
         public static void SetColorbarOptions(bool reverse, double[] ticks) { _cbReverse = reverse; _cbTicks = ticks; }
+        /// <summary>set(cb,'Ticks',v[,'TickLabels',{...}]) / set(cb,'Direction','reverse'): igual que MATLAB.</summary>
+        public static void SetColorbarTicks(double[] ticks, string[] labels, bool? reverse)
+        {
+            if (ticks != null) _cbTicks = ticks;
+            if (labels != null) _cbTickLabels = labels;
+            if (reverse.HasValue) _cbReverse = reverse.Value;
+        }
         // view(2): cámara CENITAL (top-down) sobre el canvas 3D → aspecto 2D como MATLAB.
         private static bool _figView2 = false;
         public static void SetView2(bool on) { _figView2 = on; }
@@ -733,7 +741,7 @@ return {make:make};
             _figXLabel = null; _figYLabel = null; _figZLabel = null;
             _figXMin = null; _figXMax = null; _figYMin = null; _figYMax = null;
             _figGrid = false;
-            _figColorbar = false; _cbReverse = false; _cbTicks = null; _cbLabel = null;
+            _figColorbar = false; _cbReverse = false; _cbTicks = null; _cbTickLabels = null; _cbLabel = null;
             _figAxisEqual = false;
             _figAxisOff = false;
             _figShowLegend = false; _figLegendLoc = null; _figLegendNames = null;
@@ -1941,12 +1949,15 @@ return {make:make};
                     svg.AppendLine($"  <rect x='{cbx}' y='{yy.ToString("F1", Inv)}' width='{cbw}' height='{hh.ToString("F1", Inv)}' fill='rgb({R},{G},{B})'/>");
                 }
                 svg.AppendLine($"  <rect x='{cbx}' y='{cbtop}' width='{cbw}' height='{cbh}' fill='none' stroke='#333' stroke-width='0.8'/>");
-                foreach (var tv in NiceTicks(cbLo, cbHi))
+                var svgTicks = _cbTicks != null && _cbTicks.Length > 0 ? new System.Collections.Generic.List<double>(_cbTicks) : NiceTicks(cbLo, cbHi);
+                bool svgLabels = _cbTickLabels != null && _cbTicks != null && _cbTickLabels.Length == _cbTicks.Length;
+                for (int ti = 0; ti < svgTicks.Count; ti++)
                 {
+                    double tv = svgTicks[ti];
                     double fr = (tv - cbLo) / (cbHi - cbLo); if (fr < -1e-6 || fr > 1.0001) continue;
-                    double yy = cbtop + cbh * (1 - fr);
+                    double yy = _cbReverse ? cbtop + cbh * fr : cbtop + cbh * (1 - fr);   // Direction reverse: min arriba
                     svg.AppendLine($"  <line x1='{cbx+cbw}' y1='{yy.ToString("F1", Inv)}' x2='{cbx+cbw+3}' y2='{yy.ToString("F1", Inv)}' stroke='#333' stroke-width='0.8'/>");
-                    svg.AppendLine($"  <text x='{cbx+cbw+5}' y='{(yy+3).ToString("F1", Inv)}' font-family='sans-serif' font-size='10' fill='#222'>{FmtTick(tv)}</text>");
+                    svg.AppendLine($"  <text x='{cbx+cbw+5}' y='{(yy+3).ToString("F1", Inv)}' font-family='sans-serif' font-size='10' fill='#222'>{EscapeXml(svgLabels ? _cbTickLabels[ti] : FmtTick(tv))}</text>");
                 }
             }
             svg.AppendLine("</svg>");
@@ -2457,14 +2468,17 @@ return {make:make};
                     // Factor común ×10ⁿ como MATLAB cuando los valores son muy chicos/grandes.
                     double cbMax = 0; foreach (var tv in cbTicks) if (Math.Abs(tv) > cbMax) cbMax = Math.Abs(tv);
                     int cbExp = 0; double cbFac = 1;
-                    if (cbMax > 0) { int e = (int)Math.Floor(Math.Log10(cbMax)); if (e <= -3 || e >= 5) { cbExp = e; cbFac = Math.Pow(10, e); } }
-                    foreach (var tv in cbTicks)
+                    bool cbLabels = _cbTickLabels != null && _cbTicks != null && _cbTickLabels.Length == _cbTicks.Length;
+                    if (cbMax > 0 && !cbLabels) { int e = (int)Math.Floor(Math.Log10(cbMax)); if (e <= -3 || e >= 5) { cbExp = e; cbFac = Math.Pow(10, e); } }
+                    for (int ti = 0; ti < cbTicks.Count; ti++)
                     {
+                        double tv = cbTicks[ti];
                         if (tv < vmin - 1e-9 || tv > vmax + 1e-9) continue;
                         float frac = (float)((tv - vmin) / (vmax - vmin) * cbH);
                         float ty = _cbReverse ? (plotT + frac) : (plotB - frac);   // reverse: vmin arriba
                         canvas.DrawLine(cbX + cbW, ty, cbX + cbW + 3, ty, axis);
-                        canvas.DrawText(FmtTick(tv / cbFac), cbX + cbW + 5, ty + 3, SKTextAlign.Left, font, txt);
+                        string lab = cbLabels ? _cbTickLabels[ti] : FmtTick(tv / cbFac);   // TickLabels de MATLAB
+                        canvas.DrawText(lab, cbX + cbW + 5, ty + 3, SKTextAlign.Left, font, txt);
                     }
                     if (cbExp != 0)   // etiqueta del multiplicador ×10ⁿ arriba de la barra (como MATLAB)
                     {

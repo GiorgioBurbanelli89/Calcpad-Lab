@@ -94,6 +94,36 @@ namespace Calcpad.Core.Matlab
                 throw new MatlabRuntimeException("Undefined: " + name);
             v.Set((int)i - 1, (int)j - 1, val);
         }
+        // A(:,j) = v  y  A(:,:,k) = M  /  M = A(:,:,k)  (el estado por punto de Gauss del talud:
+        // SIG(:,kk)=sg; DEPG(:,:,kk)=Dep; Dep=DEPG(:,:,kk)). Escritura EN SITIO, sin copiar el array.
+        public void SetMatCol(string name, double j, MValue col)
+        {
+            if (!Scope.TryGet(name, out var v)) throw new MatlabRuntimeException("Undefined: " + name);
+            int jj = (int)j - 1;
+            if (v.Is3D || v.Data == null || jj < 0 || jj >= v.Cols) throw new MatlabRuntimeException("Index exceeds matrix dimensions: " + name);
+            if (col.IsScalar) { for (int i = 0; i < v.Rows; i++) v.Set(i, jj, col.Scalar); return; }
+            if (col.Data == null || col.Data.Length != v.Rows) throw new MatlabRuntimeException("Assign shape mismatch: " + name + "(:,j)");
+            for (int i = 0; i < v.Rows; i++) v.Set(i, jj, col.Data[i]);
+        }
+        public void SetMat3Page(string name, double k, MValue m)
+        {
+            if (!Scope.TryGet(name, out var v)) throw new MatlabRuntimeException("Undefined: " + name);
+            int kk = (int)k - 1;
+            if (!v.Is3D || kk < 0 || kk >= v.Pages.Length) throw new MatlabRuntimeException("Index exceeds matrix dimensions: " + name);
+            var pg = v.Pages[kk];
+            if (m.IsScalar) { for (int i = 0; i < pg.Rows; i++) for (int j = 0; j < pg.Cols; j++) pg.Set(i, j, m.Scalar); return; }
+            if (m.Data == null || m.Rows != pg.Rows || m.Cols != pg.Cols) throw new MatlabRuntimeException("Assign shape mismatch: " + name + "(:,:,k)");
+            for (int i = 0; i < pg.Rows; i++) for (int j = 0; j < pg.Cols; j++) pg.Set(i, j, m.At(i, j));
+        }
+        public MValue GetMat3Page(string name, double k)
+        {
+            if (!Scope.TryGet(name, out var v)) throw new MatlabRuntimeException("Undefined: " + name);
+            int kk = (int)k - 1;
+            if (!v.Is3D || kk < 0 || kk >= v.Pages.Length) throw new MatlabRuntimeException("Index exceeds matrix dimensions: " + name);
+            var pg = v.Pages[kk]; var r = new MValue(pg.Rows, pg.Cols, new double[pg.Rows * pg.Cols]);
+            for (int i = 0; i < pg.Rows; i++) for (int j = 0; j < pg.Cols; j++) r.Set(i, j, pg.At(i, j));
+            return r;   // copia: el JIT muta matrices en sitio (SetMatElem*) y no debe tocar la pagina guardada
+        }
 
         // ─── Function call ──────────────────────────────────────────────────
         public double CallScalar(string name, double[] args)
@@ -185,6 +215,9 @@ namespace Calcpad.Core.Matlab
         internal static readonly MethodInfo MGetMatElem2 = typeof(JitCtx).GetMethod(nameof(GetMatElem2));
         internal static readonly MethodInfo MSetMatElem1 = typeof(JitCtx).GetMethod(nameof(SetMatElem1));
         internal static readonly MethodInfo MSetMatElem2 = typeof(JitCtx).GetMethod(nameof(SetMatElem2));
+        internal static readonly MethodInfo MSetMatCol   = typeof(JitCtx).GetMethod(nameof(SetMatCol));
+        internal static readonly MethodInfo MSetMat3Page = typeof(JitCtx).GetMethod(nameof(SetMat3Page));
+        internal static readonly MethodInfo MGetMat3Page = typeof(JitCtx).GetMethod(nameof(GetMat3Page));
         internal static readonly MethodInfo MCallScalar  = typeof(JitCtx).GetMethod(nameof(CallScalar));
         internal static readonly MethodInfo MCallMatrix  = typeof(JitCtx).GetMethod(nameof(CallMatrix));
         internal static readonly MethodInfo MCallMV      = typeof(JitCtx).GetMethod(nameof(CallMV));
@@ -266,8 +299,7 @@ namespace Calcpad.Core.Matlab
 
     public static class MatlabJit
     {
-        public static bool Enabled =
-            System.Environment.GetEnvironmentVariable("CALCPAD_LAB_JIT") != "0";
+        public static bool Enabled = true;
         public static long Hits, Compiles, Skips;
         public static long EwEmitOk, EwEmitFail;   // diagnostico fusion element-wise
 
@@ -373,6 +405,10 @@ namespace Calcpad.Core.Matlab
         {
             public MatlabEvaluator Evaluator;
             public MatlabScope Scope;   // scope real: para inferir el tipo de las vars live-in
+            /// <summary>nargin de la funcion compilada (el JIT-MV solo se invoca con args.Length == ParamNames.Count,
+            /// asi que es una CONSTANTE de compilacion). Sin esto `if nargin>5` leia un slot vacio = 0 y
+            /// dp_return_g5 del talud ignoraba sig_n en silencio (FS=1.0000).</summary>
+            public int? NArgIn;
             public Dictionary<string, int> SlotIdx = new(StringComparer.Ordinal);
             public Dictionary<string, TKind> VarKind = new(StringComparer.Ordinal);
             public Dictionary<string, TShape> VarShape = new(StringComparer.Ordinal);   // forma conocida por var
@@ -454,7 +490,8 @@ namespace Calcpad.Core.Matlab
 
                 // Pass 1: clasificar variables
                 cc.VarKind[loop.VarName] = TKind.Scalar;
-                if (!ClassifyBody(loop.Body, cc)) return new Compiled { Failed = true };
+                _classifyFail = null;
+                if (!ClassifyBody(loop.Body, cc)) { LoopBail(loop, "ClassifyBody", _classifyFail); return new Compiled { Failed = true }; }
 
                 // Asignar slot index a las scalar vars
                 foreach (var kv in cc.VarKind)
@@ -467,7 +504,7 @@ namespace Calcpad.Core.Matlab
                 {
                     if (stmt is CommentStmt) continue;
                     var e = ConvertStmt(stmt, cc);
-                    if (e == null) return new Compiled { Failed = true };
+                    if (e == null) { LoopBail(loop, "ConvertStmt", stmt); return new Compiled { Failed = true }; }
                     body.Add(e);
                 }
                 if (body.Count == 0) return new Compiled { Failed = true };
@@ -613,16 +650,45 @@ namespace Calcpad.Core.Matlab
         /// ConvertStmt/ConvertExpr (matrices via el Scope del JitCtx). Devuelve null si algo no
         /// se soporta (cells, sort, strings, multi-output aún) → intérprete (fallback seguro).
         /// paramKinds: true=matriz, false=escalar, uno por parámetro.</summary>
-        /// <summary>Toggle A/B (solo para benchmark): env HEK_NO_MVJIT=1 desactiva el JIT Phase 3
-        /// para medir su aporte sin recompilar. Por defecto activo.</summary>
-        public static readonly bool MVEnabled =
-            System.Environment.GetEnvironmentVariable("HEK_NO_MVJIT") != "1";
+        /// <summary>JIT Phase 3 (funciones con params/locals matriciales) SIEMPRE activo.
+        /// El toggle A/B por env var (HEK_NO_MVJIT) se eliminó: se usa siempre.</summary>
+        public static readonly bool MVEnabled = true;
 
 
         private static readonly bool JitLog = System.Environment.GetEnvironmentVariable("LAB_JIT_LOG") == "1";
+        private static void LoopBail(ForLoop loop, string reason, MatlabNode st)
+        {
+            if (!JitLog) return;
+            string where = "";
+            if (st != null)
+            {
+                where = $" @ {st.GetType().Name} linea {st.Line}";
+                if (st is Assignment fa) where += $" (target {(fa.Targets.Count > 0 ? fa.Targets[0].GetType().Name : "?")}, rhs {fa.Rhs?.GetType().Name}{(fa.Rhs is CallOrIndex rc && rc.Target is IdentRef rct ? " '" + rct.Name + "'" : "")})";
+                if (st is ExprStmt fe) where += $" (expr {fe.Expr?.GetType().Name}{(fe.Expr is CallOrIndex fc && fc.Target is IdentRef fct ? " '" + fct.Name + "(...)'" : "")})";
+            }
+            System.Console.Error.WriteLine($"[JIT-loop bail] for {loop.VarName} (linea {loop.Line}): {reason}{where}");
+            _classifyFail = null;
+        }
         private static CompiledFnMV JitBail(FunctionDef def, string reason, MatlabNode st)
         {
-            if (JitLog) System.Console.Error.WriteLine($"[JIT-MV bail] {def.Name}: {reason}");
+            if (JitLog)
+            {
+                var f = st ?? _classifyFail; string where = "";
+                if (f != null)
+                {
+                    var pf = f.GetType().GetField("Line");
+                    where = $" @ {f.GetType().Name}" + (pf != null ? $" linea {pf.GetValue(f)}" : "");
+                    if (f is Assignment fa) where += $" (target {(fa.Targets.Count > 0 ? fa.Targets[0].GetType().Name : "?")}, rhs {fa.Rhs?.GetType().Name})";
+                    if (f is ExprStmt fe) where += $" (expr {fe.Expr?.GetType().Name}{(fe.Expr is IdentRef fi ? " '" + fi.Name + "'" : fe.Expr is CallOrIndex fc && fc.Target is IdentRef fct ? " '" + fct.Name + "(...)'" : "")})";
+                }
+                if (def.Body != null && def.Body.Count > 0)
+                {
+                    var b0 = def.Body[0]; var b1 = def.Body[def.Body.Count - 1];
+                    where += $" | cuerpo {def.Body.Count} sentencias: {b0.GetType().Name} linea {b0.Line} .. {b1.GetType().Name} linea {b1.Line}";
+                }
+                System.Console.Error.WriteLine($"[JIT-MV bail] {def.Name}: {reason}{where}");
+            }
+            _classifyFail = null;
             return null;
         }
 
@@ -635,12 +701,13 @@ namespace Calcpad.Core.Matlab
                 foreach (var p in def.ParamNames) if (p == "varargin") return null;
                 foreach (var o in def.OutputNames) if (o == "varargout") return null;
                 if (paramIsMatrix.Length != def.ParamNames.Count) return null;
-                var cc = new CompileCtx { Evaluator = ev };   // NO UseLocals -> slots[] + Scope
+                var cc = new CompileCtx { Evaluator = ev, NArgIn = def.ParamNames.Count };   // NO UseLocals -> slots[] + Scope
                 cc.CtxParam = Expression.Parameter(typeof(JitCtx), "ctx");
                 cc.SlotsExpr = Expression.Field(cc.CtxParam, JitCtx.FSlots);
                 cc.ReturnLabel = Expression.Label("ret");
                 for (int i = 0; i < def.ParamNames.Count; i++)
                     cc.VarKind[def.ParamNames[i]] = paramIsMatrix[i] ? TKind.Matrix : TKind.Scalar;
+                _classifyFail = null;
                 if (!ClassifyBody(def.Body, cc)) return JitBail(def, "ClassifyBody", null);
                 foreach (var kv in cc.VarKind) if (kv.Value == TKind.Cell) return JitBail(def, "Cell var: " + kv.Key, null);
                 foreach (var kv in cc.VarKind)
@@ -675,9 +742,11 @@ namespace Calcpad.Core.Matlab
             catch { return null; }
         }
 
+        /// <summary>Ultima sentencia que hizo fallar ClassifyStmt (diagnostico LAB_JIT_LOG=1).</summary>
+        [System.ThreadStatic] private static MatlabNode _classifyFail;
         private static bool ClassifyBody(IEnumerable<MatlabNode> stmts, CompileCtx cc)
         {
-            foreach (var s in stmts) if (!ClassifyStmt(s, cc)) return false;
+            foreach (var s in stmts) if (!ClassifyStmt(s, cc)) { if (_classifyFail == null || !(s is IfBlock || s is ForLoop || s is WhileLoop)) _classifyFail = s; return false; }
             return true;
         }
         // Funciones de I/O cuyo efecto es mostrar texto por iteracion. El JIT NO las
@@ -726,10 +795,21 @@ namespace Calcpad.Core.Matlab
                     }
                     if (tgt is CallOrIndex tgtCall && tgtCall.Target is IdentRef matRef)
                     {
-                        // A(i,j) = x : A es matrix var
+                        // A(i,j) = x : A es matrix var.  A(:,j)=v / A(:,:,k)=M: columna / pagina 3D.
                         if (!SetKind(cc, matRef.Name, TKind.Matrix)) return false;
+                        int nColon = 0;
                         foreach (var arg in tgtCall.Args)
+                        {
+                            if (arg is ColonAll) { nColon++; continue; }
                             if (InferKind(arg, cc) == null) return false;
+                        }
+                        if (nColon > 0)
+                        {
+                            var na = tgtCall.Args;
+                            bool okCol = na.Count == 2 && na[0] is ColonAll && !(na[1] is ColonAll);
+                            bool okPage = na.Count == 3 && na[0] is ColonAll && na[1] is ColonAll && !(na[2] is ColonAll);
+                            if (!okCol && !okPage) return false;
+                        }
                         return true;
                     }
                     return false;
@@ -805,6 +885,26 @@ namespace Calcpad.Core.Matlab
         {
             "pi", "e", "eps", "Inf", "inf", "NaN", "nan", "realmax", "realmin", "intmax", "intmin"
         };
+        /// <summary>Constantes que el JIT SI compila (como literales): pi, e, eps, Inf, NaN, realmax/min.
+        /// Solo cuando el nombre NO es una variable (ni asignada en el cuerpo ni viva en el scope):
+        /// `for e=1:ne` sigue siendo la variable e. Antes cualquier `Inf` hacia bail-out de la funcion
+        /// entera (dp_return_g5 del talud: 2009 llamadas por ensamblaje al interprete).</summary>
+        private static readonly Dictionary<string, double> ConstValues = new(StringComparer.Ordinal)
+        {
+            ["pi"] = Math.PI, ["e"] = Math.E, ["eps"] = 2.220446049250313e-16,
+            ["Inf"] = double.PositiveInfinity, ["inf"] = double.PositiveInfinity,
+            ["NaN"] = double.NaN, ["nan"] = double.NaN,
+            ["realmax"] = double.MaxValue, ["realmin"] = 2.2250738585072014e-308,
+            ["true"] = 1.0, ["false"] = 0.0      // builtins sin args: antes el JIT los leia como live-in vacio (=0)
+        };
+        private static bool IsJitConst(string name, CompileCtx cc, out double val)
+        {
+            val = 0;
+            if (!ConstValues.TryGetValue(name, out var v)) return false;
+            if (cc.VarKind.ContainsKey(name)) return false;                                   // asignada en el cuerpo
+            if (cc.Scope != null && cc.Scope.TryGet(name, out var sv) && sv != null) return false;   // variable viva
+            val = v; return true;
+        }
 
         private static TKind? InferKind(MatlabNode node, CompileCtx cc)
         {
@@ -819,7 +919,13 @@ namespace Calcpad.Core.Matlab
                     // calcula con pi=0 SIN AVISAR. Eso anulaba el angulo de friccion en un FEM
                     // (phi*pi/180 = 0) y el talud se desmoronaba. Bail-out: que lo corra el
                     // interprete, mas lento pero correcto.
-                    if (BuiltinConsts.Contains(ir.Name)) return null;
+                    if (IsJitConst(ir.Name, cc, out _)) return TKind.Scalar;                 // pi/Inf/NaN/eps: literal
+                    if (ir.Name == "nargin" && !cc.VarKind.ContainsKey("nargin")) return cc.NArgIn.HasValue ? TKind.Scalar : null;
+                    if (ir.Name == "nargout" && !cc.VarKind.ContainsKey("nargout")) return null;   // semantica por llamada: interprete
+                    // `e` (o `pi`…) que SI es una variable viva (p.ej. `for e=1:ne` del bucle de fuera) es una
+                    // variable live-in normal, no la constante: sin esto, el bucle interno `for q` del
+                    // ensamblaje del talud nunca compilaba (bail en `kk=(e-1)*NG+q`).
+                    if (BuiltinConsts.Contains(ir.Name) && !(cc.Scope != null && cc.Scope.TryGet(ir.Name, out var cv0) && cv0 != null)) return null;
                     // Variable no asignada antes en el loop → es LIVE-IN: consultar su tipo
                     // REAL en el scope. Antes se asumia Scalar; una matriz live-in (P en
                     // C=P.*Q) se tomaba escalar y luego el sembrado la detectaba no-escalar y
@@ -839,6 +945,9 @@ namespace Calcpad.Core.Matlab
                 case UnaryOp u when u.Op == "'" || u.Op == ".'":
                     var t = InferKind(u.Operand, cc);
                     return t == null ? null : TKind.Matrix;
+                case UnaryOp u when u.Op == "~" || u.Op == "!":
+                    // NOT logico escalar (`if ~wantK`): 1/0. Sobre matriz se deja al interprete.
+                    return InferKind(u.Operand, cc) == TKind.Scalar ? TKind.Scalar : null;
                 case BinaryOp b:
                     var L = InferKind(b.Left, cc);
                     var R = InferKind(b.Right, cc);
@@ -1123,6 +1232,21 @@ namespace Calcpad.Core.Matlab
                                 }
                             }
                         }
+                        if (tgtCall.Args.Count == 2 && tgtCall.Args[0] is ColonAll && !(tgtCall.Args[1] is ColonAll))
+                        {
+                            // A(:,j) = v   (columna entera en sitio)
+                            var rhsM = ConvertExprAsKind(a.Rhs, cc, TKind.Matrix); var jX = ConvertExprAsKind(tgtCall.Args[1], cc, TKind.Scalar);
+                            if (rhsM == null || jX == null) return null;
+                            return Expression.Call(cc.CtxParam, JitCtx.MSetMatCol, Expression.Constant(matIdent.Name), jX, rhsM);
+                        }
+                        if (tgtCall.Args.Count == 3 && tgtCall.Args[0] is ColonAll && tgtCall.Args[1] is ColonAll && !(tgtCall.Args[2] is ColonAll))
+                        {
+                            // A(:,:,k) = M   (pagina 3D en sitio)
+                            var rhsM = ConvertExprAsKind(a.Rhs, cc, TKind.Matrix); var kX = ConvertExprAsKind(tgtCall.Args[2], cc, TKind.Scalar);
+                            if (rhsM == null || kX == null) return null;
+                            return Expression.Call(cc.CtxParam, JitCtx.MSetMat3Page, Expression.Constant(matIdent.Name), kX, rhsM);
+                        }
+                        if (tgtCall.Args.Count > 2) return null;
                         var rhs = ConvertExprAsKind(a.Rhs, cc, TKind.Scalar);
                         if (rhs == null) return null;
                         if (tgtCall.Args.Count == 1)
@@ -1440,6 +1564,7 @@ namespace Calcpad.Core.Matlab
             {
                 case NumberLit _: return true;
                 case IdentRef ir:
+                    if (ConstValues.ContainsKey(ir.Name) && !leaves.Contains(ir.Name) && ir.Name != "e") return false;   // pi/Inf/NaN: no es hoja
                     if (!leaves.Contains(ir.Name)) leaves.Add(ir.Name);
                     return true;
                 case UnaryOp u when u.Op == "-" || u.Op == "+":
@@ -1574,6 +1699,8 @@ namespace Calcpad.Core.Matlab
                         if (ir.Name == "end" && cc.EndArray != null)
                             return Expression.Call(cc.CtxParam, JitCtx.MMatLen,
                                                    Expression.Constant(cc.EndArray));
+                        if (IsJitConst(ir.Name, cc, out var cv)) return Expression.Constant(cv, typeof(double));
+                        if (ir.Name == "nargin" && !cc.VarKind.ContainsKey("nargin") && cc.NArgIn.HasValue) return Expression.Constant((double)cc.NArgIn.Value, typeof(double));
                         if (!cc.VarKind.ContainsKey(ir.Name)) return null;
                         var k = cc.VarKind[ir.Name];
                         if (k == TKind.Scalar)
@@ -1594,6 +1721,12 @@ namespace Calcpad.Core.Matlab
                     }
                 case UnaryOp u when u.Op == "+":
                     return ConvertExpr(u.Operand, cc);
+                case UnaryOp u when (u.Op == "~" || u.Op == "!") && InferKind(u.Operand, cc) == TKind.Scalar:
+                    {
+                        var op = ConvertExpr(u.Operand, cc);
+                        if (op == null) return null;
+                        return Expression.Condition(Expression.Equal(op, Expression.Constant(0.0)), Expression.Constant(1.0), Expression.Constant(0.0));
+                    }
                 case UnaryOp u when u.Op == "'" || u.Op == ".'":
                     {
                         var op = ConvertExprAsKind(u.Operand, cc, TKind.Matrix);
@@ -1872,6 +2005,13 @@ namespace Calcpad.Core.Matlab
                 return Expression.Call(cc.CtxParam, JitCtx.MGetMatElem2,
                     Expression.Constant(name), idx1, idx2);
             }
+            if (args.Count == 3 && args[0] is ColonAll && args[1] is ColonAll && !(args[2] is ColonAll))
+            {
+                // A(:,:,k) -> pagina k del array 3D (copia)
+                var kX = ConvertExprAsKind(args[2], cc, TKind.Scalar);
+                if (kX == null) return null;
+                return Expression.Call(cc.CtxParam, JitCtx.MGetMat3Page, Expression.Constant(name), kX);
+            }
             return null;
         }
 
@@ -1960,6 +2100,7 @@ namespace Calcpad.Core.Matlab
                 case NumberLit nl: val = nl.Value; return true;
                 case IdentRef ir:
                     if (scope.TryGet(ir.Name, out var v) && v.IsScalar) { val = v.Scalar; return true; }
+                    if (ConstValues.TryGetValue(ir.Name, out var cval)) { val = cval; return true; }
                     return false;
                 case UnaryOp u when u.Op == "-":
                     if (TryEvalScalar(u.Operand, scope, out var inner)) { val = -inner; return true; }

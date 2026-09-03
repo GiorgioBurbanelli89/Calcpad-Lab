@@ -3354,6 +3354,25 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 return new MValue(0);
             };
             _builtins["set"] = a => {
+                // set(cb,'Ticks',v,'TickLabels',{...},'Direction','reverse') con cb = handle de colorbar
+                if (a.Length > 2 && a[0] != null && a[0].IsStruct && a[0].Fields != null && a[0].Fields.ContainsKey("__iscolorbar"))
+                {
+                    double[] cbT = null; string[] cbL = null; bool? cbRev = null;
+                    for (int i = 1; i + 1 < a.Length; i += 2)
+                    {
+                        if (a[i] == null || !a[i].IsString) continue;
+                        string k = a[i].StringValue.ToLowerInvariant(); var v = a[i + 1];
+                        if (k == "ticks" && v != null && v.Data != null) cbT = (double[])v.Data.Clone();
+                        else if (k == "ticklabels" && v != null)
+                        {
+                            if (v.IsCell) { var cd = v.CellData; var ls = new List<string>(); foreach (var c in cd) ls.Add(c == null ? "" : c.IsString ? c.StringValue : c.IsScalar ? c.Scalar.ToString(System.Globalization.CultureInfo.InvariantCulture) : ""); cbL = ls.ToArray(); }
+                            else if (v.IsString) cbL = new[] { v.StringValue };
+                        }
+                        else if (k == "direction" && v != null && v.IsString) cbRev = v.StringValue.ToLowerInvariant().StartsWith("rev");
+                    }
+                    MatlabPlots.SetColorbarTicks(cbT, cbL, cbRev);
+                    return new MValue(0);
+                }
                 MValue newVerts = null, newCData = null;
                 // ¿el handle es un TÍTULO (ht=title(...))? -> set(ht,'String',s) actualiza el título.
                 bool isTitleH = a.Length > 0 && a[0].Fields != null && a[0].Fields.ContainsKey("__istitle");
