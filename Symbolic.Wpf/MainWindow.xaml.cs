@@ -5810,7 +5810,7 @@ window.__lazyRelayout = function(id,a,b){ var d=window.__plotDefs[id]; if(d){d.o
 
         private void MenuCli_Click(object sender, RoutedEventArgs e)
         {
-            Execute(AppInfo.Path + "Cli.exe");
+            Execute(AppInfo.Path + "CalcpadLabCli.exe");   // antes "Cli.exe": no existia (2026-09-05)
         }
 
         private ExcelViewerWindow _excelViewerWindow;

@@ -755,23 +755,15 @@ return {make:make};
         /// arrastrar=pan, doble-clic=reset) — conserva la gráfica nítida (=MATLAB) e interactiva.</summary>
         private static string ZoomableImgHtml(string b64)
         {
+            // 2026-09-05 (Jorge): IGUAL que las graficas de Hekatan Python. Antes la figura tenia su propio
+            // zoom con la rueda (preventDefault) + barras de desplazamiento y ancho fijo de 560 px: se tragaba
+            // el Ctrl+rueda del WebView2 y no crecia con la pagina. Ahora es una imagen normal
+            // (max-width:100%, alto automatico): Ctrl+rueda = zoom de toda la hoja, como en Python.
             int k = ++_imgZoomId;
-            string wid = "zw" + k, iid = "zi" + k;
             var sb = new StringBuilder();
-            // Zoom cambiando el ANCHO real de la img dentro de un contenedor overflow:auto ->
-            // aparecen BARRAS de desplazamiento (además de arrastrar). Rueda=zoom, arrastrar=pan,
-            // doble-clic=reset.
-            sb.Append("<div id=\"").Append(wid).Append("\" class=\"matlab-plot\" style=\"overflow:auto;max-width:100%;max-height:640px;border:1px solid #e6e6e6\">");
-            sb.Append("<img id=\"").Append(iid).Append("\" src=\"data:image/png;base64,").Append(b64);
-            sb.Append("\" style=\"width:560px;display:block;cursor:grab;user-select:none\" draggable=\"false\"/></div>");
-            sb.Append("<script>(function(){var w=document.getElementById('").Append(wid).Append("'),im=document.getElementById('").Append(iid).Append("');");
-            sb.Append("w.addEventListener('wheel',function(e){e.preventDefault();var d=e.deltaY<0?1.15:1/1.15;var r=w.getBoundingClientRect();var cx=e.clientX-r.left+w.scrollLeft,cy=e.clientY-r.top+w.scrollTop;var cw=parseFloat(im.style.width)||560;var nw=cw*d;if(nw<560)nw=560;var f=nw/cw;im.style.width=nw+'px';w.scrollLeft=cx*f-(e.clientX-r.left);w.scrollTop=cy*f-(e.clientY-r.top);});");
-            sb.Append("var dg=false,lx=0,ly=0,sl=0,st=0;");
-            sb.Append("im.addEventListener('mousedown',function(e){dg=true;lx=e.clientX;ly=e.clientY;sl=w.scrollLeft;st=w.scrollTop;im.style.cursor='grabbing';e.preventDefault();});");
-            sb.Append("window.addEventListener('mouseup',function(){dg=false;im.style.cursor='grab';});");
-            sb.Append("window.addEventListener('mousemove',function(e){if(!dg)return;w.scrollLeft=sl-(e.clientX-lx);w.scrollTop=st-(e.clientY-ly);});");
-            sb.Append("im.addEventListener('dblclick',function(){im.style.width='560px';w.scrollLeft=0;w.scrollTop=0;});");
-            sb.Append("})();</script>\n");
+            sb.Append("<div id=\"zw").Append(k).Append("\" class=\"matlab-plot\" style=\"max-width:100%\">");
+            sb.Append("<img id=\"zi").Append(k).Append("\" src=\"data:image/png;base64,").Append(b64);
+            sb.Append("\" style=\"width:100%;max-width:1120px;height:auto;display:block\"/></div>\n");
             return sb.ToString();
         }
         /// <summary>Cierra figura abierta y devuelve su HTML.</summary>

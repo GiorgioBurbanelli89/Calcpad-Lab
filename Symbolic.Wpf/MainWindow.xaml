@@ -377,7 +377,7 @@
               Foreground="{DynamicResource ThemeText}">
             <MenuItem Foreground="{DynamicResource ThemeText}">
                 <MenuItem.Header>
-                    <TextBlock Text="{x:Static wpf:MainWindowResources.File}" Foreground="{DynamicResource ThemeText}"/>
+                    <AccessText Text="{x:Static wpf:MainWindowResources.File}" Foreground="{DynamicResource ThemeText}"/>
                 </MenuItem.Header>
                 <MenuItem Command="ApplicationCommands.New" 
                           Header="{x:Static wpf:MainWindowResources.New}"/>
@@ -406,7 +406,7 @@
             </MenuItem>
             <MenuItem x:Name="MenuEdit" Foreground="{DynamicResource ThemeText}">
                 <MenuItem.Header>
-                    <TextBlock Text="{x:Static wpf:MainWindowResources.Edit}" Foreground="{DynamicResource ThemeText}"/>
+                    <AccessText Text="{x:Static wpf:MainWindowResources.Edit}" Foreground="{DynamicResource ThemeText}"/>
                 </MenuItem.Header>
                 <MenuItem Command="ApplicationCommands.Find" 
                           Header="{x:Static wpf:MainWindowResources.Find}"/>
@@ -437,7 +437,7 @@
             </MenuItem>
             <MenuItem x:Name="MenuInsert" Foreground="{DynamicResource ThemeText}">
                 <MenuItem.Header>
-                    <TextBlock Text="{x:Static wpf:MainWindowResources.Insert}" Foreground="{DynamicResource ThemeText}"/>
+                    <AccessText Text="{x:Static wpf:MainWindowResources.Insert}" Foreground="{DynamicResource ThemeText}"/>
                 </MenuItem.Header>
                 <!-- ================= Hekatan Lab: menu Insert con sintaxis MATLAB (no Calcpad) ================= -->
                 <MenuItem Click="LoopBuilderMenu_Click" Header="∑ ∏ ∫  Constructor de loop…"
@@ -706,7 +706,7 @@
             </MenuItem>
             <MenuItem x:Name="MenuOutput" Foreground="{DynamicResource ThemeText}">
                 <MenuItem.Header>
-                    <TextBlock Text="{x:Static wpf:MainWindowResources.Output}" Foreground="{DynamicResource ThemeText}"/>
+                    <AccessText Text="{x:Static wpf:MainWindowResources.Output}" Foreground="{DynamicResource ThemeText}"/>
                 </MenuItem.Header>
                 <!-- "Input Form" (Web Form) es una función de Calcpad (formulario de entrada con
                      campos ?). Hekatan Lab es MATLAB y NO usa input fields → oculto. -->
@@ -733,7 +733,7 @@
             </MenuItem>
             <MenuItem Command="ApplicationCommands.Help" Foreground="{DynamicResource ThemeText}">
                 <MenuItem.Header>
-                    <TextBlock Text="{x:Static wpf:MainWindowResources.Help}" Foreground="{DynamicResource ThemeText}"/>
+                    <AccessText Text="{x:Static wpf:MainWindowResources.Help}" Foreground="{DynamicResource ThemeText}"/>
                 </MenuItem.Header>
             </MenuItem>
         </Menu>
