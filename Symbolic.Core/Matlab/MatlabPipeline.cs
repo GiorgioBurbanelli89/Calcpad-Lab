@@ -434,7 +434,12 @@ namespace Calcpad.Core.Matlab
                 foreach (var kv in byLine)
                 {
                     if (kv.Value.Count < 2) continue;
-                    int lastIdx = kv.Value[kv.Value.Count - 1];
+                    // El "ultimo" es el ultimo Assignment/ExprStmt de la linea. Un bloque (for/if/while) al
+                    // final de la linea NO cuenta: `c=cell(1,2); for k=1:2; c{k}=k; end` des-suprimia el
+                    // `c=cell(1,2);` y echaba "c = [0x0 matrix] [0x0 matrix]" (2026-09-05).
+                    int lastIdx = -1;
+                    foreach (var idx in kv.Value) if (stmts[idx] is Assignment || stmts[idx] is ExprStmt) lastIdx = idx;
+                    if (lastIdx < 0) continue;
                     bool lastSup = GetSuppressed(stmts[lastIdx]);
                     foreach (var idx in kv.Value)
                         SetSuppressed(stmts[idx], lastSup);
