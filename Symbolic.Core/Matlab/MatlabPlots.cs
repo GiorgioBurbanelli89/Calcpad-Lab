@@ -111,6 +111,8 @@ namespace Calcpad.Core.Matlab
         private static bool _glInited = false;
         public static void ResetGlAnim() { _glInited = false; }
         private static string _figXLabel = null, _figYLabel = null, _figZLabel = null;
+        /// <summary>figure('Position',[l b w h]) -> tamano en px del PNG de print (2026-09-04). null = 960x700.</summary>
+        public static int? FigPxW = null, FigPxH = null;
 
         /// <summary>Tema oscuro para las gráficas (lo fija la app según Dark/Gold). En dark
         /// el fondo de la figura, texto y ejes van claros; en print/PDF se ignora (hoja blanca).</summary>
@@ -729,6 +731,7 @@ return {make:make};
         {
             string prev = FinishFigure();
             ResetRetainedMesh();   // figura nueva → olvida la malla retenida anterior
+            FigPxW = null; FigPxH = null;   // cada figure() arranca con el tamano por defecto (como MATLAB)
             _figBandN = 0;          // figura nueva → degradado por defecto (el script pide colorbands)
             _figTraces = new System.Collections.Generic.List<string>();
             _figAnnotations = new System.Collections.Generic.List<string>();
@@ -2138,8 +2141,13 @@ return {make:make};
                     DrawTexCentered(canvas, _figXLabel, (plotL + plotR) / 2f, Math.Min(height - 6, plotB + fTick + fLabel + 10), lblFont, txt, tface);
                 if (!string.IsNullOrEmpty(_figYLabel))
                 {
-                    canvas.Save(); canvas.RotateDegrees(-90, 13, (plotT + plotB) / 2f);
-                    DrawTexCentered(canvas, _figYLabel, 13, (plotT + plotB) / 2f, lblFont, txt, tface);
+                    // MATLAB pega el ylabel a los numeros del eje (no al borde de la figura): a la
+                    // izquierda del tick mas ancho. Antes iba fijo en x=13 y con axis equal quedaba lejisimos.
+                    float maxTickW = 0f;
+                    foreach (var t in ticksY) { if (t < axYmin - 1e-9 || t > axYmax + 1e-9) continue; maxTickW = Math.Max(maxTickW, font.MeasureText(FmtTick(t))); }
+                    float ylx = Math.Max(fLabel * 0.9f, plotL - 9 - maxTickW - fLabel * 0.5f);
+                    canvas.Save(); canvas.RotateDegrees(-90, ylx, (plotT + plotB) / 2f);
+                    DrawTexCentered(canvas, _figYLabel, ylx, (plotT + plotB) / 2f, lblFont, txt, tface);
                     canvas.Restore();
                 }
                 if (!string.IsNullOrEmpty(_figTitle))
@@ -2494,7 +2502,7 @@ return {make:make};
                         float lx = cbX + cbW + 42, ly = plotT + cbH / 2f;
                         canvas.Save();
                         canvas.RotateDegrees(-90, lx, ly);
-                        canvas.DrawText(_cbLabel, lx, ly, SKTextAlign.Center, font, txt);
+                        DrawTexCentered(canvas, _cbLabel, lx, ly, font, txt, tface);   // TeX (d_x -> subindice) como MATLAB
                         canvas.Restore();
                     }
                 }

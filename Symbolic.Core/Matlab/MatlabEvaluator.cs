@@ -2706,6 +2706,15 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 _htmlOut?.Invoke("<div class=\"matlab-figure-break\" style=\"height:0;margin:.5em 0\"></div>\n");
                 _subplotGrid = null;
                 _colorCycleIdx = 0;   // figura nueva → reinicia el ciclo de ColorOrder (como MATLAB)
+                // figure('Position',[l b w h]): w x h = tamano en px del PNG de print (2026-09-04; antes se ignoraba y
+                // el PNG salia siempre 960x700, mas estrecho que el de MATLAB para el talud 990x594)
+                for (int i = 0; i + 1 < a.Length; i++)
+                    if (a[i].IsString && a[i].StringValue.Equals("Position", StringComparison.OrdinalIgnoreCase) && !a[i + 1].IsString && a[i + 1].Data != null && a[i + 1].Data.Length >= 4)
+                    {
+                        var pv = a[i + 1].Data;
+                        int w = (int)Math.Round(pv[2]), h = (int)Math.Round(pv[3]);
+                        if (w >= 100 && h >= 100 && w <= 8000 && h <= 8000) { MatlabPlots.FigPxW = w; MatlabPlots.FigPxH = h; }
+                    }
                 return new MValue(0);
             };
             _builtins["patch"] = a => {
@@ -3442,7 +3451,7 @@ if(!window.__hktdraw){window.__hktdraw=function(spec){
                 {
                     // Escribe SOLO el archivo PNG (verificacion); NO emite inline ni limpia,
                     // para que FinishFigure emita el render de la figura (canvas interactivo / SVG).
-                    var bytes = MatlabPlots.RasterizeFigurePng(960, 700);
+                    var bytes = MatlabPlots.RasterizeFigurePng(MatlabPlots.FigPxW ?? 960, MatlabPlots.FigPxH ?? 700);   // tamano de figure('Position') si lo hay; -rNNN se ignora (layout logico)
                     if (bytes != null)
                     {
                         try { System.IO.File.WriteAllBytes(file, bytes); }
