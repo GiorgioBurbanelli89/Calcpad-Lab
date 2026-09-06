@@ -1992,8 +1992,10 @@ namespace Calcpad.Core.Matlab
         // como Calcpad dentro de %. La prosa (grados, plano) no matchea. Se permite un
         // exponente colgante (kN/m + ^2 → kN/m^2). El lookbehind evita cazar la 'e' de 1e-4.
         private static readonly System.Text.RegularExpressions.Regex DispTokenRegex =
-            new(@"(?<![A-Za-z])(?<u>(?:" + string.Join("|", UnitTokens) + @")(?:\^\d)?)(?![A-Za-z])"
-              + @"|(?<![0-9A-Za-z_])(?<v>[A-Za-z_][A-Za-z0-9_]*)(?<idx>\(\d+(?:\s*,\s*\d+)*\))?",
+            new(@"(?<![0-9A-Za-z_\\/.])(?<u>(?:" + string.Join("|", UnitTokens) + @")(?:\^\d)?)(?![0-9A-Za-z_.])"
+              // Un nombre de FICHERO/ruta no es una variable: ni lo que sigue a una barra (C:/ruta/talud_m_e3)
+              // ni lo que lleva extension detras (talud_m_e3.png): antes salia talud con subindice m,e3 (2026-09-05).
+              + @"|(?<![0-9A-Za-z_\\/.])(?<v>[A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_]|:[\\/]|\.[A-Za-z][A-Za-z0-9]{0,4}(?![A-Za-z0-9_]))(?<idx>\(\d+(?:\s*,\s*\d+)*\))?",
                 System.Text.RegularExpressions.RegexOptions.Compiled);
 
         private static readonly System.Text.RegularExpressions.Regex UnitRegex =

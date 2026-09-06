@@ -753,7 +753,7 @@ return {make:make};
         private static int _imgZoomId = 0;
         /// <summary>Envuelve un PNG base64 en un contenedor con zoom/pan por JS (rueda=zoom,
         /// arrastrar=pan, doble-clic=reset) — conserva la gráfica nítida (=MATLAB) e interactiva.</summary>
-        private static string ZoomableImgHtml(string b64)
+        private static string ZoomableImgHtml(string b64, int maxW = 1120)
         {
             // 2026-09-05 (Jorge): IGUAL que las graficas de Hekatan Python. Antes la figura tenia su propio
             // zoom con la rueda (preventDefault) + barras de desplazamiento y ancho fijo de 560 px: se tragaba
@@ -763,7 +763,7 @@ return {make:make};
             var sb = new StringBuilder();
             sb.Append("<div id=\"zw").Append(k).Append("\" class=\"matlab-plot\" style=\"max-width:100%\">");
             sb.Append("<img id=\"zi").Append(k).Append("\" src=\"data:image/png;base64,").Append(b64);
-            sb.Append("\" style=\"width:100%;max-width:1120px;height:auto;display:block\"/></div>\n");
+            sb.Append("\" style=\"width:100%;max-width:").Append(maxW).Append("px;height:auto;display:block\"/></div>\n");
             return sb.ToString();
         }
         /// <summary>Cierra figura abierta y devuelve su HTML.</summary>
@@ -800,12 +800,17 @@ return {make:make};
                     // Render a 2× (1120×840, misma proporcion que MATLAB 560×420) y mostrar a 560px
                     // -> NÍTIDO en high-DPI. Envuelto en zoom/pan JS (rueda=zoom, arrastrar=pan,
                     // doble-clic=reset) para no perder la interactividad del embebido.
-                    var png = RasterizeFigurePng(1120, 840);
+                    // figure('Position',[l b w h]) manda tambien AQUI (no solo en print): layout logico w x h
+                    // a 2x y mostrado a w px, como MATLAB. Sin Position: 1120x840 (= 560x420 de MATLAB a 2x).
+                    // Antes el talud (990x594 pedidos) salia en un lienzo 4:3 con medio panel en blanco (2026-09-05).
+                    byte[] png; int shownW = 1120;
+                    if (FigPxW.HasValue && FigPxH.HasValue) { png = RasterizeFigurePng(FigPxW.Value, FigPxH.Value, 2); shownW = FigPxW.Value; }
+                    else png = RasterizeFigurePng(1120, 840);
                     if (png != null && png.Length > 0)
                     {
                         string b64 = System.Convert.ToBase64String(png);
                         _figTraces = null; _figAnnotations = null; _figPrims = null;
-                        return ZoomableImgHtml(b64);
+                        return ZoomableImgHtml(b64, shownW);
                     }
                 }
                 catch { }
@@ -2202,17 +2207,19 @@ return {make:make};
                         double zmn = p.Vmin, zmx = p.Vmax;         // caxis (rango de datos) → color
                         double bLo = p.LevLo, stp = p.LevStep;     // rejilla de niveles redondos → banda
                         double[] xg = p.Xs, yg = p.Ys, zg = p.Zs;
-                        int x0 = Math.Max(0, (int)Math.Floor(plotL)), x1 = Math.Min(width - 1, (int)Math.Ceiling(plotR));
-                        int y0 = Math.Max(0, (int)Math.Floor(plotT)), y1 = Math.Min(height - 1, (int)Math.Ceiling(plotB));
+                        // Pixeles del BITMAP (width*ss): con supersampling el relleno iba en coords logicas y salia a
+                        // mitad de tamano en la esquina (2026-09-05, talud con figure Position a 2x).
+                        int x0 = Math.Max(0, (int)Math.Floor(plotL)) * ss, x1 = Math.Min(width * ss - 1, (int)Math.Ceiling(plotR) * ss + ss - 1);
+                        int y0 = Math.Max(0, (int)Math.Floor(plotT)) * ss, y1 = Math.Min(height * ss - 1, (int)Math.Ceiling(plotB) * ss + ss - 1);
                         for (int py = y0; py <= y1; py++)
                         {
-                            double y = axYmin + (height - mB - offY - (py + 0.5)) / sy;
+                            double y = axYmin + (height - mB - offY - ((py + 0.5) / ss)) / sy;
                             if (y < yg[0] || y > yg[gny - 1]) continue;
                             int iy = 0; while (iy < gny - 2 && yg[iy + 1] < y) iy++;
                             double ty = (yg[iy + 1] == yg[iy]) ? 0 : (y - yg[iy]) / (yg[iy + 1] - yg[iy]);
                             for (int px = x0; px <= x1; px++)
                             {
-                                double x = axXmin + ((px + 0.5) - mL - offX) / sx;
+                                double x = axXmin + (((px + 0.5) / ss) - mL - offX) / sx;
                                 if (x < xg[0] || x > xg[gnx - 1]) continue;
                                 int ix = 0; while (ix < gnx - 2 && xg[ix + 1] < x) ix++;
                                 double tx = (xg[ix + 1] == xg[ix]) ? 0 : (x - xg[ix]) / (xg[ix + 1] - xg[ix]);
