@@ -228,6 +228,11 @@ namespace Calcpad.Core.Matlab
             if (v == null) return "<i>(undefined)</i>";
             if (v.IsCallable) return $"<i style=\"color:#666\">{HttpUtility.HtmlEncode(v.CallableName ?? "@function_handle")}</i>";
             if (v.IsSymbolic) return v.Symbolic.ToHtml();
+            // Matriz numerica VACIA ([] o zeros(0,n)): MATLAB imprime "[]"; antes salia la etiqueta vacia
+            // o "[0x0 matrix]" dentro de una celda (2026-09-06).
+            if (!v.IsString && !v.IsStringArray && !v.IsCell && !v.IsStruct && !v.IsStructArray && !v.IsMap
+                && !v.IsCallable && !v.IsSparseReal && !v.IsSymMatrix && !v.IsDecomposition && (v.Rows == 0 || v.Cols == 0))
+                return "<span class=\"matrix\">[]</span>";
             if (v.IsStringArray)
             {
                 int srA = v.StringArrayData.GetLength(0), scA = v.StringArrayData.GetLength(1);
@@ -485,6 +490,7 @@ namespace Calcpad.Core.Matlab
             if (v.IsCallable) return HttpUtility.HtmlEncode(v.CallableName ?? "@fn");
             if (v.IsStruct) return $"<i>struct({v.Fields.Count} fields)</i>";
             if (v.IsScalar) return FormatNumber(v.Scalar);
+            if (v.Rows == 0 || v.Cols == 0) return "[]";   // elemento vacio de una celda: como MATLAB
             return $"<i>[{v.Rows}×{v.Cols} matrix]</i>";
         }
 
@@ -535,8 +541,10 @@ namespace Calcpad.Core.Matlab
             if (n is CallOrIndex c && c.Target is IdentRef id && c.Args != null)
             {
                 var nm = id.Name; int k = c.Args.Count;
-                // ∫/Δ/∇ numericas: cualquier aridad valida -> siempre formula = valor
-                if (nm is "integral" or "trapz" or "gradient") return true;
+                // ∫/∬/∭/Δ/∇ numericas: cualquier aridad valida -> siempre formula = valor
+                if (nm is "integral" or "integral2" or "integral3" or "trapz" or "gradient"
+                    or "quad" or "quadgk" or "quadl" or "quadv"
+                    or "dblquad" or "triplequad" or "gaussint" or "gaussint2") return true;
                 if (nm == "diff" && k == 1) return true;   // Δv (diff >=2 args = simbolico d/dx)
                 if (k == 1)
                     return nm is "sqrt" or "abs" or "norm" or "det" or "inv"
@@ -1115,6 +1123,52 @@ namespace Calcpad.Core.Matlab
                 }
                 if (fname == "int" && c.Args.Count >= 1)
                 {
+                    // int(int(f,...),...) anidada (integral DOBLE/triple) → UN solo glifo
+                    // ∬/∭ con los limites combinados (1,1 / 0,0), identico a integral2.
+                    // Antes se emitian dos .dvr separados con espaciado &emsp;/&nbsp; de
+                    // Calcpad -> parecia el estilo CSS viejo en vez del nuevo del tema.
+                    (string v, string sub, string sup) ParseIntParts(CallOrIndex ic)
+                    {
+                        string vv = "x", ss = "", pp = "";
+                        if (ic.Args.Count >= 2)
+                        {
+                            if (ic.Args[1] is IdentRef vId)
+                            {
+                                vv = GreekLetterMap(vId.Name) ?? System.Web.HttpUtility.HtmlEncode(vId.Name);
+                                if (ic.Args.Count >= 4) { ss = RenderExpression(ic.Args[2]); pp = RenderExpression(ic.Args[3]); }
+                            }
+                            else if (ic.Args.Count >= 3) { ss = RenderExpression(ic.Args[1]); pp = RenderExpression(ic.Args[2]); }
+                            else vv = RenderExpression(ic.Args[1]);
+                        }
+                        return (vv, ss, pp);
+                    }
+                    var ints2 = new System.Collections.Generic.List<(string v, string sub, string sup)>();
+                    CallOrIndex cur = c;
+                    while (cur.Args[0] is CallOrIndex nxt && nxt.Target is IdentRef nf && nf.Name == "int")
+                    {
+                        ints2.Add(ParseIntParts(cur));
+                        cur = nxt;
+                    }
+                    if (ints2.Count > 0)
+                    {
+                        ints2.Add(ParseIntParts(cur));
+                        ints2.Reverse(); // [mas interno (dx) … mas externo (dy)]
+                        var body = RenderExpression(cur.Args[0]);
+                        var sups = new System.Collections.Generic.List<string>();
+                        var subs = new System.Collections.Generic.List<string>();
+                        var dvs = new System.Collections.Generic.List<string>();
+                        foreach (var p in ints2)
+                        {
+                            if (!string.IsNullOrEmpty(p.sup)) sups.Add(p.sup);
+                            if (!string.IsNullOrEmpty(p.sub)) subs.Add(p.sub);
+                            dvs.Add("d<var>" + p.v + "</var>");
+                        }
+                        string glyph = ints2.Count == 2 ? "∬" : "∭";
+                        string dsup = sups.Count > 0 ? "&emsp; " + string.Join(",&nbsp;", sups) : "";
+                        string dsub = subs.Count > 0 ? string.Join(",&nbsp;", subs) : "";
+                        return $"<span class=\"dvr\"><small>{dsup}</small><span class=\"nary\"><em>{glyph}</em></span><small>{dsub}</small></span>{body}&thinsp;{string.Join("&thinsp;", dvs)}";
+                    }
+                    // int simple (una sola integral) — comportamiento original.
                     var fExpr = RenderExpression(c.Args[0]);
                     // Diferencial crudo (NO <var> wrapper, sino quedaria anidado). El 2o arg
                     // es la VARIABLE solo si es identificador; si es numero/expr son limites
@@ -1139,14 +1193,17 @@ namespace Calcpad.Core.Matlab
                     // tras el sub -> empujan los limites en diagonal alrededor del ∫ inclinado.
                     if (!string.IsNullOrEmpty(sup)) sup = "&emsp; " + sup;
                     if (!string.IsNullOrEmpty(sub)) sub = sub + "&nbsp;";
-                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\"><em>∫</em></span><small>{sub}</small></span>{fExpr} d<var>{vName}</var>";
+                    return $"<span class=\"dvr\"><small>{sup}</small><span class=\"nary\"><em>∫</em></span><small>{sub}</small></span>{fExpr} d<var>{vName}</var>";
                 }
-                // integral(fun, a, b) NUMERICA -> ∫_a^b fun dx. IDENTICO a $Integral/$Area de
-                // Calcpad: FormatNary("<em>∫</em>", sub=a+"&nbsp;", sup="&emsp; "+b, f+" d"+x).
-                // El &emsp;/&nbsp; empujan los limites en diagonal alrededor del ∫ inclinado
-                // (.nary em rota el glifo). Si fun es un handle @(t)..., el integrando es su
-                // CUERPO y la variable es su parametro (no "@(t) ..." crudo).
-                if (fname == "integral" && c.Args.Count >= 1)
+                // integral(fun, a, b) / quad(fun,a,b) / quadgk / quadl / quadv /
+                // gaussint(fun, a, b[, n]) NUMERICAS 1D -> ∫_a^b fun dx. IDENTICO a
+                // $Integral/$Area de Calcpad: FormatNary("<em>∫</em>", sub=a+"&nbsp;",
+                // sup="&emsp; "+b, f+" d"+x). El &emsp;/&nbsp; empujan los limites en
+                // diagonal alrededor del ∫ inclinado (.nary em rota el glifo). Si fun es un
+                // handle @(t)..., el integrando es su CUERPO y la variable es su parametro
+                // (no "@(t) ..." crudo).
+                if (fname is "integral" or "quad" or "quadgk" or "quadl" or "quadv" or "gaussint"
+                    && c.Args.Count >= 1)
                 {
                     string integrand, dvar = "x";
                     if (c.Args[0] is AnonFunction iaf && iaf.ParamNames.Count >= 1)
@@ -1158,6 +1215,42 @@ namespace Calcpad.Core.Matlab
                     string isub = c.Args.Count >= 2 ? RenderExpression(c.Args[1]) + "&nbsp;" : "";
                     string isup = c.Args.Count >= 3 ? "&emsp; " + RenderExpression(c.Args[2]) : "";
                     return $"<span class=\"dvr\"><small>{isup}</small><span class=\"nary\"><em>∫</em></span><small>{isub}</small></span>{integrand} d<var>{dvar}</var>";
+                }
+                // integral2(fun, xmin, xmax, ymin, ymax) / dblquad / gaussint2(fun, a, b, c, d[, n])
+                // NUMERICAS 2D -> ∬_xmin,ymin ^xmax,ymax fun dx dy. Misma estructura dvr/nary,
+                // con el glifo ∬ (U+222C) y los limites x e y en diagonal (como la 1D).
+                if (fname is "integral2" or "dblquad" or "gaussint2"
+                    && c.Args.Count >= 5)
+                {
+                    string integrand, ddx = "x", ddy = "y";
+                    if (c.Args[0] is AnonFunction iaf2 && iaf2.ParamNames.Count >= 2)
+                    {
+                        integrand = RenderExpression(iaf2.Body);
+                        ddx = GreekLetterMap(iaf2.ParamNames[0]) ?? System.Web.HttpUtility.HtmlEncode(iaf2.ParamNames[0]);
+                        ddy = GreekLetterMap(iaf2.ParamNames[1]) ?? System.Web.HttpUtility.HtmlEncode(iaf2.ParamNames[1]);
+                    }
+                    else integrand = RenderExpression(c.Args[0]);
+                    string isub2 = RenderExpression(c.Args[1]) + ",&nbsp;" + RenderExpression(c.Args[3]);
+                    string isup2 = "&emsp; " + RenderExpression(c.Args[2]) + ",&nbsp;" + RenderExpression(c.Args[4]);
+                    return $"<span class=\"dvr\"><small>{isup2}</small><span class=\"nary\"><em>∬</em></span><small>{isub2}</small></span>{integrand}&thinsp;d<var>{ddx}</var>&thinsp;d<var>{ddy}</var>";
+                }
+                // integral3(fun, xmin, xmax, ymin, ymax, zmin, zmax) / triplequad ->
+                // ∭_... ^... fun dx dy dz  (glifo U+222D).
+                if (fname is "integral3" or "triplequad"
+                    && c.Args.Count >= 7)
+                {
+                    string integrand, tdx = "x", tdy = "y", tdz = "z";
+                    if (c.Args[0] is AnonFunction iaf3 && iaf3.ParamNames.Count >= 3)
+                    {
+                        integrand = RenderExpression(iaf3.Body);
+                        tdx = GreekLetterMap(iaf3.ParamNames[0]) ?? System.Web.HttpUtility.HtmlEncode(iaf3.ParamNames[0]);
+                        tdy = GreekLetterMap(iaf3.ParamNames[1]) ?? System.Web.HttpUtility.HtmlEncode(iaf3.ParamNames[1]);
+                        tdz = GreekLetterMap(iaf3.ParamNames[2]) ?? System.Web.HttpUtility.HtmlEncode(iaf3.ParamNames[2]);
+                    }
+                    else integrand = RenderExpression(c.Args[0]);
+                    string isub3 = RenderExpression(c.Args[1]) + ",&nbsp;" + RenderExpression(c.Args[3]) + ",&nbsp;" + RenderExpression(c.Args[5]);
+                    string isup3 = "&emsp; " + RenderExpression(c.Args[2]) + ",&nbsp;" + RenderExpression(c.Args[4]) + ",&nbsp;" + RenderExpression(c.Args[6]);
+                    return $"<span class=\"dvr\"><small>{isup3}</small><span class=\"nary\"><em>∭</em></span><small>{isub3}</small></span>{integrand}&thinsp;d<var>{tdx}</var>&thinsp;d<var>{tdy}</var>&thinsp;d<var>{tdz}</var>";
                 }
                 // trapz(y) o trapz(x,y) -> ∫ y dx (trapezoidal, sin limites explicitos). El
                 // operando integrado es el ULTIMO arg; trapz(x,y) integra y respecto de x.

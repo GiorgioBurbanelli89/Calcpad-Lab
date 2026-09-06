@@ -256,6 +256,7 @@ namespace Calcpad.Core.Matlab
         {
             if (IsString) return $"'{StringValue}'";
             if (IsScalar) return Scalar.ToString("G6", System.Globalization.CultureInfo.InvariantCulture);
+            if (Rows == 0 || Cols == 0) return "[]";
             return $"[{Rows}×{Cols} matrix]";
         }
     }
